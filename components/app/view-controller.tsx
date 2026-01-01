@@ -1,8 +1,9 @@
 'use client';
 
+import { useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useSessionContext } from '@livekit/components-react';
-import type { AppConfig } from '@/app-config';
+import { useRoomContext } from '@livekit/components-react';
+import { useSession } from '@/components/app/session-provider';
 import { SessionView } from '@/components/app/session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
 
@@ -27,27 +28,40 @@ const VIEW_MOTION_PROPS = {
   },
 };
 
-interface ViewControllerProps {
-  appConfig: AppConfig;
-}
+export function ViewController() {
+  const room = useRoomContext();
+  const isSessionActiveRef = useRef(false);
+  const { appConfig, isSessionActive, startSession } = useSession();
 
-export function ViewController({ appConfig }: ViewControllerProps) {
-  const { isConnected, start } = useSessionContext();
+  // animation handler holds a reference to stale isSessionActive value
+  isSessionActiveRef.current = isSessionActive;
+
+  // disconnect room after animation completes
+  const handleAnimationComplete = () => {
+    if (!isSessionActiveRef.current && room.state !== 'disconnected') {
+      room.disconnect();
+    }
+  };
 
   return (
     <AnimatePresence mode="wait">
-      {/* Welcome view */}
-      {!isConnected && (
+      {/* Welcome screen */}
+      {!isSessionActive && (
         <MotionWelcomeView
           key="welcome"
           {...VIEW_MOTION_PROPS}
           startButtonText={appConfig.startButtonText}
-          onStartCall={start}
+          onStartCall={startSession}
         />
       )}
       {/* Session view */}
-      {isConnected && (
-        <MotionSessionView key="session-view" {...VIEW_MOTION_PROPS} appConfig={appConfig} />
+      {isSessionActive && (
+        <MotionSessionView
+          key="session-view"
+          {...VIEW_MOTION_PROPS}
+          appConfig={appConfig}
+          onAnimationComplete={handleAnimationComplete}
+        />
       )}
     </AnimatePresence>
   );

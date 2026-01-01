@@ -4,11 +4,14 @@ import { type HTMLAttributes, useCallback, useState } from 'react';
 import { Track } from 'livekit-client';
 import { useChat, useRemoteParticipants } from '@livekit/components-react';
 import { ChatTextIcon, PhoneDisconnectIcon } from '@phosphor-icons/react/dist/ssr';
+import { APP_CONFIG_DEFAULTS } from '@/app-config';
+import { useSession } from '@/components/app/session-provider';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
 import { Button } from '@/components/livekit/button';
 import { Toggle } from '@/components/livekit/toggle';
 import { cn } from '@/lib/utils';
 import { ChatInput } from './chat-input';
+import { ConfigurableVideoSelector } from './configurable-video-selector';
 import { UseInputControlsProps, useInputControls } from './hooks/use-input-controls';
 import { usePublishPermissions } from './hooks/use-publish-permissions';
 import { TrackSelector } from './track-selector';
@@ -23,7 +26,7 @@ export interface ControlBarControls {
 
 export interface AgentControlBarProps extends UseInputControlsProps {
   controls?: ControlBarControls;
-  isConnected?: boolean;
+  onDisconnect?: () => void;
   onChatOpenChange?: (open: boolean) => void;
   onDeviceError?: (error: { source: Track.Source; error: Error }) => void;
 }
@@ -35,7 +38,6 @@ export function AgentControlBar({
   controls,
   saveUserChoices = true,
   className,
-  isConnected = false,
   onDisconnect,
   onDeviceError,
   onChatOpenChange,
@@ -45,6 +47,8 @@ export function AgentControlBar({
   const participants = useRemoteParticipants();
   const [chatOpen, setChatOpen] = useState(false);
   const publishPermissions = usePublishPermissions();
+  const { isSessionActive, endSession } = useSession();
+
   const {
     micTrackRef,
     cameraToggle,
@@ -67,6 +71,11 @@ export function AgentControlBar({
     },
     [onChatOpenChange, setChatOpen]
   );
+
+  const handleDisconnect = useCallback(async () => {
+    endSession();
+    onDisconnect?.();
+  }, [endSession, onDisconnect]);
 
   const visibleControls = {
     leave: controls?.leave ?? true,
@@ -113,18 +122,17 @@ export function AgentControlBar({
             />
           )}
 
-          {/* Toggle Camera */}
+          {/* Configurable Video Selector */}
           {visibleControls.camera && (
-            <TrackSelector
-              kind="videoinput"
-              aria-label="Toggle camera"
-              source={Track.Source.Camera}
+            <ConfigurableVideoSelector
+              availableConfigs={APP_CONFIG_DEFAULTS.availableVideoTracks}
+              defaultTrackId={APP_CONFIG_DEFAULTS.defaultVideoTrack}
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
               disabled={cameraToggle.pending}
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
-              onActiveDeviceChange={handleVideoDeviceChange}
+              onTrackChange={handleVideoDeviceChange}
             />
           )}
 
@@ -157,8 +165,8 @@ export function AgentControlBar({
         {visibleControls.leave && (
           <Button
             variant="destructive"
-            onClick={onDisconnect}
-            disabled={!isConnected}
+            onClick={handleDisconnect}
+            disabled={!isSessionActive}
             className="font-mono"
           >
             <PhoneDisconnectIcon weight="bold" />
