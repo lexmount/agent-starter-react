@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, type HTMLMotionProps, motion } from 'motion/react';
-import { type ReceivedMessage } from '@livekit/components-react';
+import { type ReceivedChatMessage } from '@livekit/components-react';
 import { ChatEntry } from '@/components/livekit/chat-entry';
 
 const MotionContainer = motion.create('div');
@@ -50,24 +50,45 @@ const MESSAGE_MOTION_PROPS = {
 
 interface ChatTranscriptProps {
   hidden?: boolean;
-  messages?: ReceivedMessage[];
+  messages?: ReceivedChatMessage[];
+  showParticipantNames?: boolean;
 }
 
 export function ChatTranscript({
   hidden = false,
   messages = [],
+  showParticipantNames = false,
   ...props
 }: ChatTranscriptProps & Omit<HTMLMotionProps<'div'>, 'ref'>) {
   return (
     <AnimatePresence>
       {!hidden && (
         <MotionContainer {...CONTAINER_MOTION_PROPS} {...props}>
-          {messages.map((receivedMessage) => {
-            const { id, timestamp, from, message } = receivedMessage;
+          {messages.map(({ id, timestamp, from, message, editTimestamp }: ReceivedChatMessage) => {
             const locale = navigator?.language ?? 'en-US';
-            const messageOrigin = from?.isLocal ? 'local' : 'remote';
-            const hasBeenEdited =
-              receivedMessage.type === 'chatMessage' && !!receivedMessage.editTimestamp;
+            
+            // 处理 from 为 undefined 的情况
+            let messageOrigin: 'local' | 'remote' = 'remote';
+            let participantName = '';
+            
+            if (from) {
+              messageOrigin = from.isLocal ? 'local' : 'remote';
+              if (showParticipantNames) {
+                participantName = from.name || from.identity || 'Unknown';
+              } else {
+                participantName = ''; // 默认不显示任何名称
+              }
+            } else {
+              // 如果 from 为 undefined，根据消息内容推断来源
+              messageOrigin = message.length > 100 ? 'remote' : 'local';
+              if (showParticipantNames) {
+                participantName = messageOrigin === 'remote' ? 'Assistant' : 'User';
+              } else {
+                participantName = ''; // 默认不显示任何名称
+              }
+            }
+            
+            const hasBeenEdited = !!editTimestamp;
 
             return (
               <MotionChatEntry
@@ -76,6 +97,7 @@ export function ChatTranscript({
                 timestamp={timestamp}
                 message={message}
                 messageOrigin={messageOrigin}
+                name={participantName}
                 hasBeenEdited={hasBeenEdited}
                 {...MESSAGE_MOTION_PROPS}
               />

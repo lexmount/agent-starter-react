@@ -35,7 +35,7 @@ export default async function Layout({ children }: LayoutProps) {
             href="https://docs.livekit.io/agents"
             className="underline underline-offset-4"
           >
-            LiveKit Agents
+            Lexmount Agent Studio
           </a>
         </span>
       </header>

@@ -7,8 +7,10 @@ import {
   VideoTrack,
   useLocalParticipant,
   useTracks,
-  useVoiceAssistant,
 } from '@livekit/components-react';
+import { APP_CONFIG_DEFAULTS } from '@/app-config';
+import { useSmartVoiceAssistant } from '@/hooks/useSmartVoiceAssistant';
+import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
 import { cn } from '@/lib/utils';
 
 const MotionContainer = motion.create('div');
@@ -26,7 +28,7 @@ const classNames = {
   grid: [
     'h-full w-full',
     'grid gap-x-2 place-content-center',
-    'grid-cols-[1fr_1fr] grid-rows-[90px_1fr_90px]',
+    'grid-cols-[1fr_1fr] grid-rows-[270px_1fr_270px]',
   ],
   // Agent
   // chatOpen: true,
@@ -78,11 +80,19 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
     state: agentState,
     audioTrack: agentAudioTrack,
     videoTrack: agentVideoTrack,
-  } = useVoiceAssistant();
+  } = useSmartVoiceAssistant({
+    videoTrackConfigs: APP_CONFIG_DEFAULTS.availableVideoTracks,
+  });
   const [screenShareTrack] = useTracks([Track.Source.ScreenShare]);
-  const cameraTrack: TrackReference | undefined = useLocalTrackRef(Track.Source.Camera);
+  const defaultCameraTrack: TrackReference | undefined = useLocalTrackRef(Track.Source.Camera);
+  
+  // 获取选中的视频轨道（可能是远程轨道）
+  const { trackReference: selectedTrack } = useSelectedVideoTrack();
+  
+  // 简化逻辑：只有在有选中的轨道时才显示摄像头预览
+  const cameraTrack = selectedTrack;
 
-  const isCameraEnabled = cameraTrack && !cameraTrack.publication.isMuted;
+  const isCameraEnabled = cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;
   const isScreenShareEnabled = screenShareTrack && !screenShareTrack.publication.isMuted;
   const hasSecondTile = isCameraEnabled || isScreenShareEnabled;
 
@@ -90,6 +100,15 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
   const isAvatar = agentVideoTrack !== undefined;
   const videoWidth = agentVideoTrack?.publication.dimensions?.width ?? 0;
   const videoHeight = agentVideoTrack?.publication.dimensions?.height ?? 0;
+
+  // 调试日志
+  console.log('[TileLayout] Camera track:', {
+    selectedTrack: selectedTrack ? selectedTrack.publication?.trackName : null,
+    cameraTrack: cameraTrack ? cameraTrack.publication?.trackName : null,
+    isCameraEnabled,
+    hasPublication: !!cameraTrack?.publication,
+    isMuted: cameraTrack?.publication?.isMuted,
+  });
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-8 bottom-32 z-50 md:top-12 md:bottom-40">
@@ -123,7 +142,7 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
                     delay: animationDelay,
                   }}
                   className={cn(
-                    'bg-background aspect-square h-[90px] rounded-md border border-transparent transition-[border,drop-shadow]',
+                    'bg-background h-[270px] w-[360px] rounded-md border border-transparent transition-[border,drop-shadow]',
                     chatOpen && 'border-input/50 drop-shadow-lg/10 delay-200'
                   )}
                 >
@@ -175,14 +194,14 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
                   }}
                   className={cn(
                     'overflow-hidden bg-black drop-shadow-xl/80',
-                    chatOpen ? 'h-[90px]' : 'h-auto w-full'
+                    chatOpen ? 'h-[270px] w-[360px]' : 'h-auto w-full'
                   )}
                 >
                   <VideoTrack
                     width={videoWidth}
                     height={videoHeight}
                     trackRef={agentVideoTrack}
-                    className={cn(chatOpen && 'size-[90px] object-cover')}
+                    className={cn(chatOpen && 'h-[270px] w-[360px] object-cover')}
                   />
                 </MotionContainer>
               )}
@@ -225,7 +244,7 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
                     trackRef={cameraTrack || screenShareTrack}
                     width={(cameraTrack || screenShareTrack)?.publication.dimensions?.width ?? 0}
                     height={(cameraTrack || screenShareTrack)?.publication.dimensions?.height ?? 0}
-                    className="bg-muted aspect-square w-[90px] rounded-md object-cover"
+                    className="bg-muted h-[270px] w-[360px] rounded-md object-cover"
                   />
                 </MotionContainer>
               )}
