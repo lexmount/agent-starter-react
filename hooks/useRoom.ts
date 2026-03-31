@@ -72,6 +72,10 @@ export function useRoom(appConfig: AppConfig) {
     setIsSessionActive(true);
 
     if (room.state === 'disconnected') {
+      void room.startAudio().catch((error) => {
+        console.warn('Failed to unlock room audio during session start:', error);
+      });
+
       const { isPreConnectBufferEnabled } = appConfig;
       Promise.all([
         room.localParticipant.setMicrophoneEnabled(true, undefined, {
