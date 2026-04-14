@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LocalVideoTrack, Track } from 'livekit-client';
 import { useLocalParticipant, useRoomContext, type TrackReference } from '@livekit/components-react';
 import { VideoTrackConfig } from '@/app-config';
@@ -43,7 +43,7 @@ export function ConfigurableVideoSelector({
   onTrackChange,
 }: ConfigurableVideoSelectorProps) {
   const { localParticipant } = useLocalParticipant();
-  const { setSelectedTrack } = useSelectedVideoTrack();
+  const { setSelectedTrack, clearSelectedTrack, trackId: selectedContextTrackId } = useSelectedVideoTrack();
   const room = useRoomContext();
   const { getTrackByName, subscribeToTrack } = useRemoteVideoTracks();
   
@@ -51,6 +51,7 @@ export function ConfigurableVideoSelector({
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(defaultTrackId || null);
   const [isSystemCameraEnabled, setIsSystemCameraEnabled] = useState(false);
   const [isTrackPreviewEnabled, setIsTrackPreviewEnabled] = useState(false);
+  const effectivePressed = !!pressed || isSystemCameraEnabled || isTrackPreviewEnabled;
 
   const {
     videoOptions,
@@ -221,7 +222,6 @@ export function ConfigurableVideoSelector({
                 // 直接设置预览轨道
                 setSelectedTrack(trackToUse, trackReference as unknown as TrackReference);
                 setIsTrackPreviewEnabled(true);
-                onPressedChange?.(true);
                 
                 console.log('[ConfigurableVideoSelector] Livekit track preview enabled:', trackToUse);
               } else {
@@ -250,11 +250,11 @@ export function ConfigurableVideoSelector({
       } else {
         console.log('[ConfigurableVideoSelector] Disabling track preview - COMPLETE CLEANUP');
         
-        // 完全清理所有资源
-        const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-        if (currentCameraTrack) {
-          await localParticipant.unpublishTrack(currentCameraTrack.track!);
-        }
+      // 完全清理所有资源
+      const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
+      if (currentCameraTrack) {
+        await localParticipant.unpublishTrack(currentCameraTrack.track!);
+      }
         if (currentTrack) {
           currentTrack.stop();
         }
@@ -270,7 +270,7 @@ export function ConfigurableVideoSelector({
   // 统一的摄像头开关逻辑
   const handleToggleVideo = useCallback(
     async (enabled?: boolean) => {
-      const shouldEnable = enabled !== undefined ? enabled : !pressed;
+      const shouldEnable = enabled !== undefined ? enabled : !effectivePressed;
       
       if (shouldEnable) {
         // 根据选择的轨道类型决定启用哪种预览
@@ -288,7 +288,7 @@ export function ConfigurableVideoSelector({
         onPressedChange?.(false);
       }
     },
-    [pressed, selectedTrackId, defaultTrackId, getTrackById, handleSystemCameraToggle, handleTrackPreviewToggle, onPressedChange]
+    [effectivePressed, selectedTrackId, defaultTrackId, getTrackById, handleSystemCameraToggle, handleTrackPreviewToggle, onPressedChange]
   );
 
   // 清理系统摄像头资源
@@ -374,6 +374,37 @@ export function ConfigurableVideoSelector({
     [cleanupAllResources, pressed, getTrackById, handleSystemCameraToggle, handleTrackPreviewToggle]
   );
 
+  // 房间切换后，旧的远程 TrackReference 可能已经失效。
+  // 一旦当前选中的 livekit 轨道在房间里消失，立即清掉旧引用，避免继续渲染已失效对象。
+  useEffect(() => {
+    if (!selectedTrackId) {
+      return;
+    }
+
+    const option = getTrackById(selectedTrackId);
+    if (option?.config.type !== 'livekit') {
+      return;
+    }
+
+    const trackKey = option.config.livekitTrackName || option.config.id;
+    const remoteTrackInfo = getTrackByName(trackKey);
+    if (remoteTrackInfo) {
+      return;
+    }
+
+    if (selectedContextTrackId === selectedTrackId) {
+      console.log('[ConfigurableVideoSelector] Selected livekit track disappeared, clearing stale track reference:', trackKey);
+      clearSelectedTrack();
+      setIsTrackPreviewEnabled(false);
+    }
+  }, [
+    selectedTrackId,
+    selectedContextTrackId,
+    getTrackById,
+    getTrackByName,
+    clearSelectedTrack,
+  ]);
+
   // 获取可用的轨道选项
   const availableOptions = videoOptions.filter((opt) => opt.available);
 
@@ -384,7 +415,7 @@ export function ConfigurableVideoSelector({
         size="icon"
         variant="primary"
         source={Track.Source.Camera}
-        pressed={pressed}
+        pressed={effectivePressed}
         pending={pending || isLoading}
         disabled={disabled || isLoading}
         onPressedChange={onPressedChange}
@@ -400,7 +431,7 @@ export function ConfigurableVideoSelector({
           size="icon"
           variant="primary"
           source={Track.Source.Camera}
-          pressed={pressed}
+          pressed={effectivePressed}
           pending={pending || isLoading}
           disabled={disabled || isLoading}
           onPressedChange={handleToggleVideo}
