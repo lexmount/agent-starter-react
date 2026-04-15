@@ -74,7 +74,7 @@ export const SessionView = ({
     enableTranscriptionDebug: appConfig.enableTranscriptionDebug,
     userTranscriptionIdentities: appConfig.userTranscriptionIdentities,
   });
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(appConfig.showTranscriptByDefault ?? false);
 
   const controls: ControlBarControls = {
     leave: true,
