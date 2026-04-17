@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { RoomConfiguration } from '@livekit/protocol';
 
+type TokenRequestBody = {
+  room_config?: Parameters<typeof RoomConfiguration.fromJson>[0];
+};
+
 type ConnectionDetails = {
   serverUrl: string;
   roomName: string;
@@ -35,10 +39,16 @@ export async function POST(req: Request) {
       throw new Error('LIVEKIT_API_SECRET is not defined');
     }
 
-    // Parse room config from request body.
-    const body = await req.json();
-    // Recreate the RoomConfiguration object from JSON object.
-    const roomConfig = RoomConfiguration.fromJson(body?.room_config, { ignoreUnknownFields: true });
+    let roomConfig: RoomConfiguration | undefined;
+
+    // `TokenSource.endpoint('/api/token')` can POST without a JSON body.
+    const rawBody = await req.text();
+    if (rawBody.trim().length > 0) {
+      const body = JSON.parse(rawBody) as TokenRequestBody;
+      if (body.room_config !== undefined) {
+        roomConfig = RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true });
+      }
+    }
 
     // Generate participant token
     const participantName = 'user';
@@ -73,7 +83,7 @@ export async function POST(req: Request) {
 function createParticipantToken(
   userInfo: AccessTokenOptions,
   roomName: string,
-  roomConfig: RoomConfiguration
+  roomConfig?: RoomConfiguration
 ): Promise<string> {
   const at = new AccessToken(API_KEY, API_SECRET, {
     ...userInfo,
