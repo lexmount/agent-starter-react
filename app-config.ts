@@ -46,9 +46,14 @@ export interface AppConfig {
   defaultVideoTrack?: string; // 默认选择的视频轨道ID
 }
 
-const FRONTDESK_BACKEND =
-  (process.env.NEXT_PUBLIC_FRONTDESK_BACKEND || 'xunfei').trim().toLowerCase();
-const IS_GENERIC_BACKEND = FRONTDESK_BACKEND === 'generic';
+const FRONTDESK_DEVICE = (
+  process.env.NEXT_PUBLIC_FRONTDESK_DEVICE ||
+  process.env.NEXT_PUBLIC_FRONTDESK_BACKEND ||
+  'xunfei'
+)
+  .trim()
+  .toLowerCase();
+const IS_GENERIC_DEVICE = FRONTDESK_DEVICE === 'generic';
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Lexmount',
@@ -71,7 +76,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   agentName: undefined,
   
   // 音频过滤配置
-  excludeAudioTracks: IS_GENERIC_BACKEND
+  excludeAudioTracks: IS_GENERIC_DEVICE
     ? ['generic_audio_track']
     : ['xunfei_audio_track'], // 要排除的音频轨道名称列表
   
@@ -85,7 +90,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
   showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: IS_GENERIC_BACKEND
+  userTranscriptionIdentities: IS_GENERIC_DEVICE
     ? ['generic_camera_agent']
     : ['xunfei_service_agent'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
@@ -94,25 +99,25 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   availableVideoTracks: [
     {
       id: 'system_camera_default',
-      label: IS_GENERIC_BACKEND ? '浏览器本地摄像头' : '系统默认摄像头',
+      label: IS_GENERIC_DEVICE ? '浏览器本地摄像头' : '系统默认摄像头',
       type: 'system',
       enabled: true,
       icon: '📹',
-      description: IS_GENERIC_BACKEND
+      description: IS_GENERIC_DEVICE
         ? '浏览器直接采集的本地摄像头，仅作备用预览'
         : '系统默认摄像头设备',
     },
     {
-      id: IS_GENERIC_BACKEND ? 'generic_video_track' : 'xunfei_video_track',
-      label: IS_GENERIC_BACKEND ? '本地设备视频轨' : '人脸检测频道',
+      id: IS_GENERIC_DEVICE ? 'generic_video_track' : 'xunfei_video_track',
+      label: IS_GENERIC_DEVICE ? '本地设备视频轨' : '人脸检测频道',
       type: 'livekit',
-      livekitTrackName: IS_GENERIC_BACKEND ? 'generic_video_track' : 'xunfei_video_track',
+      livekitTrackName: IS_GENERIC_DEVICE ? 'generic_video_track' : 'xunfei_video_track',
       enabled: true,
       icon: '📡',
-      description: IS_GENERIC_BACKEND
+      description: IS_GENERIC_DEVICE
         ? 'generic input service agent participant 发布的本地设备视频轨'
         : '讯飞人脸检测预览',
     },
   ],
-  defaultVideoTrack: IS_GENERIC_BACKEND ? 'generic_video_track' : 'xunfei_video_track', // 默认选择用户指定的轨道
+  defaultVideoTrack: IS_GENERIC_DEVICE ? 'generic_video_track' : 'xunfei_video_track', // 默认选择用户指定的轨道
 };
