@@ -59,9 +59,21 @@ export function useRoom(appConfig: AppConfig) {
                 : undefined,
             }),
           });
+          if (res.status === 409) {
+            const busyDetails = await res.json().catch(() => undefined);
+            throw new Error(
+              busyDetails?.message ?? 'A visitor is already connected. Please try again later.'
+            );
+          }
+          if (!res.ok) {
+            throw new Error(`Connection details request failed with status ${res.status}`);
+          }
           return await res.json();
         } catch (error) {
           console.error('Error fetching connection details:', error);
+          if (error instanceof Error) {
+            throw error;
+          }
           throw new Error('Error fetching connection details!');
         }
       }),
@@ -73,16 +85,25 @@ export function useRoom(appConfig: AppConfig) {
 
     if (room.state === 'disconnected') {
       const { isPreConnectBufferEnabled } = appConfig;
-      Promise.all([
+      const publishPromises = [
         room.localParticipant.setMicrophoneEnabled(true, undefined, {
           preConnectBuffer: isPreConnectBufferEnabled,
         }),
+        appConfig.supportsVideoInput
+          ? room.localParticipant.setCameraEnabled(true).catch((error) => {
+              toastAlert({
+                title: 'Camera unavailable',
+                description: `${error.name}: ${error.message}`,
+              });
+            })
+          : Promise.resolve(),
         tokenSource
           .fetch({ agentName: appConfig.agentName })
           .then((connectionDetails) =>
             room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
           ),
-      ]).catch((error) => {
+      ];
+      Promise.all(publishPromises).catch((error) => {
         if (aborted.current) {
           // Once the effect has cleaned up after itself, drop any errors
           //
@@ -92,6 +113,7 @@ export function useRoom(appConfig: AppConfig) {
           return;
         }
 
+        setIsSessionActive(false);
         toastAlert({
           title: 'There was an error connecting to the agent',
           description: `${error.name}: ${error.message}`,

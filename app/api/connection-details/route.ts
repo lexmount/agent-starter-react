@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
+import {
+  AccessToken,
+  type AccessTokenOptions,
+  RoomServiceClient,
+  type VideoGrant,
+} from 'livekit-server-sdk';
 import { RoomConfiguration } from '@livekit/protocol';
 
 type ConnectionDetails = {
@@ -13,6 +18,10 @@ type ConnectionDetails = {
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
+const BROWSER_ROOM_NAME =
+  process.env.FRONTDESK_BROWSER_ROOM_NAME ||
+  process.env.LIVEKIT_ROOM_NAME ||
+  'voice_assistant_room_frontdesk';
 
 // don't cache the results
 export const revalidate = 0;
@@ -33,10 +42,25 @@ export async function POST(req: Request) {
     const body = await req.json();
     const agentName: string = body?.room_config?.agents?.[0]?.agent_name;
 
+    const headers = new Headers({
+      'Cache-Control': 'no-store',
+    });
+
+    if (await isBrowserRoomBusy(BROWSER_ROOM_NAME)) {
+      return NextResponse.json(
+        {
+          status: 409,
+          error: 'visitor_busy',
+          message: 'A visitor is already connected.',
+        },
+        { status: 409, headers }
+      );
+    }
+
     // Generate participant token
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
+    const roomName = BROWSER_ROOM_NAME;
 
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
@@ -51,9 +75,6 @@ export async function POST(req: Request) {
       participantToken: participantToken,
       participantName,
     };
-    const headers = new Headers({
-      'Cache-Control': 'no-store',
-    });
     return NextResponse.json(data, { headers });
   } catch (error) {
     if (error instanceof Error) {
@@ -61,6 +82,19 @@ export async function POST(req: Request) {
       return new NextResponse(error.message, { status: 500 });
     }
   }
+}
+
+async function isBrowserRoomBusy(roomName: string): Promise<boolean> {
+  const roomService = new RoomServiceClient(LIVEKIT_URL!, API_KEY, API_SECRET);
+  const rooms = await roomService.listRooms([roomName]);
+  if (rooms.length === 0) {
+    return false;
+  }
+
+  const participants = await roomService.listParticipants(roomName);
+  return participants.some((participant) => {
+    return participant.identity.startsWith('voice_assistant_user_') || participant.name === 'user';
+  });
 }
 
 function createParticipantToken(
