@@ -8,10 +8,18 @@ import {
   useLocalParticipant,
   useTracks,
 } from '@livekit/components-react';
-import { APP_CONFIG_DEFAULTS } from '@/app-config';
-import { useSmartVoiceAssistant } from '@/hooks/useSmartVoiceAssistant';
+import { APP_CONFIG_DEFAULTS, type VideoTrackConfig } from '@/app-config';
 import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
+import { useSmartVoiceAssistant } from '@/hooks/useSmartVoiceAssistant';
 import { cn } from '@/lib/utils';
+
+const DEBUG_FRONTDESK_VIDEO = process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO === 'true';
+
+function debugVideoLog(...args: unknown[]) {
+  if (DEBUG_FRONTDESK_VIDEO) {
+    console.log(...args);
+  }
+}
 
 const MotionContainer = motion.create('div');
 
@@ -21,6 +29,19 @@ const ANIMATION_TRANSITION = {
   damping: 75,
   mass: 1,
 };
+
+function isUsableCameraTrack(trackRef: TrackReference, allowedTrackNames: ReadonlySet<string>) {
+  const publication = trackRef.publication;
+  const trackName = publication.trackName || publication.trackSid;
+
+  return (
+    !!trackName &&
+    allowedTrackNames.has(trackName) &&
+    publication.isSubscribed &&
+    !!publication.track &&
+    !publication.isMuted
+  );
+}
 
 const classNames = {
   // GRID
@@ -73,26 +94,76 @@ export function useLocalTrackRef(source: Track.Source) {
 
 interface TileLayoutProps {
   chatOpen: boolean;
+  videoTrackConfigs?: VideoTrackConfig[];
+  defaultVideoTrackId?: string;
 }
 
-export function TileLayout({ chatOpen }: TileLayoutProps) {
+export function TileLayout({
+  chatOpen,
+  videoTrackConfigs = APP_CONFIG_DEFAULTS.availableVideoTracks,
+  defaultVideoTrackId = APP_CONFIG_DEFAULTS.defaultVideoTrack,
+}: TileLayoutProps) {
   const {
     state: agentState,
     audioTrack: agentAudioTrack,
     videoTrack: agentVideoTrack,
   } = useSmartVoiceAssistant({
-    videoTrackConfigs: APP_CONFIG_DEFAULTS.availableVideoTracks,
+    videoTrackConfigs,
   });
   const [screenShareTrack] = useTracks([Track.Source.ScreenShare]);
+  const cameraTracks = useTracks([Track.Source.Camera]);
   const defaultCameraTrack: TrackReference | undefined = useLocalTrackRef(Track.Source.Camera);
-  
-  // 获取选中的视频轨道（可能是远程轨道）
-  const { trackReference: selectedTrack } = useSelectedVideoTrack();
-  
-  // 简化逻辑：只有在有选中的轨道时才显示摄像头预览
-  const cameraTrack = selectedTrack;
 
-  const isCameraEnabled = cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;
+  // 获取选中的视频轨道（可能是远程轨道）
+  const { trackReference: selectedTrack, trackId: selectedTrackId } = useSelectedVideoTrack();
+
+  const configuredLivekitTrackNames = useMemo(() => {
+    return new Set(
+      videoTrackConfigs
+        .filter((config) => config.enabled && config.type === 'livekit')
+        .map((config) => config.livekitTrackName || config.id)
+    );
+  }, [videoTrackConfigs]);
+
+  const configuredCameraTrack = useMemo<TrackReference | undefined>(() => {
+    if (configuredLivekitTrackNames.size === 0) return undefined;
+
+    const trackNameById = new Map(
+      videoTrackConfigs
+        .filter((config) => config.enabled && config.type === 'livekit')
+        .map((config) => [config.id, config.livekitTrackName || config.id])
+    );
+    const preferredTrackNames = [selectedTrackId, defaultVideoTrackId]
+      .map((trackId) => (trackId ? trackNameById.get(trackId) : undefined))
+      .filter((trackName): trackName is string => !!trackName);
+
+    for (const preferredTrackName of preferredTrackNames) {
+      const preferredTrack = cameraTracks.find((trackRef) =>
+        isUsableCameraTrack(trackRef, new Set([preferredTrackName]))
+      );
+      if (preferredTrack) {
+        return preferredTrack;
+      }
+    }
+
+    return cameraTracks.find((trackRef) =>
+      isUsableCameraTrack(trackRef, configuredLivekitTrackNames)
+    );
+  }, [
+    cameraTracks,
+    configuredLivekitTrackNames,
+    defaultVideoTrackId,
+    selectedTrackId,
+    videoTrackConfigs,
+  ]);
+
+  const cameraTrack =
+    selectedTrack ||
+    (selectedTrackId === null ? configuredCameraTrack : undefined) ||
+    defaultCameraTrack;
+
+  const isCameraEnabled =
+    cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;
   const isScreenShareEnabled = screenShareTrack && !screenShareTrack.publication.isMuted;
   const hasSecondTile = isCameraEnabled || isScreenShareEnabled;
 
@@ -102,7 +173,7 @@ export function TileLayout({ chatOpen }: TileLayoutProps) {
   const videoHeight = agentVideoTrack?.publication.dimensions?.height ?? 0;
 
   // 调试日志
-  console.log('[TileLayout] Camera track:', {
+  debugVideoLog('[TileLayout] Camera track:', {
     selectedTrack: selectedTrack ? selectedTrack.publication?.trackName : null,
     cameraTrack: cameraTrack ? cameraTrack.publication?.trackName : null,
     isCameraEnabled,

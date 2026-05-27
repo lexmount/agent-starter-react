@@ -66,11 +66,11 @@ export function ChatTranscript({
         <MotionContainer {...CONTAINER_MOTION_PROPS} {...props}>
           {messages.map(({ id, timestamp, from, message, editTimestamp }: ReceivedChatMessage) => {
             const locale = navigator?.language ?? 'en-US';
-            
+
             // 处理 from 为 undefined 的情况
             let messageOrigin: 'local' | 'remote' = 'remote';
             let participantName = '';
-            
+
             if (from) {
               messageOrigin = from.isLocal ? 'local' : 'remote';
               if (showParticipantNames) {
@@ -87,7 +87,7 @@ export function ChatTranscript({
                 participantName = ''; // 默认不显示任何名称
               }
             }
-            
+
             const hasBeenEdited = !!editTimestamp;
 
             return (

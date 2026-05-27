@@ -81,7 +81,7 @@ export const SessionView = ({
     microphone: true,
     chat: appConfig.supportsChatInput,
     camera: appConfig.supportsVideoInput,
-    screenShare: appConfig.supportsVideoInput,
+    screenShare: appConfig.supportsScreenShare,
   };
 
   return (
@@ -105,7 +105,11 @@ export const SessionView = ({
       </div>
 
       {/* Tile Layout */}
-      <TileLayout chatOpen={chatOpen} />
+      <TileLayout
+        chatOpen={chatOpen}
+        videoTrackConfigs={appConfig.availableVideoTracks}
+        defaultVideoTrackId={appConfig.defaultVideoTrack}
+      />
 
       {/* Bottom */}
       <MotionBottom

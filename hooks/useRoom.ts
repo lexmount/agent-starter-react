@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Room, RoomEvent, TokenSource } from 'livekit-client';
 import { AppConfig } from '@/app-config';
 import { toastAlert } from '@/components/livekit/alert-toast';
+import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
   const room = useMemo(() => new Room(), []);
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const browserSourceClient = useBrowserSourceClient(room, appConfig);
 
   useEffect(() => {
     function onDisconnected() {
@@ -69,20 +71,47 @@ export function useRoom(appConfig: AppConfig) {
   );
 
   const startSession = useCallback(() => {
+    if (browserSourceClient.enabled && !isBrowserMediaAvailable()) {
+      toastAlert({
+        title: 'Camera and microphone require a secure page',
+        description:
+          'Open this page with HTTPS, localhost, or launch Chrome/Edge with --unsafely-treat-insecure-origin-as-secure for this IP address.',
+      });
+      return;
+    }
+
+    const recoverFromStartError = (error: Error) => {
+      browserSourceClient.stop();
+      room.disconnect();
+      setIsSessionActive(false);
+      toastAlert({
+        title: 'There was an error connecting to the agent',
+        description: `${error.name}: ${error.message}`,
+      });
+    };
+
     setIsSessionActive(true);
 
+    const startLocalInput = async () => {
+      if (browserSourceClient.enabled) {
+        await browserSourceClient.start();
+        return;
+      }
+
+      await room.localParticipant.setMicrophoneEnabled(true, undefined, {
+        preConnectBuffer: appConfig.isPreConnectBufferEnabled,
+      });
+    };
+
     if (room.state === 'disconnected') {
-      const { isPreConnectBufferEnabled } = appConfig;
-      Promise.all([
-        room.localParticipant.setMicrophoneEnabled(true, undefined, {
-          preConnectBuffer: isPreConnectBufferEnabled,
-        }),
-        tokenSource
-          .fetch({ agentName: appConfig.agentName })
-          .then((connectionDetails) =>
-            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-          ),
-      ]).catch((error) => {
+      const roomConnectPromise = tokenSource
+        .fetch({ agentName: appConfig.agentName })
+        .then((connectionDetails) =>
+          room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+        )
+        .then(() => startLocalInput());
+
+      roomConnectPromise.catch((error) => {
         if (aborted.current) {
           // Once the effect has cleaned up after itself, drop any errors
           //
@@ -92,17 +121,32 @@ export function useRoom(appConfig: AppConfig) {
           return;
         }
 
-        toastAlert({
-          title: 'There was an error connecting to the agent',
-          description: `${error.name}: ${error.message}`,
-        });
+        recoverFromStartError(error);
+      });
+    } else {
+      startLocalInput().catch((error) => {
+        recoverFromStartError(error);
       });
     }
-  }, [room, appConfig, tokenSource]);
+  }, [room, appConfig, tokenSource, browserSourceClient]);
 
   const endSession = useCallback(() => {
+    browserSourceClient.stop();
+    room.disconnect();
     setIsSessionActive(false);
-  }, []);
+  }, [browserSourceClient, room]);
 
-  return { room, isSessionActive, startSession, endSession };
+  return { room, isSessionActive, startSession, endSession, browserSourceClient };
+}
+
+function isBrowserMediaAvailable() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return Boolean(
+    window.isSecureContext &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function'
+  );
 }

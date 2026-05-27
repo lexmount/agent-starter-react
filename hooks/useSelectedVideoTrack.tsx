@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { ReactNode, createContext, useCallback, useContext, useState } from 'react';
 import type { TrackReference } from '@livekit/components-react';
 
 interface SelectedVideoTrackState {
@@ -16,10 +16,13 @@ export function SelectedVideoTrackProvider({ children }: { children: ReactNode }
   const [trackReference, setTrackReference] = useState<TrackReference | null>(null);
   const [trackId, setTrackId] = useState<string | null>(null);
 
-  const setSelectedTrack = useCallback((newTrackId: string, newTrackReference: TrackReference | null) => {
-    setTrackId(newTrackId);
-    setTrackReference(newTrackReference);
-  }, []);
+  const setSelectedTrack = useCallback(
+    (newTrackId: string, newTrackReference: TrackReference | null) => {
+      setTrackId(newTrackId);
+      setTrackReference(newTrackReference);
+    },
+    []
+  );
 
   const clearSelectedTrack = useCallback(() => {
     setTrackId(null);
@@ -48,4 +51,3 @@ export function useSelectedVideoTrack() {
   }
   return context;
 }
-

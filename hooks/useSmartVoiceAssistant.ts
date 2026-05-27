@@ -23,9 +23,10 @@ export function useSmartVoiceAssistant({
   const smartVideoTrack = useMemo(() => {
     // 如果原始 voiceAssistant 有视频轨道且不在排除列表中，使用它
     if (voiceAssistant.videoTrack) {
-      const trackName = voiceAssistant.videoTrack.publication.trackName || 
-                       voiceAssistant.videoTrack.publication.trackSid;
-      
+      const trackName =
+        voiceAssistant.videoTrack.publication.trackName ||
+        voiceAssistant.videoTrack.publication.trackSid;
+
       if (!shouldExcludeTrack(trackName)) {
         console.log(`[useSmartVoiceAssistant] Using original voice assistant track: ${trackName}`);
         return voiceAssistant.videoTrack;
@@ -37,26 +38,28 @@ export function useSmartVoiceAssistant({
     // 如果原始轨道被排除，寻找其他合适的轨道
     for (const participant of remoteParticipants) {
       if (!participant.isAgent) continue;
-      
+
       for (const [, publication] of participant.videoTrackPublications) {
         if (!publication.isSubscribed || !publication.track) continue;
-        
+
         const trackName = publication.trackName || publication.trackSid;
-        
+
         // 跳过配置中的轨道
         if (shouldExcludeTrack(trackName)) {
           console.log(`[useSmartVoiceAssistant] Skipping excluded track: ${trackName}`);
           continue;
         }
-        
+
         // 找到合适的轨道
         const trackRef = {
           participant,
           publication,
           source: publication.source,
         };
-        
-        console.log(`[useSmartVoiceAssistant] Found alternative avatar track: ${trackName} from ${participant.identity}`);
+
+        console.log(
+          `[useSmartVoiceAssistant] Found alternative avatar track: ${trackName} from ${participant.identity}`
+        );
         return trackRef;
       }
     }

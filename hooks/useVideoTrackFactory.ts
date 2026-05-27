@@ -52,7 +52,7 @@ export function useVideoTrackFactory(): UseVideoTrackFactoryReturn {
   const createSystemCameraTrack = useCallback(
     async (deviceId?: string, config?: VideoTrackConfig): Promise<LocalVideoTrack | null> => {
       try {
-        const options: any = {};
+        const options: Parameters<typeof createLocalVideoTrack>[0] = {};
 
         if (deviceId) {
           options.deviceId = deviceId;
@@ -78,16 +78,6 @@ export function useVideoTrackFactory(): UseVideoTrackFactoryReturn {
     ): Promise<LocalVideoTrack | null> => {
       try {
         if (existingTrack) {
-          // 如果提供了现有轨道，检查是否匹配配置
-          const trackName = (existingTrack as any).name;
-          const trackSource = existingTrack.source;
-
-          if (config.livekitTrackName && trackName !== config.livekitTrackName) {
-            console.warn(
-              `Track name mismatch: expected ${config.livekitTrackName}, got ${trackName}`
-            );
-          }
-
           // 返回现有轨道
           return existingTrack;
         }

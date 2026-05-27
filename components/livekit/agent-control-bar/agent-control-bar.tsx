@@ -1,10 +1,9 @@
 'use client';
 
-import { type HTMLAttributes, useCallback, useState } from 'react';
+import { type HTMLAttributes, useCallback, useMemo, useState } from 'react';
 import { Track } from 'livekit-client';
 import { useChat, useRemoteParticipants } from '@livekit/components-react';
 import { ChatTextIcon, PhoneDisconnectIcon } from '@phosphor-icons/react/dist/ssr';
-import { APP_CONFIG_DEFAULTS } from '@/app-config';
 import { useSession } from '@/components/app/session-provider';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
 import { Button } from '@/components/livekit/button';
@@ -15,6 +14,8 @@ import { ConfigurableVideoSelector } from './configurable-video-selector';
 import { UseInputControlsProps, useInputControls } from './hooks/use-input-controls';
 import { usePublishPermissions } from './hooks/use-publish-permissions';
 import { TrackSelector } from './track-selector';
+
+const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
 export interface ControlBarControls {
   leave?: boolean;
@@ -47,7 +48,16 @@ export function AgentControlBar({
   const participants = useRemoteParticipants();
   const [chatOpen, setChatOpen] = useState(false);
   const publishPermissions = usePublishPermissions();
-  const { isSessionActive, endSession } = useSession();
+  const { appConfig, isSessionActive, endSession, browserSourceClient } = useSession();
+  const usesBrowserRawMediaInput =
+    !!appConfig.usesBrowserRawMediaInput && browserSourceClient.enabled;
+  const browserRawVideoTracks = useMemo(() => {
+    if (!usesBrowserRawMediaInput || !browserSourceClient.videoTrack) {
+      return undefined;
+    }
+
+    return new Map([[BROWSER_VIDEO_TRACK_NAME, browserSourceClient.videoTrack]]);
+  }, [usesBrowserRawMediaInput, browserSourceClient.videoTrack]);
 
   const {
     micTrackRef,
@@ -76,6 +86,26 @@ export function AgentControlBar({
     endSession();
     onDisconnect?.();
   }, [endSession, onDisconnect]);
+
+  const handleRawMicrophoneToggle = useCallback(
+    (enabled: boolean) => {
+      void browserSourceClient.setAudioEnabled(enabled).catch((error) => {
+        onDeviceError?.({ source: Track.Source.Microphone, error });
+      });
+    },
+    [browserSourceClient, onDeviceError]
+  );
+
+  const handleRawVideoToggle = useCallback(
+    async (enabled: boolean) => {
+      try {
+        await browserSourceClient.setVideoEnabled(enabled);
+      } catch (error) {
+        onDeviceError?.({ source: Track.Source.Camera, error: error as Error });
+      }
+    },
+    [browserSourceClient, onDeviceError]
+  );
 
   const visibleControls = {
     leave: controls?.leave ?? true,
@@ -113,10 +143,20 @@ export function AgentControlBar({
               kind="audioinput"
               aria-label="Toggle microphone"
               source={Track.Source.Microphone}
-              pressed={microphoneToggle.enabled}
-              disabled={microphoneToggle.pending}
-              audioTrackRef={micTrackRef}
-              onPressedChange={microphoneToggle.toggle}
+              pressed={
+                usesBrowserRawMediaInput
+                  ? browserSourceClient.audioEnabled
+                  : microphoneToggle.enabled
+              }
+              disabled={
+                usesBrowserRawMediaInput
+                  ? !isSessionActive || browserSourceClient.audioPending
+                  : microphoneToggle.pending
+              }
+              audioTrackRef={usesBrowserRawMediaInput ? undefined : micTrackRef}
+              onPressedChange={
+                usesBrowserRawMediaInput ? handleRawMicrophoneToggle : microphoneToggle.toggle
+              }
               onMediaDeviceError={handleMicrophoneDeviceSelectError}
               onActiveDeviceChange={handleAudioDeviceChange}
             />
@@ -125,11 +165,15 @@ export function AgentControlBar({
           {/* Configurable Video Selector */}
           {visibleControls.camera && (
             <ConfigurableVideoSelector
-              availableConfigs={APP_CONFIG_DEFAULTS.availableVideoTracks}
-              defaultTrackId={APP_CONFIG_DEFAULTS.defaultVideoTrack}
+              availableConfigs={appConfig.availableVideoTracks}
+              defaultTrackId={appConfig.defaultVideoTrack}
+              existingLivekitTracks={browserRawVideoTracks}
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
               disabled={cameraToggle.pending}
+              mediaEnabled={usesBrowserRawMediaInput ? browserSourceClient.videoEnabled : undefined}
+              mediaPending={usesBrowserRawMediaInput ? browserSourceClient.videoPending : undefined}
+              onMediaEnabledChange={usesBrowserRawMediaInput ? handleRawVideoToggle : undefined}
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
               onTrackChange={handleVideoDeviceChange}

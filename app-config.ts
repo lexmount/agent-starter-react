@@ -4,7 +4,7 @@ export interface VideoTrackConfig {
   type: 'system' | 'livekit';
   livekitTrackName?: string; // LiveKit轨道名称（仅当type为'livekit'时使用）
   enabled: boolean;
-  icon?: string;
+  icon?: 'camera' | 'broadcast';
   description?: string;
 }
 
@@ -17,6 +17,7 @@ export interface AppConfig {
   supportsVideoInput: boolean;
   supportsScreenShare: boolean;
   isPreConnectBufferEnabled: boolean;
+  usesBrowserRawMediaInput?: boolean;
 
   logo: string;
   startButtonText: string;
@@ -30,10 +31,10 @@ export interface AppConfig {
 
   excludeAudioTracks: string[];
   showAudioFilterDebug?: boolean;
-  
+
   // 全局调试配置
   enableGlobalDebug?: boolean; // 全局调试开关，控制所有调试信息的显示
-  
+
   // 字幕和转录配置
   enableSmartParticipantMatching?: boolean; // 启用智能参与者匹配
   enableTranscriptionDebug?: boolean; // 启用转录调试日志
@@ -46,6 +47,13 @@ export interface AppConfig {
   defaultVideoTrack?: string; // 默认选择的视频轨道ID
 }
 
+const FRONTDESK_DEVICE = (process.env.NEXT_PUBLIC_FRONTDESK_DEVICE || '').trim().toLowerCase();
+const IS_BROWSER_FRONTDESK = FRONTDESK_DEVICE === 'browser';
+const FRONTDESK_AGENT_NAME = (process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME || '').trim();
+const FRONTDESK_AUDIO_TRACK_NAME = 'frontdesk_audio_track';
+const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
+const FRONTDESK_VIDEO_TRACK_NAME = 'frontdesk_video_track';
+
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Lexmount',
   pageTitle: 'Lexmount Voice Agent',
@@ -53,8 +61,9 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
 
   supportsChatInput: true,
   supportsVideoInput: true,
-  supportsScreenShare: true,
+  supportsScreenShare: !IS_BROWSER_FRONTDESK,
   isPreConnectBufferEnabled: true,
+  usesBrowserRawMediaInput: IS_BROWSER_FRONTDESK,
 
   logo: '/lk-logo.png',
   accent: '#002cf2',
@@ -64,45 +73,57 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
 
   // for LiveKit Cloud Sandbox
   sandboxId: undefined,
-  agentName: undefined,
-  
+  agentName: FRONTDESK_AGENT_NAME || undefined,
+
   // 音频过滤配置
-  excludeAudioTracks: [
-    'xunfei_audio_track'
-  ], // 要排除的音频轨道名称列表
-  
+  excludeAudioTracks: [FRONTDESK_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
+
   // 调试配置
   showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
-  
+
   // 全局调试配置
   enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
-  
+
   // 字幕和转录配置
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
   showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: ['xunfei_service_agent'], // 用户转录身份标识（自定义音频track）
+  userTranscriptionIdentities: ['frontdesk_input_agent'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置
   availableVideoTracks: [
+    ...(IS_BROWSER_FRONTDESK
+      ? [
+          {
+            id: BROWSER_VIDEO_TRACK_NAME,
+            label: '浏览器摄像头',
+            type: 'livekit' as const,
+            livekitTrackName: BROWSER_VIDEO_TRACK_NAME,
+            enabled: true,
+            icon: 'camera' as const,
+            description: '浏览器原始摄像头画面',
+          },
+        ]
+      : [
+          {
+            id: 'system_camera_default',
+            label: '系统默认摄像头',
+            type: 'system' as const,
+            enabled: true,
+            icon: 'camera' as const,
+            description: '系统默认摄像头设备',
+          },
+        ]),
     {
-      id: 'system_camera_default',
-      label: '系统默认摄像头',
-      type: 'system',
-      enabled: true,
-      icon: '📹',
-      description: '系统默认摄像头设备',
-    },
-    {
-      id: 'xunfei_video_track',
+      id: FRONTDESK_VIDEO_TRACK_NAME,
       label: '人脸检测频道',
       type: 'livekit',
-      livekitTrackName: 'xunfei_video_track',
+      livekitTrackName: FRONTDESK_VIDEO_TRACK_NAME,
       enabled: true,
-      icon: '📡',
-      description: '讯飞人脸检测预览',
+      icon: 'broadcast' as const,
+      description: '前台统一视频预览',
     },
   ],
-  defaultVideoTrack: 'xunfei_video_track', // 默认选择用户指定的轨道
+  defaultVideoTrack: FRONTDESK_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道
 };
