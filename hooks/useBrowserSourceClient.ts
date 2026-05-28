@@ -217,11 +217,14 @@ export function useBrowserSourceClient(
   const setAudioEnabled = useCallback(
     async (nextEnabled: boolean) => {
       setAudioPending(true);
+      const previousEnabled = audioEnabledRef.current;
+      const runtime = runtimeRef.current;
+      const previousRuntimeEnabled = runtime?.audioEnabled;
+      const previousAudioTrack = runtime?.audioTrack ?? null;
       try {
         audioEnabledRef.current = nextEnabled;
         setAudioEnabledState(nextEnabled);
 
-        const runtime = runtimeRef.current;
         if (!runtime) return;
 
         runtime.audioEnabled = nextEnabled;
@@ -236,21 +239,40 @@ export function useBrowserSourceClient(
           runtime.audioTrack.mediaStreamTrack.enabled = false;
           await runtime.audioTrack.mute();
         }
+      } catch (error) {
+        audioEnabledRef.current = previousEnabled;
+        setAudioEnabledState(previousEnabled);
+        if (runtime && previousRuntimeEnabled !== undefined) {
+          runtime.audioEnabled = previousRuntimeEnabled;
+          if (
+            !previousRuntimeEnabled &&
+            runtime.audioTrack &&
+            runtime.audioTrack !== previousAudioTrack
+          ) {
+            await unpublishAudio(runtime);
+          } else {
+            syncTrackEnabled(runtime.audioTrack, previousRuntimeEnabled);
+          }
+        }
+        throw error;
       } finally {
         setAudioPending(false);
       }
     },
-    [ensureAudioPublished]
+    [ensureAudioPublished, unpublishAudio]
   );
 
   const setVideoEnabled = useCallback(
     async (nextEnabled: boolean) => {
       setVideoPending(true);
+      const previousEnabled = videoEnabledRef.current;
+      const runtime = runtimeRef.current;
+      const previousRuntimeEnabled = runtime?.videoEnabled;
+      const previousVideoTrack = runtime?.videoTrack ?? null;
       try {
         videoEnabledRef.current = nextEnabled;
         setVideoEnabledState(nextEnabled);
 
-        const runtime = runtimeRef.current;
         if (!runtime) return;
 
         runtime.videoEnabled = nextEnabled;
@@ -263,6 +285,22 @@ export function useBrowserSourceClient(
         } else {
           await unpublishVideo(runtime);
         }
+      } catch (error) {
+        videoEnabledRef.current = previousEnabled;
+        setVideoEnabledState(previousEnabled);
+        if (runtime && previousRuntimeEnabled !== undefined) {
+          runtime.videoEnabled = previousRuntimeEnabled;
+          if (
+            !previousRuntimeEnabled &&
+            runtime.videoTrack &&
+            runtime.videoTrack !== previousVideoTrack
+          ) {
+            await unpublishVideo(runtime);
+          } else {
+            syncTrackEnabled(runtime.videoTrack, previousRuntimeEnabled);
+          }
+        }
+        throw error;
       } finally {
         setVideoPending(false);
       }
@@ -306,4 +344,11 @@ function readNumberEnv(value: string | undefined, fallback: number) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {
+  if (!track) return;
+
+  track.mediaStreamTrack.enabled = enabled;
+  void (enabled ? track.unmute() : track.mute()).catch(() => undefined);
 }

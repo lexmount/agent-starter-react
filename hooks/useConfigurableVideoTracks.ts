@@ -354,10 +354,8 @@ export function useConfigurableVideoTracks({
 
   // 监听远程轨道变化
   useEffect(() => {
-    if (remoteVideoTracks.size > 0) {
-      debugVideoLog('[useConfigurableVideoTracks] Remote tracks updated, refreshing availability');
-      initializeVideoOptions();
-    }
+    debugVideoLog('[useConfigurableVideoTracks] Remote tracks updated, refreshing availability');
+    initializeVideoOptions();
   }, [remoteVideoTracks, initializeVideoOptions]);
 
   return {

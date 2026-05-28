@@ -6,6 +6,7 @@ import { useChat, useRemoteParticipants } from '@livekit/components-react';
 import { ChatTextIcon, PhoneDisconnectIcon } from '@phosphor-icons/react/dist/ssr';
 import { useSession } from '@/components/app/session-provider';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
+import { toastAlert } from '@/components/livekit/alert-toast';
 import { Button } from '@/components/livekit/button';
 import { Toggle } from '@/components/livekit/toggle';
 import { cn } from '@/lib/utils';
@@ -58,6 +59,20 @@ export function AgentControlBar({
 
     return new Map([[BROWSER_VIDEO_TRACK_NAME, browserSourceClient.videoTrack]]);
   }, [usesBrowserRawMediaInput, browserSourceClient.videoTrack]);
+  const handleDeviceError = useCallback(
+    (deviceError: { source: Track.Source; error: Error }) => {
+      if (onDeviceError) {
+        onDeviceError(deviceError);
+        return;
+      }
+
+      toastAlert({
+        title: `${getDeviceLabel(deviceError.source)} could not start`,
+        description: `${deviceError.error.name}: ${deviceError.error.message}`,
+      });
+    },
+    [onDeviceError]
+  );
 
   const {
     micTrackRef,
@@ -68,7 +83,7 @@ export function AgentControlBar({
     handleVideoDeviceChange,
     handleMicrophoneDeviceSelectError,
     handleCameraDeviceSelectError,
-  } = useInputControls({ onDeviceError, saveUserChoices });
+  } = useInputControls({ onDeviceError: handleDeviceError, saveUserChoices });
 
   const handleSendMessage = async (message: string) => {
     await send(message);
@@ -90,10 +105,10 @@ export function AgentControlBar({
   const handleRawMicrophoneToggle = useCallback(
     (enabled: boolean) => {
       void browserSourceClient.setAudioEnabled(enabled).catch((error) => {
-        onDeviceError?.({ source: Track.Source.Microphone, error });
+        handleDeviceError({ source: Track.Source.Microphone, error });
       });
     },
-    [browserSourceClient, onDeviceError]
+    [browserSourceClient, handleDeviceError]
   );
 
   const handleRawVideoToggle = useCallback(
@@ -101,10 +116,10 @@ export function AgentControlBar({
       try {
         await browserSourceClient.setVideoEnabled(enabled);
       } catch (error) {
-        onDeviceError?.({ source: Track.Source.Camera, error: error as Error });
+        handleDeviceError({ source: Track.Source.Camera, error: error as Error });
       }
     },
-    [browserSourceClient, onDeviceError]
+    [browserSourceClient, handleDeviceError]
   );
 
   const visibleControls = {
@@ -222,4 +237,17 @@ export function AgentControlBar({
       </div>
     </div>
   );
+}
+
+function getDeviceLabel(source: Track.Source) {
+  if (source === Track.Source.Microphone) {
+    return 'Microphone';
+  }
+  if (source === Track.Source.Camera) {
+    return 'Camera';
+  }
+  if (source === Track.Source.ScreenShare) {
+    return 'Screen share';
+  }
+  return 'Media device';
 }
