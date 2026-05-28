@@ -109,6 +109,7 @@ export const SessionView = ({
         chatOpen={chatOpen}
         videoTrackConfigs={appConfig.availableVideoTracks}
         defaultVideoTrackId={appConfig.defaultVideoTrack}
+        showDefaultCameraPreview={appConfig.showDefaultCameraPreview}
       />
 
       {/* Bottom */}

@@ -16,7 +16,7 @@ const BROWSER_AUDIO_TRACK_NAME = 'browser_audio_track';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 const BROWSER_MEDIA_STREAM_NAME =
   process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_MEDIA_STREAM_NAME || 'browser_frontdesk_input';
-const BROWSER_VIDEO_DEFAULT_ENABLED = false;
+const BROWSER_VIDEO_DEFAULT_ENABLED = true;
 const BROWSER_VIDEO_FRAME_RATE = readNumberEnv(
   process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_VIDEO_FPS,
   15
@@ -56,7 +56,15 @@ export interface BrowserSourceClient {
   stop: () => void;
 }
 
-export function useBrowserSourceClient(room: Room, appConfig: AppConfig) {
+interface BrowserSourceClientOptions {
+  onVideoError?: (error: Error) => void;
+}
+
+export function useBrowserSourceClient(
+  room: Room,
+  appConfig: AppConfig,
+  { onVideoError }: BrowserSourceClientOptions = {}
+) {
   const runtimeRef = useRef<BrowserSourceRuntime | null>(null);
   const enabled = !!appConfig.usesBrowserRawMediaInput;
   const audioEnabledRef = useRef(true);
@@ -186,14 +194,25 @@ export function useBrowserSourceClient(room: Room, appConfig: AppConfig) {
       if (audioEnabledRef.current) {
         await ensureAudioPublished();
       }
-      if (videoEnabledRef.current) {
-        await ensureVideoPublished();
-      }
     } catch (error) {
       stop();
       throw error;
     }
-  }, [enabled, ensureAudioPublished, ensureVideoPublished, stop]);
+
+    if (videoEnabledRef.current) {
+      try {
+        await ensureVideoPublished();
+      } catch (error) {
+        videoEnabledRef.current = false;
+        setVideoEnabledState(false);
+        const runtime = runtimeRef.current;
+        if (runtime) {
+          runtime.videoEnabled = false;
+        }
+        onVideoError?.(error as Error);
+      }
+    }
+  }, [enabled, ensureAudioPublished, ensureVideoPublished, onVideoError, stop]);
 
   const setAudioEnabled = useCallback(
     async (nextEnabled: boolean) => {

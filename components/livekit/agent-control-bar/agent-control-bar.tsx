@@ -173,6 +173,7 @@ export function AgentControlBar({
               disabled={cameraToggle.pending}
               mediaEnabled={usesBrowserRawMediaInput ? browserSourceClient.videoEnabled : undefined}
               mediaPending={usesBrowserRawMediaInput ? browserSourceClient.videoPending : undefined}
+              autoPreviewLivekitTracks={!usesBrowserRawMediaInput}
               onMediaEnabledChange={usesBrowserRawMediaInput ? handleRawVideoToggle : undefined}
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}

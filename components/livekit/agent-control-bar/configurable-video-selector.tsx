@@ -1,12 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LocalVideoTrack, type RemoteTrackPublication, Track } from 'livekit-client';
-import {
-  type TrackReference,
-  useLocalParticipant,
-  useRoomContext,
-} from '@livekit/components-react';
+import { LocalVideoTrack, Track } from 'livekit-client';
+import { type TrackReference, useLocalParticipant } from '@livekit/components-react';
 import { BroadcastIcon, CameraIcon, WarningIcon, XIcon } from '@phosphor-icons/react/dist/ssr';
 import { VideoTrackConfig } from '@/app-config';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
@@ -21,11 +17,7 @@ import {
   type ConfigurableVideoTrackChange,
   useConfigurableVideoTracks,
 } from '@/hooks/useConfigurableVideoTracks';
-import {
-  createRemoteVideoTrackReference,
-  requestRemoteVideoHighQuality,
-  useRemoteVideoTracks,
-} from '@/hooks/useRemoteVideoTracks';
+import { useRemoteVideoTracks } from '@/hooks/useRemoteVideoTracks';
 import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +38,7 @@ interface ConfigurableVideoSelectorProps {
   disabled?: boolean;
   mediaEnabled?: boolean;
   mediaPending?: boolean;
+  autoPreviewLivekitTracks?: boolean;
   className?: string;
   onPressedChange?: (pressed: boolean) => void;
   onMediaEnabledChange?: (enabled: boolean) => Promise<void> | void;
@@ -62,6 +55,7 @@ export function ConfigurableVideoSelector({
   disabled,
   mediaEnabled,
   mediaPending,
+  autoPreviewLivekitTracks = true,
   className,
   onPressedChange,
   onMediaEnabledChange,
@@ -74,12 +68,9 @@ export function ConfigurableVideoSelector({
     clearSelectedTrack,
     trackId: selectedContextTrackId,
   } = useSelectedVideoTrack();
-  const room = useRoomContext();
   const remoteVideoTracksApi = useRemoteVideoTracks();
-  const { getTrackByName, subscribeToTrack } = remoteVideoTracksApi;
+  const { getTrackByName } = remoteVideoTracksApi;
 
-  // 分离的状态管理
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(defaultTrackId || null);
   const [isSystemCameraEnabled, setIsSystemCameraEnabled] = useState(false);
   const [isTrackPreviewEnabled, setIsTrackPreviewEnabled] = useState(false);
   const didAutoEnableLivekitPreview = useRef(false);
@@ -109,125 +100,104 @@ export function ConfigurableVideoSelector({
     [localParticipant]
   );
 
-  const { videoOptions, currentTrack, isLoading, error, switchToTrack, getTrackById, clearError } =
-    useConfigurableVideoTracks({
-      availableConfigs,
-      defaultTrackId,
-      existingLivekitTracks,
-      remoteVideoTracksApi,
-      onTrackChange: async (trackId, trackOrTrackRef) => {
-        debugVideoLog('[ConfigurableVideoSelector] Track changed:', trackId, trackOrTrackRef);
-        debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef type:', typeof trackOrTrackRef);
-        debugVideoLog(
-          '[ConfigurableVideoSelector] TrackOrTrackRef keys:',
-          trackOrTrackRef ? Object.keys(trackOrTrackRef) : 'null'
-        );
+  const {
+    videoOptions,
+    currentTrackId: selectedTrackId,
+    currentTrack,
+    isLoading,
+    error,
+    switchToTrack,
+    selectTrack,
+    getTrackById,
+    clearError,
+  } = useConfigurableVideoTracks({
+    availableConfigs,
+    defaultTrackId,
+    existingLivekitTracks,
+    remoteVideoTracksApi,
+    onTrackChange: async (trackId, trackOrTrackRef) => {
+      debugVideoLog('[ConfigurableVideoSelector] Track changed:', trackId, trackOrTrackRef);
+      debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef type:', typeof trackOrTrackRef);
+      debugVideoLog(
+        '[ConfigurableVideoSelector] TrackOrTrackRef keys:',
+        trackOrTrackRef ? Object.keys(trackOrTrackRef) : 'null'
+      );
 
-        const option = getTrackById(trackId);
-        if (!option) {
-          debugVideoLog('[ConfigurableVideoSelector] No option found for trackId:', trackId);
-          return;
-        }
+      const option = getTrackById(trackId);
+      if (!option) {
+        debugVideoLog('[ConfigurableVideoSelector] No option found for trackId:', trackId);
+        return;
+      }
 
-        debugVideoLog('[ConfigurableVideoSelector] Processing track:', {
-          trackId,
-          type: option.config.type,
-          label: option.label,
-        });
+      debugVideoLog('[ConfigurableVideoSelector] Processing track:', {
+        trackId,
+        type: option.config.type,
+        label: option.label,
+      });
 
-        try {
-          if (option.config.type === 'system' && trackOrTrackRef instanceof LocalVideoTrack) {
-            // 系统摄像头：发布本地轨道
-            debugVideoLog('[ConfigurableVideoSelector] Enabling system camera');
+      try {
+        if (option.config.type === 'system' && trackOrTrackRef instanceof LocalVideoTrack) {
+          // 系统摄像头：发布本地轨道
+          debugVideoLog('[ConfigurableVideoSelector] Enabling system camera');
 
-            const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-            if (currentCameraTrack?.track) {
-              await localParticipant.unpublishTrack(currentCameraTrack.track);
-            }
-
-            await localParticipant.publishTrack(trackOrTrackRef, {
-              source: Track.Source.Camera,
-              name: trackId,
-            });
-
-            // 设置预览轨道
-            const cameraPublication = localParticipant.getTrackPublication(Track.Source.Camera);
-            if (!cameraPublication) {
-              throw new Error('系统摄像头发布失败');
-            }
-            const trackRef: TrackReference = {
-              participant: localParticipant,
-              source: Track.Source.Camera,
-              publication: cameraPublication,
-            };
-            setSelectedTrack(trackId, trackRef);
-            setIsSystemCameraEnabled(true);
-          } else if (option.config.type === 'livekit' && trackOrTrackRef) {
-            // 远程轨道：直接使用远程轨道，不取消发布本地轨道
-            debugVideoLog('[ConfigurableVideoSelector] Processing livekit track:', trackId);
-            debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef details:', {
-              hasParticipant: 'participant' in trackOrTrackRef,
-              hasPublication: 'publication' in trackOrTrackRef,
-              hasSource: 'source' in trackOrTrackRef,
-              keys: Object.keys(trackOrTrackRef),
-            });
-
-            debugVideoLog(
-              '[ConfigurableVideoSelector] Setting selected track for livekit:',
-              trackId
-            );
-            if (isTrackReference(trackOrTrackRef)) {
-              if (isRemoteTrackPublication(trackOrTrackRef.publication)) {
-                requestRemoteVideoHighQuality(trackOrTrackRef.publication);
-              }
-              setSelectedTrack(trackId, trackOrTrackRef);
-            } else {
-              const trackKey = option.config.livekitTrackName || option.config.id;
-              const localTrackReference = getLocalTrackReference(trackKey);
-              setSelectedTrack(trackId, localTrackReference);
-            }
-            setIsTrackPreviewEnabled(true);
-
-            debugVideoLog(
-              '[ConfigurableVideoSelector] Livekit track enabled, selectedTrack set:',
-              trackId
-            );
-          } else {
-            debugVideoLog(
-              '[ConfigurableVideoSelector] Track type not handled:',
-              option.config.type
-            );
+          const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
+          if (currentCameraTrack?.track) {
+            await localParticipant.unpublishTrack(currentCameraTrack.track);
           }
 
-          onTrackChange?.(trackId, trackOrTrackRef);
-        } catch (err) {
-          console.error('[ConfigurableVideoSelector] Failed to handle track change:', err);
-          onMediaDeviceError?.(err as Error);
+          await localParticipant.publishTrack(trackOrTrackRef, {
+            source: Track.Source.Camera,
+            name: trackId,
+          });
+
+          // 设置预览轨道
+          const cameraPublication = localParticipant.getTrackPublication(Track.Source.Camera);
+          if (!cameraPublication) {
+            throw new Error('系统摄像头发布失败');
+          }
+          const trackRef: TrackReference = {
+            participant: localParticipant,
+            source: Track.Source.Camera,
+            publication: cameraPublication,
+          };
+          setSelectedTrack(trackId, trackRef);
+          setIsSystemCameraEnabled(true);
+        } else if (option.config.type === 'livekit' && trackOrTrackRef) {
+          // 远程轨道：直接使用远程轨道，不取消发布本地轨道
+          debugVideoLog('[ConfigurableVideoSelector] Processing livekit track:', trackId);
+          debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef details:', {
+            hasParticipant: 'participant' in trackOrTrackRef,
+            hasPublication: 'publication' in trackOrTrackRef,
+            hasSource: 'source' in trackOrTrackRef,
+            keys: Object.keys(trackOrTrackRef),
+          });
+
+          debugVideoLog('[ConfigurableVideoSelector] Setting selected track for livekit:', trackId);
+          if (isTrackReference(trackOrTrackRef)) {
+            setSelectedTrack(trackId, trackOrTrackRef);
+          } else {
+            const trackKey = option.config.livekitTrackName || option.config.id;
+            const localTrackReference = getLocalTrackReference(trackKey);
+            setSelectedTrack(trackId, localTrackReference);
+          }
+          setIsTrackPreviewEnabled(true);
+
+          debugVideoLog(
+            '[ConfigurableVideoSelector] Livekit track enabled, selectedTrack set:',
+            trackId
+          );
+        } else {
+          debugVideoLog('[ConfigurableVideoSelector] Track type not handled:', option.config.type);
         }
-      },
-      onError: onMediaDeviceError,
-    });
 
-  // 清理系统摄像头资源
-  const cleanupSystemCameraResources = useCallback(async () => {
-    try {
-      debugVideoLog('[ConfigurableVideoSelector] Cleaning up system camera resources');
-
-      const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-      if (currentCameraTrack?.track) {
-        await localParticipant.unpublishTrack(currentCameraTrack.track);
+        onTrackChange?.(trackId, trackOrTrackRef);
+      } catch (err) {
+        console.error('[ConfigurableVideoSelector] Failed to handle track change:', err);
+        throw err;
       }
-
-      if (currentTrack instanceof LocalVideoTrack) {
-        currentTrack.stop();
-      }
-
-      clearSelectedTrack();
-      setIsSystemCameraEnabled(false);
-    } catch (err) {
-      console.error('[ConfigurableVideoSelector] Failed to cleanup system camera:', err);
-    }
-  }, [localParticipant, currentTrack, clearSelectedTrack]);
+    },
+    onError: onMediaDeviceError,
+  });
 
   // 清理所有资源
   const cleanupAllResources = useCallback(async () => {
@@ -249,42 +219,42 @@ export function ConfigurableVideoSelector({
     didAutoEnableLivekitPreview.current = false;
   }, [isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]);
 
-  // 系统摄像头开关逻辑
-  const handleSystemCameraToggle = useCallback(
-    async (enabled?: boolean) => {
-      const shouldEnable = enabled !== undefined ? enabled : !isSystemCameraEnabled;
+  const enableTrackPreview = useCallback(
+    async (trackId: string) => {
+      const option = getTrackById(trackId);
+      if (!option) {
+        return false;
+      }
 
-      if (shouldEnable) {
-        debugVideoLog('[ConfigurableVideoSelector] Enabling system camera from scratch');
-
-        // 先清理所有现有状态
+      debugVideoLog('[ConfigurableVideoSelector] Enabling track preview:', trackId);
+      if (option.config.type === 'system' || isSystemCameraEnabled) {
         await cleanupAllResources();
+      }
 
-        // 从头开始启用系统摄像头
-        const systemTrackId = 'system_camera_default';
-        setSelectedTrackId(systemTrackId);
-        await switchToTrack(systemTrackId);
+      const connected = await switchToTrack(trackId);
+      if (!connected) {
+        return false;
+      }
 
+      if (option.config.type === 'system') {
         setIsSystemCameraEnabled(true);
+        setIsTrackPreviewEnabled(false);
         onPressedChange?.(true);
       } else {
-        debugVideoLog('[ConfigurableVideoSelector] Disabling system camera');
-
-        // 完全清理系统摄像头资源
-        await cleanupSystemCameraResources();
-
         setIsSystemCameraEnabled(false);
-        onPressedChange?.(false);
+        setIsTrackPreviewEnabled(true);
       }
+
+      return true;
     },
-    [
-      cleanupAllResources,
-      cleanupSystemCameraResources,
-      isSystemCameraEnabled,
-      switchToTrack,
-      onPressedChange,
-    ]
+    [cleanupAllResources, getTrackById, isSystemCameraEnabled, onPressedChange, switchToTrack]
   );
+
+  const disableTrackPreview = useCallback(async () => {
+    debugVideoLog('[ConfigurableVideoSelector] Disabling track preview');
+    await cleanupAllResources();
+    onPressedChange?.(false);
+  }, [cleanupAllResources, onPressedChange]);
 
   // 指定轨道预览开关逻辑
   const handleTrackPreviewToggle = useCallback(
@@ -293,147 +263,19 @@ export function ConfigurableVideoSelector({
       const trackToUse = trackIdOverride || selectedTrackId || defaultTrackId;
 
       if (shouldEnable) {
-        debugVideoLog('[ConfigurableVideoSelector] Enabling track preview - FRESH START');
-
-        // 根据轨道类型决定清理策略
-        const option = trackToUse ? getTrackById(trackToUse) : null;
-        if (option?.config.type === 'livekit') {
-          debugVideoLog('[ConfigurableVideoSelector] Remote track detected, no cleanup needed');
-          // 对于远程轨道，不需要清理任何资源
-        } else {
-          debugVideoLog('[ConfigurableVideoSelector] Complete cleanup for non-livekit track');
-          // 完全清理所有资源，不保留任何状态
-          const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-          if (currentCameraTrack?.track) {
-            await localParticipant.unpublishTrack(currentCameraTrack.track);
-          }
-          if (currentTrack instanceof LocalVideoTrack) {
-            currentTrack.stop();
-          }
-          clearSelectedTrack();
-        }
-
-        // 根据轨道类型决定处理策略
         if (trackToUse) {
-          const option = getTrackById(trackToUse);
-
-          if (option?.config.type === 'livekit') {
-            debugVideoLog(
-              '[ConfigurableVideoSelector] Handling livekit track directly:',
-              trackToUse
-            );
-
-            // 对于LiveKit轨道，直接处理订阅，不调用switchToTrack
-            const trackKey = option.config.livekitTrackName || option.config.id;
-            const localTrackReference = getLocalTrackReference(trackKey);
-            if (localTrackReference) {
-              setSelectedTrack(trackToUse, localTrackReference);
-              setIsTrackPreviewEnabled(true);
-              return;
-            }
-
-            const remoteTrackInfo = getTrackByName(trackKey);
-
-            if (remoteTrackInfo) {
-              debugVideoLog('[ConfigurableVideoSelector] Subscribing to remote track:', trackKey);
-              const subscribed = remoteTrackInfo.isSubscribed || (await subscribeToTrack(trackKey));
-
-              if (subscribed) {
-                const latestTrackInfo = getTrackByName(trackKey) ?? remoteTrackInfo;
-                requestRemoteVideoHighQuality(latestTrackInfo.publication);
-                if (!latestTrackInfo.track) {
-                  debugVideoLog(
-                    '[ConfigurableVideoSelector] Waiting for subscribed remote track media:',
-                    trackKey
-                  );
-                  return;
-                }
-                debugVideoLog(
-                  '[ConfigurableVideoSelector] Successfully subscribed to remote track:',
-                  trackKey
-                );
-
-                const trackReference = createRemoteVideoTrackReference(room, latestTrackInfo);
-                if (!trackReference) {
-                  debugVideoLog(
-                    '[ConfigurableVideoSelector] Remote participant is not ready yet:',
-                    latestTrackInfo.participantIdentity
-                  );
-                  return;
-                }
-
-                // 直接设置预览轨道
-                setSelectedTrack(trackToUse, trackReference);
-                setIsTrackPreviewEnabled(true);
-
-                debugVideoLog(
-                  '[ConfigurableVideoSelector] Livekit track preview enabled:',
-                  trackToUse
-                );
-              } else {
-                debugVideoLog(
-                  '[ConfigurableVideoSelector] Remote track subscription is still pending:',
-                  trackKey
-                );
-              }
-            } else {
-              debugVideoLog('[ConfigurableVideoSelector] Remote track is not ready yet:', trackKey);
-            }
-          } else {
-            debugVideoLog(
-              '[ConfigurableVideoSelector] Using switchToTrack for non-livekit track:',
-              trackToUse
-            );
-
-            // 对于非LiveKit轨道，使用switchToTrack
-            await switchToTrack(trackToUse);
-
-            debugVideoLog('[ConfigurableVideoSelector] switchToTrack completed, checking state...');
-            debugVideoLog('[ConfigurableVideoSelector] Current state after switch:', {
-              selectedTrackId,
-              isTrackPreviewEnabled,
-            });
-
-            setIsTrackPreviewEnabled(true);
-            onPressedChange?.(true);
-          }
+          await enableTrackPreview(trackToUse);
         }
       } else {
-        debugVideoLog('[ConfigurableVideoSelector] Disabling track preview - COMPLETE CLEANUP');
-
-        // 完全清理所有资源
-        if (!isMediaExternallyControlled) {
-          const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-          if (currentCameraTrack?.track) {
-            await localParticipant.unpublishTrack(currentCameraTrack.track);
-          }
-        }
-        if (currentTrack instanceof LocalVideoTrack && !isMediaExternallyControlled) {
-          currentTrack.stop();
-        }
-        clearSelectedTrack();
-
-        setIsTrackPreviewEnabled(false);
-        didAutoEnableLivekitPreview.current = false;
-        onPressedChange?.(false);
+        await disableTrackPreview();
       }
     },
     [
       isTrackPreviewEnabled,
       selectedTrackId,
       defaultTrackId,
-      getTrackById,
-      getTrackByName,
-      subscribeToTrack,
-      switchToTrack,
-      onPressedChange,
-      localParticipant,
-      currentTrack,
-      setSelectedTrack,
-      clearSelectedTrack,
-      room,
-      getLocalTrackReference,
-      isMediaExternallyControlled,
+      enableTrackPreview,
+      disableTrackPreview,
     ]
   );
 
@@ -445,32 +287,28 @@ export function ConfigurableVideoSelector({
 
       if (shouldEnable) {
         didAutoEnableLivekitPreview.current = false;
+        if (isMediaExternallyControlled && !autoPreviewLivekitTracks) {
+          return;
+        }
 
         // 根据选择的轨道类型决定启用哪种预览
         const trackToUse = selectedTrackId || defaultTrackId;
-        const option = trackToUse ? getTrackById(trackToUse) : null;
-
-        if (option?.config.type === 'system') {
-          await handleSystemCameraToggle(true);
-        } else if (option?.config.type === 'livekit') {
+        if (trackToUse) {
           await handleTrackPreviewToggle(true);
         }
       } else {
-        // 关闭时清理所有资源
-        await cleanupAllResources();
-        onPressedChange?.(false);
+        await disableTrackPreview();
       }
     },
     [
       effectivePressed,
       selectedTrackId,
       defaultTrackId,
-      getTrackById,
-      handleSystemCameraToggle,
       handleTrackPreviewToggle,
-      cleanupAllResources,
+      disableTrackPreview,
       onMediaEnabledChange,
-      onPressedChange,
+      isMediaExternallyControlled,
+      autoPreviewLivekitTracks,
     ]
   );
 
@@ -479,29 +317,14 @@ export function ConfigurableVideoSelector({
     async (trackId: string) => {
       debugVideoLog('[ConfigurableVideoSelector] Switching to track:', trackId);
 
-      // 先清理所有现有资源
-      await cleanupAllResources();
-
-      // 设置新的轨道ID
-      setSelectedTrackId(trackId);
+      selectTrack(trackId);
 
       // 如果当前摄像头是开启状态，立即启用新轨道
       if (effectivePressed) {
-        const option = getTrackById(trackId);
-        if (option?.config.type === 'system') {
-          await handleSystemCameraToggle(true);
-        } else if (option?.config.type === 'livekit') {
-          await handleTrackPreviewToggle(true, trackId);
-        }
+        await handleTrackPreviewToggle(true, trackId);
       }
     },
-    [
-      cleanupAllResources,
-      effectivePressed,
-      getTrackById,
-      handleSystemCameraToggle,
-      handleTrackPreviewToggle,
-    ]
+    [effectivePressed, handleTrackPreviewToggle, selectTrack]
   );
 
   // LiveKit 输入轨道来自 room 中的 frontdesk participant，不需要用户再次手动打开本机摄像头。
@@ -509,6 +332,7 @@ export function ConfigurableVideoSelector({
   useEffect(() => {
     if (
       didAutoEnableLivekitPreview.current ||
+      !autoPreviewLivekitTracks ||
       disabled ||
       isLoading ||
       isTrackPreviewEnabled ||
@@ -527,33 +351,15 @@ export function ConfigurableVideoSelector({
       return;
     }
 
-    const trackKey = option.config.livekitTrackName || option.config.id;
-    const localTrackReference = getLocalTrackReference(trackKey);
-    if (localTrackReference) {
-      didAutoEnableLivekitPreview.current = true;
-      void handleTrackPreviewToggle(true).catch((err) => {
+    didAutoEnableLivekitPreview.current = true;
+    void enableTrackPreview(trackToUse)
+      .then((connected) => {
+        didAutoEnableLivekitPreview.current = connected;
+      })
+      .catch((err) => {
         didAutoEnableLivekitPreview.current = false;
         onMediaDeviceError?.(err as Error);
       });
-      return;
-    }
-
-    const remoteTrackInfo = getTrackByName(trackKey);
-    if (!remoteTrackInfo) {
-      return;
-    }
-
-    if (!remoteTrackInfo.track) {
-      void subscribeToTrack(trackKey);
-      return;
-    }
-
-    requestRemoteVideoHighQuality(remoteTrackInfo.publication);
-    didAutoEnableLivekitPreview.current = true;
-    void handleTrackPreviewToggle(true).catch((err) => {
-      didAutoEnableLivekitPreview.current = false;
-      onMediaDeviceError?.(err as Error);
-    });
   }, [
     disabled,
     isLoading,
@@ -561,13 +367,11 @@ export function ConfigurableVideoSelector({
     selectedTrackId,
     defaultTrackId,
     getTrackById,
-    getTrackByName,
-    getLocalTrackReference,
-    subscribeToTrack,
-    handleTrackPreviewToggle,
+    enableTrackPreview,
     onMediaDeviceError,
     isMediaExternallyControlled,
     mediaEnabled,
+    autoPreviewLivekitTracks,
   ]);
 
   // 房间切换后，旧的远程 TrackReference 可能已经失效。
@@ -738,12 +542,6 @@ function isTrackReference(value: ConfigurableVideoTrackChange): value is TrackRe
     'publication' in value &&
     'source' in value
   );
-}
-
-function isRemoteTrackPublication(
-  publication: TrackReference['publication']
-): publication is RemoteTrackPublication {
-  return 'setVideoQuality' in publication;
 }
 
 function VideoTrackOptionIcon({ icon }: { icon: VideoTrackConfig['icon'] }) {

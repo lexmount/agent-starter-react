@@ -44,7 +44,7 @@ export interface UseConfigurableVideoTracksOptions {
     UseRemoteVideoTracksReturn,
     'remoteVideoTracks' | 'subscribeToTrack' | 'getTrackByName'
   >;
-  onTrackChange?: (trackId: string, track: ConfigurableVideoTrackChange) => void;
+  onTrackChange?: (trackId: string, track: ConfigurableVideoTrackChange) => void | Promise<void>;
   onError?: (error: Error) => void;
 }
 
@@ -54,7 +54,8 @@ export interface UseConfigurableVideoTracksReturn {
   currentTrack: LocalVideoTrack | RemoteVideoTrack | null;
   isLoading: boolean;
   error: string | null;
-  switchToTrack: (trackId: string) => Promise<void>;
+  switchToTrack: (trackId: string) => Promise<boolean>;
+  selectTrack: (trackId: string | null) => void;
   getTrackById: (trackId: string) => VideoTrackOption | undefined;
   clearError: () => void;
 }
@@ -169,7 +170,7 @@ export function useConfigurableVideoTracks({
           const errorMsg = `视频轨道 "${trackId}" 不存在`;
           setError(errorMsg);
           console.error(errorMsg);
-          return;
+          return false;
         }
 
         debugVideoLog('[useConfigurableVideoTracks] Found option:', {
@@ -183,7 +184,12 @@ export function useConfigurableVideoTracks({
         setCurrentTrackId(trackId);
         debugVideoLog('[useConfigurableVideoTracks] Set currentTrackId to:', trackId);
 
-        stopLocalVideoTrack(currentTrack);
+        const currentOption = currentTrackId
+          ? videoOptions.find((opt) => opt.id === currentTrackId)
+          : undefined;
+        if (currentOption?.config.type === 'system') {
+          stopLocalVideoTrack(currentTrack);
+        }
         setCurrentTrack(null);
 
         let existingTrack: LocalVideoTrack | undefined;
@@ -207,7 +213,7 @@ export function useConfigurableVideoTracks({
                 const errorMsg = `无法订阅LiveKit轨道 "${option.label}"，请检查轨道状态`;
                 setError(errorMsg);
                 console.error(errorMsg);
-                return;
+                return false;
               }
 
               const latestTrackInfo = getTrackByName(trackKey) ?? remoteTrackInfo;
@@ -221,7 +227,7 @@ export function useConfigurableVideoTracks({
                   const errorMsg = `LiveKit轨道 "${option.label}" 所属参与者未找到`;
                   setError(errorMsg);
                   console.error(errorMsg);
-                  return;
+                  return false;
                 }
 
                 // 设置当前轨道（用于状态管理）
@@ -242,20 +248,20 @@ export function useConfigurableVideoTracks({
                 setCurrentTrackId(trackId);
 
                 // 对于远程轨道，传递 trackReference 给 onTrackChange
-                onTrackChange?.(trackId, trackReference);
-                return; // 直接返回，不需要继续创建轨道
+                await onTrackChange?.(trackId, trackReference);
+                return true; // 直接返回，不需要继续创建轨道
               }
 
               debugVideoLog(
                 `[useConfigurableVideoTracks] Waiting for subscribed remote track media: ${trackKey}`
               );
-              return;
+              return false;
             } else {
               const errorMsg = `LiveKit轨道 "${option.label}" 未找到，请确保轨道已正确发布`;
               setError(errorMsg);
               console.error(errorMsg);
               // 不要回退到其他轨道，保持当前选择但不连接
-              return;
+              return false;
             }
           }
         }
@@ -265,7 +271,7 @@ export function useConfigurableVideoTracks({
           const errorMsg = `系统摄像头 "${option.label}" 当前不可用，请检查设备连接或权限`;
           setError(errorMsg);
           console.error(errorMsg);
-          return;
+          return false;
         }
 
         const newTrack = await trackFactory.createTrackFromConfig(option.config, existingTrack);
@@ -286,12 +292,14 @@ export function useConfigurableVideoTracks({
           );
 
           debugVideoLog(`Successfully connected to track: ${option.label}`);
-          onTrackChange?.(trackId, newTrack);
+          await onTrackChange?.(trackId, newTrack);
+          return true;
         } else {
           const errorMsg = `无法创建视频轨道 "${option.label}"，请检查设备或权限`;
           setError(errorMsg);
           console.error(errorMsg);
           // 保持选择但不连接轨道
+          return false;
         }
       } catch (error) {
         const errorMsg = `连接视频轨道时发生错误: ${(error as Error).message}`;
@@ -299,6 +307,7 @@ export function useConfigurableVideoTracks({
         console.error('Error connecting video track:', error);
         // 保持选择但不连接轨道
         onError?.(error as Error);
+        return false;
       } finally {
         setIsLoading(false);
       }
@@ -316,6 +325,11 @@ export function useConfigurableVideoTracks({
       getTrackByName,
     ]
   );
+
+  const selectTrack = useCallback((trackId: string | null) => {
+    setCurrentTrackId(trackId);
+    setError(null);
+  }, []);
 
   // 刷新轨道列表
   // 移除刷新功能 - 视频轨道列表在初始化时确定
@@ -353,6 +367,7 @@ export function useConfigurableVideoTracks({
     isLoading,
     error,
     switchToTrack,
+    selectTrack,
     getTrackById,
     clearError,
   };

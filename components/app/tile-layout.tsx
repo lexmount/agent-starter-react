@@ -96,12 +96,14 @@ interface TileLayoutProps {
   chatOpen: boolean;
   videoTrackConfigs?: VideoTrackConfig[];
   defaultVideoTrackId?: string;
+  showDefaultCameraPreview?: boolean;
 }
 
 export function TileLayout({
   chatOpen,
   videoTrackConfigs = APP_CONFIG_DEFAULTS.availableVideoTracks,
   defaultVideoTrackId = APP_CONFIG_DEFAULTS.defaultVideoTrack,
+  showDefaultCameraPreview = APP_CONFIG_DEFAULTS.showDefaultCameraPreview ?? true,
 }: TileLayoutProps) {
   const {
     state: agentState,
@@ -159,8 +161,8 @@ export function TileLayout({
 
   const cameraTrack =
     selectedTrack ||
-    (selectedTrackId === null ? configuredCameraTrack : undefined) ||
-    defaultCameraTrack;
+    (showDefaultCameraPreview && selectedTrackId === null ? configuredCameraTrack : undefined) ||
+    (showDefaultCameraPreview ? defaultCameraTrack : undefined);
 
   const isCameraEnabled =
     cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;

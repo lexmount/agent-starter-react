@@ -8,7 +8,15 @@ export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
   const room = useMemo(() => new Room(), []);
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const browserSourceClient = useBrowserSourceClient(room, appConfig);
+  const handleBrowserVideoError = useCallback((error: Error) => {
+    toastAlert({
+      title: 'Camera could not start',
+      description: `${error.name}: ${error.message}`,
+    });
+  }, []);
+  const browserSourceClient = useBrowserSourceClient(room, appConfig, {
+    onVideoError: handleBrowserVideoError,
+  });
 
   useEffect(() => {
     function onDisconnected() {

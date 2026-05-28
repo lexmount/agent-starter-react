@@ -45,14 +45,15 @@ export interface AppConfig {
   // 视频轨道配置
   availableVideoTracks: VideoTrackConfig[];
   defaultVideoTrack?: string; // 默认选择的视频轨道ID
+  showDefaultCameraPreview?: boolean; // 是否默认显示摄像头/视频输入预览
 }
 
 const FRONTDESK_DEVICE = (process.env.NEXT_PUBLIC_FRONTDESK_DEVICE || '').trim().toLowerCase();
 const IS_BROWSER_FRONTDESK = FRONTDESK_DEVICE === 'browser';
 const FRONTDESK_AGENT_NAME = (process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME || '').trim();
-const FRONTDESK_AUDIO_TRACK_NAME = 'frontdesk_audio_track';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
-const FRONTDESK_VIDEO_TRACK_NAME = 'frontdesk_video_track';
+const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
+const ROOM_INPUT_VIDEO_TRACK_NAME = 'room_video';
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Lexmount',
@@ -76,7 +77,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   agentName: FRONTDESK_AGENT_NAME || undefined,
 
   // 音频过滤配置
-  excludeAudioTracks: [FRONTDESK_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
+  excludeAudioTracks: [ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
 
   // 调试配置
   showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
@@ -88,10 +89,11 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
   showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: ['frontdesk_input_agent'], // 用户转录身份标识（自定义音频track）
+  userTranscriptionIdentities: ['room_input'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置
+  showDefaultCameraPreview: !IS_BROWSER_FRONTDESK,
   availableVideoTracks: [
     ...(IS_BROWSER_FRONTDESK
       ? [
@@ -116,14 +118,14 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
           },
         ]),
     {
-      id: FRONTDESK_VIDEO_TRACK_NAME,
+      id: ROOM_INPUT_VIDEO_TRACK_NAME,
       label: '人脸检测频道',
       type: 'livekit',
-      livekitTrackName: FRONTDESK_VIDEO_TRACK_NAME,
+      livekitTrackName: ROOM_INPUT_VIDEO_TRACK_NAME,
       enabled: true,
       icon: 'broadcast' as const,
       description: '前台统一视频预览',
     },
   ],
-  defaultVideoTrack: FRONTDESK_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道
+  defaultVideoTrack: ROOM_INPUT_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道
 };
