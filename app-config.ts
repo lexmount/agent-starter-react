@@ -46,6 +46,9 @@ export interface AppConfig {
   defaultVideoTrack?: string; // 默认选择的视频轨道ID
 }
 
+const frontdeskVideoTrackName =
+  process.env.NEXT_PUBLIC_FRONTDESK_VIDEO_TRACK_NAME || 'xunfei_video_track';
+
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Lexmount',
   pageTitle: 'Lexmount Voice Agent',
@@ -68,7 +71,8 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   
   // 音频过滤配置
   excludeAudioTracks: [
-    'xunfei_audio_track'
+    'xunfei_audio_track',
+    'room_audio'
   ], // 要排除的音频轨道名称列表
   
   // 调试配置
@@ -95,14 +99,14 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
       description: '系统默认摄像头设备',
     },
     {
-      id: 'xunfei_video_track',
+      id: frontdeskVideoTrackName,
       label: '人脸检测频道',
       type: 'livekit',
-      livekitTrackName: 'xunfei_video_track',
+      livekitTrackName: frontdeskVideoTrackName,
       enabled: true,
       icon: '📡',
       description: '讯飞人脸检测预览',
     },
   ],
-  defaultVideoTrack: 'xunfei_video_track', // 默认选择用户指定的轨道
+  defaultVideoTrack: frontdeskVideoTrackName, // 默认选择用户指定的轨道
 };
