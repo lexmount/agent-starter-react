@@ -48,9 +48,19 @@ export interface AppConfig {
   showDefaultCameraPreview?: boolean; // 是否默认显示摄像头/视频输入预览
 }
 
-const FRONTDESK_DEVICE = (process.env.NEXT_PUBLIC_FRONTDESK_DEVICE || '').trim().toLowerCase();
-const IS_BROWSER_FRONTDESK = FRONTDESK_DEVICE === 'browser';
-const FRONTDESK_AGENT_NAME = (process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME || '').trim();
+const LEXVOICE_DEVICE = (
+  process.env.NEXT_PUBLIC_LEXVOICE_DEVICE ||
+  process.env.NEXT_PUBLIC_FRONTDESK_DEVICE ||
+  ''
+)
+  .trim()
+  .toLowerCase();
+const IS_BROWSER_ROOM_INPUT = LEXVOICE_DEVICE === 'browser';
+const LEXVOICE_AGENT_NAME = (
+  process.env.NEXT_PUBLIC_LEXVOICE_AGENT_NAME ||
+  process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME ||
+  ''
+).trim();
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME = 'room_video';
 
@@ -61,9 +71,9 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
 
   supportsChatInput: true,
   supportsVideoInput: true,
-  supportsScreenShare: !IS_BROWSER_FRONTDESK,
+  supportsScreenShare: !IS_BROWSER_ROOM_INPUT,
   isPreConnectBufferEnabled: true,
-  usesBrowserRawMediaInput: IS_BROWSER_FRONTDESK,
+  usesBrowserRawMediaInput: IS_BROWSER_ROOM_INPUT,
 
   logo: '/lk-logo.png',
   accent: '#002cf2',
@@ -73,7 +83,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
 
   // for LiveKit Cloud Sandbox
   sandboxId: undefined,
-  agentName: FRONTDESK_AGENT_NAME || undefined,
+  agentName: LEXVOICE_AGENT_NAME || undefined,
 
   // 音频过滤配置
   excludeAudioTracks: [ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
@@ -92,9 +102,9 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置
-  showDefaultCameraPreview: !IS_BROWSER_FRONTDESK,
+  showDefaultCameraPreview: !IS_BROWSER_ROOM_INPUT,
   availableVideoTracks: [
-    ...(!IS_BROWSER_FRONTDESK
+    ...(!IS_BROWSER_ROOM_INPUT
       ? [
           {
             id: 'system_camera_default',
@@ -113,7 +123,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
       livekitTrackName: ROOM_INPUT_VIDEO_TRACK_NAME,
       enabled: true,
       icon: 'broadcast' as const,
-      description: '前台统一视频预览',
+      description: '统一输入视频预览',
     },
   ],
   defaultVideoTrack: ROOM_INPUT_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道

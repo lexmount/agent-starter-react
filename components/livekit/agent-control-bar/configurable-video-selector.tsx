@@ -21,10 +21,12 @@ import { useRemoteVideoTracks } from '@/hooks/useRemoteVideoTracks';
 import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
 import { cn } from '@/lib/utils';
 
-const DEBUG_FRONTDESK_VIDEO = process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO === 'true';
+const DEBUG_LEXVOICE_VIDEO =
+  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
+    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
 
 function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_FRONTDESK_VIDEO) {
+  if (DEBUG_LEXVOICE_VIDEO) {
     console.log(...args);
   }
 }
@@ -327,7 +329,7 @@ export function ConfigurableVideoSelector({
     [effectivePressed, handleTrackPreviewToggle, selectTrack]
   );
 
-  // LiveKit 输入轨道来自 room 中的 frontdesk participant，不需要用户再次手动打开本机摄像头。
+  // LiveKit 输入轨道来自 room 中的输入 participant，不需要用户再次手动打开本机摄像头。
   // 当默认远程轨道已经订阅成功时，自动把它选为预览轨道。
   useEffect(() => {
     if (

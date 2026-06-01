@@ -18,17 +18,22 @@ import {
   useRoomContext,
 } from '@livekit/components-react';
 
-const DEBUG_FRONTDESK_VIDEO = process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO === 'true';
+const DEBUG_LEXVOICE_VIDEO =
+  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
+    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
 const REMOTE_VIDEO_PREVIEW_WIDTH = readNumberEnv(
-  process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_WIDTH,
+  process.env.NEXT_PUBLIC_LEXVOICE_REMOTE_VIDEO_WIDTH ||
+    process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_WIDTH,
   1280
 );
 const REMOTE_VIDEO_PREVIEW_HEIGHT = readNumberEnv(
-  process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_HEIGHT,
+  process.env.NEXT_PUBLIC_LEXVOICE_REMOTE_VIDEO_HEIGHT ||
+    process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_HEIGHT,
   720
 );
 const REMOTE_VIDEO_PREVIEW_FPS = readNumberEnv(
-  process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_FPS,
+  process.env.NEXT_PUBLIC_LEXVOICE_REMOTE_VIDEO_FPS ||
+    process.env.NEXT_PUBLIC_FRONTDESK_REMOTE_VIDEO_FPS,
   15
 );
 
@@ -55,7 +60,7 @@ function readNumberEnv(value: string | undefined, fallback: number) {
 }
 
 function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_FRONTDESK_VIDEO) {
+  if (DEBUG_LEXVOICE_VIDEO) {
     console.log(...args);
   }
 }

@@ -10,10 +10,12 @@ import {
 } from './useRemoteVideoTracks';
 import { useVideoTrackFactory } from './useVideoTrackFactory';
 
-const DEBUG_FRONTDESK_VIDEO = process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO === 'true';
+const DEBUG_LEXVOICE_VIDEO =
+  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
+    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
 
 function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_FRONTDESK_VIDEO) {
+  if (DEBUG_LEXVOICE_VIDEO) {
     console.log(...args);
   }
 }

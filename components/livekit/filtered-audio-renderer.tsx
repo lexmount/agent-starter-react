@@ -11,10 +11,12 @@ import {
 } from 'livekit-client';
 import { useRemoteParticipants, useRoomContext } from '@livekit/components-react';
 
-const DEBUG_FRONTDESK_AUDIO = process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_AUDIO === 'true';
+const DEBUG_LEXVOICE_AUDIO =
+  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_AUDIO ||
+    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_AUDIO) === 'true';
 
 function debugAudioLog(...args: unknown[]) {
-  if (DEBUG_FRONTDESK_AUDIO) {
+  if (DEBUG_LEXVOICE_AUDIO) {
     console.log(...args);
   }
 }
