@@ -3,19 +3,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LocalVideoTrack, type RemoteVideoTrack } from 'livekit-client';
 import { type TrackReference, useRoomContext } from '@livekit/components-react';
-import { VideoTrackConfig } from '@/app-config';
+import type { AppConfig, VideoTrackConfig } from '@/app-config';
 import {
   type UseRemoteVideoTracksReturn,
   createRemoteVideoTrackReference,
 } from './useRemoteVideoTracks';
 import { useVideoTrackFactory } from './useVideoTrackFactory';
 
-const DEBUG_LEXVOICE_VIDEO =
-  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
-    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
-
-function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_LEXVOICE_VIDEO) {
+function debugVideoLog(config: Pick<AppConfig, 'debugVideo'> | undefined, ...args: unknown[]) {
+  if (config?.debugVideo) {
     console.log(...args);
   }
 }
@@ -46,6 +42,7 @@ export interface UseConfigurableVideoTracksOptions {
     UseRemoteVideoTracksReturn,
     'remoteVideoTracks' | 'subscribeToTrack' | 'getTrackByName'
   >;
+  appConfig?: Pick<AppConfig, 'debugVideo'>;
   onTrackChange?: (trackId: string, track: ConfigurableVideoTrackChange) => void | Promise<void>;
   onError?: (error: Error) => void;
 }
@@ -67,6 +64,7 @@ export function useConfigurableVideoTracks({
   defaultTrackId,
   existingLivekitTracks,
   remoteVideoTracksApi,
+  appConfig,
   onTrackChange,
   onError,
 }: UseConfigurableVideoTracksOptions): UseConfigurableVideoTracksReturn {
@@ -119,6 +117,7 @@ export function useConfigurableVideoTracks({
             const remoteTrackInfo = getTrackByName(trackKey);
             option.available = !!remoteTrackInfo;
             debugVideoLog(
+              appConfig,
               `[useConfigurableVideoTracks] LiveKit track "${trackKey}" ${option.available ? 'found' : 'not found'} in remote tracks`
             );
           }
@@ -141,23 +140,36 @@ export function useConfigurableVideoTracks({
       const defaultOption = options.find((opt) => opt.id === defaultTrackId);
       if (defaultOption) {
         setCurrentTrackId(defaultTrackId);
-        debugVideoLog(`Default track selected: ${defaultOption.label} (not connected yet)`);
+        debugVideoLog(
+          appConfig,
+          `Default track selected: ${defaultOption.label} (not connected yet)`
+        );
       } else {
         // 如果默认轨道不存在，选择第一个可用的轨道
         const firstAvailable = options.find((opt) => opt.available);
         if (firstAvailable) {
           setCurrentTrackId(firstAvailable.id);
-          debugVideoLog(`Fallback track selected: ${firstAvailable.label} (not connected yet)`);
+          debugVideoLog(
+            appConfig,
+            `Fallback track selected: ${firstAvailable.label} (not connected yet)`
+          );
         }
       }
     }
-  }, [availableConfigs, defaultTrackId, existingLivekitTracks, getTrackByName, currentTrackId]);
+  }, [
+    appConfig,
+    availableConfigs,
+    currentTrackId,
+    defaultTrackId,
+    existingLivekitTracks,
+    getTrackByName,
+  ]);
 
   // 切换到指定轨道
   const switchToTrack = useCallback(
     async (trackId: string) => {
-      debugVideoLog('[useConfigurableVideoTracks] switchToTrack called:', trackId);
-      debugVideoLog('[useConfigurableVideoTracks] Current state:', {
+      debugVideoLog(appConfig, '[useConfigurableVideoTracks] switchToTrack called:', trackId);
+      debugVideoLog(appConfig, '[useConfigurableVideoTracks] Current state:', {
         currentTrackId,
         videoOptionsCount: videoOptions.length,
         availableOptions: videoOptions.filter((opt) => opt.available).map((opt) => opt.id),
@@ -175,7 +187,7 @@ export function useConfigurableVideoTracks({
           return false;
         }
 
-        debugVideoLog('[useConfigurableVideoTracks] Found option:', {
+        debugVideoLog(appConfig, '[useConfigurableVideoTracks] Found option:', {
           id: option.id,
           label: option.label,
           type: option.config.type,
@@ -184,7 +196,7 @@ export function useConfigurableVideoTracks({
 
         // 先设置当前选中的轨道ID（即使连接可能失败）
         setCurrentTrackId(trackId);
-        debugVideoLog('[useConfigurableVideoTracks] Set currentTrackId to:', trackId);
+        debugVideoLog(appConfig, '[useConfigurableVideoTracks] Set currentTrackId to:', trackId);
 
         const currentOption = currentTrackId
           ? videoOptions.find((opt) => opt.id === currentTrackId)
@@ -208,6 +220,7 @@ export function useConfigurableVideoTracks({
             const remoteTrackInfo = getTrackByName(trackKey);
             if (remoteTrackInfo) {
               debugVideoLog(
+                appConfig,
                 `[useConfigurableVideoTracks] Attempting to subscribe to remote track: ${trackKey}`
               );
               const subscribed = remoteTrackInfo.isSubscribed || (await subscribeToTrack(trackKey));
@@ -221,6 +234,7 @@ export function useConfigurableVideoTracks({
               const latestTrackInfo = getTrackByName(trackKey) ?? remoteTrackInfo;
               if (latestTrackInfo.track) {
                 debugVideoLog(
+                  appConfig,
                   `[useConfigurableVideoTracks] Successfully subscribed to remote track: ${trackKey}`
                 );
 
@@ -244,7 +258,7 @@ export function useConfigurableVideoTracks({
                   )
                 );
 
-                debugVideoLog(`Successfully connected to remote track: ${option.label}`);
+                debugVideoLog(appConfig, `Successfully connected to remote track: ${option.label}`);
 
                 // 设置当前轨道ID
                 setCurrentTrackId(trackId);
@@ -255,6 +269,7 @@ export function useConfigurableVideoTracks({
               }
 
               debugVideoLog(
+                appConfig,
                 `[useConfigurableVideoTracks] Waiting for subscribed remote track media: ${trackKey}`
               );
               return false;
@@ -293,7 +308,7 @@ export function useConfigurableVideoTracks({
             )
           );
 
-          debugVideoLog(`Successfully connected to track: ${option.label}`);
+          debugVideoLog(appConfig, `Successfully connected to track: ${option.label}`);
           await onTrackChange?.(trackId, newTrack);
           return true;
         } else {
@@ -316,6 +331,7 @@ export function useConfigurableVideoTracks({
     },
     [
       videoOptions,
+      appConfig,
       currentTrack,
       currentTrackId,
       trackFactory,
@@ -356,9 +372,12 @@ export function useConfigurableVideoTracks({
 
   // 监听远程轨道变化
   useEffect(() => {
-    debugVideoLog('[useConfigurableVideoTracks] Remote tracks updated, refreshing availability');
+    debugVideoLog(
+      appConfig,
+      '[useConfigurableVideoTracks] Remote tracks updated, refreshing availability'
+    );
     initializeVideoOptions();
-  }, [remoteVideoTracks, initializeVideoOptions]);
+  }, [appConfig, remoteVideoTracks, initializeVideoOptions]);
 
   return {
     videoOptions,

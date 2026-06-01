@@ -18,6 +18,14 @@ export interface AppConfig {
   supportsScreenShare: boolean;
   isPreConnectBufferEnabled: boolean;
   usesBrowserRawMediaInput?: boolean;
+  browserMediaStreamName?: string;
+  browserVideoWidth?: number;
+  browserVideoHeight?: number;
+  browserVideoFps?: number;
+  browserVideoMaxBitrate?: number;
+  remoteVideoWidth?: number;
+  remoteVideoHeight?: number;
+  remoteVideoFps?: number;
 
   logo: string;
   startButtonText: string;
@@ -31,6 +39,8 @@ export interface AppConfig {
 
   excludeAudioTracks: string[];
   showAudioFilterDebug?: boolean;
+  debugAudio?: boolean;
+  debugVideo?: boolean;
 
   // 全局调试配置
   enableGlobalDebug?: boolean; // 全局调试开关，控制所有调试信息的显示
@@ -48,63 +58,12 @@ export interface AppConfig {
   showDefaultCameraPreview?: boolean; // 是否默认显示摄像头/视频输入预览
 }
 
-const LEXVOICE_DEVICE = (
-  process.env.NEXT_PUBLIC_LEXVOICE_DEVICE ||
-  process.env.NEXT_PUBLIC_FRONTDESK_DEVICE ||
-  ''
-)
-  .trim()
-  .toLowerCase();
-const IS_BROWSER_ROOM_INPUT = LEXVOICE_DEVICE === 'browser';
-const LEXVOICE_AGENT_NAME = (
-  process.env.NEXT_PUBLIC_LEXVOICE_AGENT_NAME ||
-  process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME ||
-  ''
-).trim();
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME = 'room_video';
 
-export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Lexmount',
-  pageTitle: 'Lexmount Voice Agent',
-  pageDescription: 'A voice agent built with Lexmount Agent Studio',
-
-  supportsChatInput: true,
-  supportsVideoInput: true,
-  supportsScreenShare: !IS_BROWSER_ROOM_INPUT,
-  isPreConnectBufferEnabled: true,
-  usesBrowserRawMediaInput: IS_BROWSER_ROOM_INPUT,
-
-  logo: '/lk-logo.png',
-  accent: '#002cf2',
-  logoDark: '/lk-logo-dark.png',
-  accentDark: '#1fd5f9',
-  startButtonText: 'Start call',
-
-  // for LiveKit Cloud Sandbox
-  sandboxId: undefined,
-  agentName: LEXVOICE_AGENT_NAME || undefined,
-
-  // 音频过滤配置
-  excludeAudioTracks: [ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
-
-  // 调试配置
-  showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
-
-  // 全局调试配置
-  enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
-
-  // 字幕和转录配置
-  enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
-  enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
-  showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: ['room_input'], // 用户转录身份标识（自定义音频track）
-  showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
-
-  // 视频轨道配置
-  showDefaultCameraPreview: !IS_BROWSER_ROOM_INPUT,
-  availableVideoTracks: [
-    ...(!IS_BROWSER_ROOM_INPUT
+export function buildDefaultVideoTracks(isBrowserInput: boolean): VideoTrackConfig[] {
+  return [
+    ...(!isBrowserInput
       ? [
           {
             id: 'system_camera_default',
@@ -119,12 +78,64 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
     {
       id: ROOM_INPUT_VIDEO_TRACK_NAME,
       label: '人脸检测频道',
-      type: 'livekit',
+      type: 'livekit' as const,
       livekitTrackName: ROOM_INPUT_VIDEO_TRACK_NAME,
       enabled: true,
       icon: 'broadcast' as const,
       description: '统一输入视频预览',
     },
-  ],
+  ];
+}
+
+export const APP_CONFIG_DEFAULTS: AppConfig = {
+  companyName: 'Lexmount',
+  pageTitle: 'Lexmount Voice Agent',
+  pageDescription: 'A voice agent built with Lexmount Agent Studio',
+
+  supportsChatInput: true,
+  supportsVideoInput: true,
+  supportsScreenShare: true,
+  isPreConnectBufferEnabled: true,
+  usesBrowserRawMediaInput: false,
+  browserMediaStreamName: 'browser_input',
+  browserVideoWidth: 1280,
+  browserVideoHeight: 720,
+  browserVideoFps: 15,
+  browserVideoMaxBitrate: 1700000,
+  remoteVideoWidth: 1280,
+  remoteVideoHeight: 720,
+  remoteVideoFps: 15,
+
+  logo: '/lk-logo.png',
+  accent: '#002cf2',
+  logoDark: '/lk-logo-dark.png',
+  accentDark: '#1fd5f9',
+  startButtonText: 'Start call',
+
+  // for LiveKit Cloud Sandbox
+  sandboxId: undefined,
+  agentName: undefined,
+
+  // 音频过滤配置
+  excludeAudioTracks: [ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
+
+  // 调试配置
+  showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
+  debugAudio: false,
+  debugVideo: false,
+
+  // 全局调试配置
+  enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
+
+  // 字幕和转录配置
+  enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
+  enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
+  showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
+  userTranscriptionIdentities: ['room_input'], // 用户转录身份标识（自定义音频track）
+  showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
+
+  // 视频轨道配置
+  showDefaultCameraPreview: true,
+  availableVideoTracks: buildDefaultVideoTracks(false),
   defaultVideoTrack: ROOM_INPUT_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道
 };

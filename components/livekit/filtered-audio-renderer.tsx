@@ -11,12 +11,8 @@ import {
 } from 'livekit-client';
 import { useRemoteParticipants, useRoomContext } from '@livekit/components-react';
 
-const DEBUG_LEXVOICE_AUDIO =
-  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_AUDIO ||
-    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_AUDIO) === 'true';
-
-function debugAudioLog(...args: unknown[]) {
-  if (DEBUG_LEXVOICE_AUDIO) {
+function debugAudioLog(enabled: boolean | undefined, ...args: unknown[]) {
+  if (enabled) {
     console.log(...args);
   }
 }
@@ -24,6 +20,7 @@ function debugAudioLog(...args: unknown[]) {
 interface FilteredAudioRendererProps {
   excludeTrackNames?: string[];
   volume?: number;
+  debugAudio?: boolean;
 }
 
 /**
@@ -33,6 +30,7 @@ interface FilteredAudioRendererProps {
 export function FilteredAudioRenderer({
   excludeTrackNames = [],
   volume = 1.0,
+  debugAudio,
 }: FilteredAudioRendererProps) {
   const room = useRoomContext();
   const participants = useRemoteParticipants();
@@ -72,6 +70,7 @@ export function FilteredAudioRenderer({
 
       if (shouldExclude) {
         debugAudioLog(
+          debugAudio,
           `[FilteredAudioRenderer] 排除音频轨道: ${trackName} (参与者: ${participantIdentity})`
         );
 
@@ -97,6 +96,7 @@ export function FilteredAudioRenderer({
         audioElements.set(elementKey, audioElement);
 
         debugAudioLog(
+          debugAudio,
           `[FilteredAudioRenderer] 创建音频元素: ${trackName} (参与者: ${participantIdentity})`
         );
       }
@@ -107,6 +107,7 @@ export function FilteredAudioRenderer({
       audioElement.volume = volume;
 
       debugAudioLog(
+        debugAudio,
         `[FilteredAudioRenderer] 播放音频轨道: ${trackName} (参与者: ${participantIdentity})`
       );
     };
@@ -129,6 +130,7 @@ export function FilteredAudioRenderer({
         audioElements.delete(elementKey);
 
         debugAudioLog(
+          debugAudio,
           `[FilteredAudioRenderer] 停止音频轨道: ${trackName} (参与者: ${participantIdentity})`
         );
       }
@@ -196,7 +198,7 @@ export function FilteredAudioRenderer({
       room.off(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
       participantListenerCleanups.forEach((cleanupListener) => cleanupListener());
     };
-  }, [room, participants, excludeTrackNames, volume]);
+  }, [room, participants, excludeTrackNames, volume, debugAudio]);
 
   // 更新音量
   useEffect(() => {

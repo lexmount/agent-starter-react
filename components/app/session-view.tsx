@@ -110,6 +110,7 @@ export const SessionView = ({
         videoTrackConfigs={appConfig.availableVideoTracks}
         defaultVideoTrackId={appConfig.defaultVideoTrack}
         showDefaultCameraPreview={appConfig.showDefaultCameraPreview}
+        debugVideo={appConfig.debugVideo}
       />
 
       {/* Bottom */}

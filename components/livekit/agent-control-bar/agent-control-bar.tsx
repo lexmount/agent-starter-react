@@ -183,6 +183,7 @@ export function AgentControlBar({
               availableConfigs={appConfig.availableVideoTracks}
               defaultTrackId={appConfig.defaultVideoTrack}
               existingLivekitTracks={browserRawVideoTracks}
+              appConfig={appConfig}
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
               disabled={cameraToggle.pending}

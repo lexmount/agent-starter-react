@@ -19,7 +19,10 @@ export function App({ appConfig }: AppProps) {
         <ViewController />
       </main>
       <StartAudio label="Start Audio" />
-      <FilteredAudioRenderer excludeTrackNames={appConfig.excludeAudioTracks} />
+      <FilteredAudioRenderer
+        excludeTrackNames={appConfig.excludeAudioTracks}
+        debugAudio={appConfig.debugAudio}
+      />
       <AudioFilterDebug
         excludeTrackNames={appConfig.excludeAudioTracks}
         show={appConfig.showAudioFilterDebug}

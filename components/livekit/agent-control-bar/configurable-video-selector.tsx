@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalVideoTrack, Track } from 'livekit-client';
 import { type TrackReference, useLocalParticipant } from '@livekit/components-react';
 import { BroadcastIcon, CameraIcon, WarningIcon, XIcon } from '@phosphor-icons/react/dist/ssr';
-import { VideoTrackConfig } from '@/app-config';
+import type { AppConfig, VideoTrackConfig } from '@/app-config';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
 import {
   Select,
@@ -21,12 +21,8 @@ import { useRemoteVideoTracks } from '@/hooks/useRemoteVideoTracks';
 import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
 import { cn } from '@/lib/utils';
 
-const DEBUG_LEXVOICE_VIDEO =
-  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
-    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
-
-function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_LEXVOICE_VIDEO) {
+function debugVideoLog(config: Pick<AppConfig, 'debugVideo'> | undefined, ...args: unknown[]) {
+  if (config?.debugVideo) {
     console.log(...args);
   }
 }
@@ -41,6 +37,10 @@ interface ConfigurableVideoSelectorProps {
   mediaEnabled?: boolean;
   mediaPending?: boolean;
   autoPreviewLivekitTracks?: boolean;
+  appConfig?: Pick<
+    AppConfig,
+    'debugVideo' | 'remoteVideoWidth' | 'remoteVideoHeight' | 'remoteVideoFps'
+  >;
   className?: string;
   onPressedChange?: (pressed: boolean) => void;
   onMediaEnabledChange?: (enabled: boolean) => Promise<void> | void;
@@ -58,6 +58,7 @@ export function ConfigurableVideoSelector({
   mediaEnabled,
   mediaPending,
   autoPreviewLivekitTracks = true,
+  appConfig,
   className,
   onPressedChange,
   onMediaEnabledChange,
@@ -70,7 +71,7 @@ export function ConfigurableVideoSelector({
     clearSelectedTrack,
     trackId: selectedContextTrackId,
   } = useSelectedVideoTrack();
-  const remoteVideoTracksApi = useRemoteVideoTracks();
+  const remoteVideoTracksApi = useRemoteVideoTracks(appConfig);
   const { getTrackByName } = remoteVideoTracksApi;
 
   const [isSystemCameraEnabled, setIsSystemCameraEnabled] = useState(false);
@@ -117,21 +118,36 @@ export function ConfigurableVideoSelector({
     defaultTrackId,
     existingLivekitTracks,
     remoteVideoTracksApi,
+    appConfig,
     onTrackChange: async (trackId, trackOrTrackRef) => {
-      debugVideoLog('[ConfigurableVideoSelector] Track changed:', trackId, trackOrTrackRef);
-      debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef type:', typeof trackOrTrackRef);
       debugVideoLog(
+        appConfig,
+        '[ConfigurableVideoSelector] Track changed:',
+        trackId,
+        trackOrTrackRef
+      );
+      debugVideoLog(
+        appConfig,
+        '[ConfigurableVideoSelector] TrackOrTrackRef type:',
+        typeof trackOrTrackRef
+      );
+      debugVideoLog(
+        appConfig,
         '[ConfigurableVideoSelector] TrackOrTrackRef keys:',
         trackOrTrackRef ? Object.keys(trackOrTrackRef) : 'null'
       );
 
       const option = getTrackById(trackId);
       if (!option) {
-        debugVideoLog('[ConfigurableVideoSelector] No option found for trackId:', trackId);
+        debugVideoLog(
+          appConfig,
+          '[ConfigurableVideoSelector] No option found for trackId:',
+          trackId
+        );
         return;
       }
 
-      debugVideoLog('[ConfigurableVideoSelector] Processing track:', {
+      debugVideoLog(appConfig, '[ConfigurableVideoSelector] Processing track:', {
         trackId,
         type: option.config.type,
         label: option.label,
@@ -140,7 +156,7 @@ export function ConfigurableVideoSelector({
       try {
         if (option.config.type === 'system' && trackOrTrackRef instanceof LocalVideoTrack) {
           // 系统摄像头：发布本地轨道
-          debugVideoLog('[ConfigurableVideoSelector] Enabling system camera');
+          debugVideoLog(appConfig, '[ConfigurableVideoSelector] Enabling system camera');
 
           const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
           if (currentCameraTrack?.track) {
@@ -166,15 +182,23 @@ export function ConfigurableVideoSelector({
           setIsSystemCameraEnabled(true);
         } else if (option.config.type === 'livekit' && trackOrTrackRef) {
           // 远程轨道：直接使用远程轨道，不取消发布本地轨道
-          debugVideoLog('[ConfigurableVideoSelector] Processing livekit track:', trackId);
-          debugVideoLog('[ConfigurableVideoSelector] TrackOrTrackRef details:', {
+          debugVideoLog(
+            appConfig,
+            '[ConfigurableVideoSelector] Processing livekit track:',
+            trackId
+          );
+          debugVideoLog(appConfig, '[ConfigurableVideoSelector] TrackOrTrackRef details:', {
             hasParticipant: 'participant' in trackOrTrackRef,
             hasPublication: 'publication' in trackOrTrackRef,
             hasSource: 'source' in trackOrTrackRef,
             keys: Object.keys(trackOrTrackRef),
           });
 
-          debugVideoLog('[ConfigurableVideoSelector] Setting selected track for livekit:', trackId);
+          debugVideoLog(
+            appConfig,
+            '[ConfigurableVideoSelector] Setting selected track for livekit:',
+            trackId
+          );
           if (isTrackReference(trackOrTrackRef)) {
             setSelectedTrack(trackId, trackOrTrackRef);
           } else {
@@ -185,11 +209,16 @@ export function ConfigurableVideoSelector({
           setIsTrackPreviewEnabled(true);
 
           debugVideoLog(
+            appConfig,
             '[ConfigurableVideoSelector] Livekit track enabled, selectedTrack set:',
             trackId
           );
         } else {
-          debugVideoLog('[ConfigurableVideoSelector] Track type not handled:', option.config.type);
+          debugVideoLog(
+            appConfig,
+            '[ConfigurableVideoSelector] Track type not handled:',
+            option.config.type
+          );
         }
 
         onTrackChange?.(trackId, trackOrTrackRef);
@@ -203,7 +232,7 @@ export function ConfigurableVideoSelector({
 
   // 清理所有资源
   const cleanupAllResources = useCallback(async () => {
-    debugVideoLog('[ConfigurableVideoSelector] Complete cleanup - no state dependency');
+    debugVideoLog(appConfig, '[ConfigurableVideoSelector] Complete cleanup - no state dependency');
 
     // 完全清理所有资源，不区分轨道类型
     if (!isMediaExternallyControlled) {
@@ -219,7 +248,7 @@ export function ConfigurableVideoSelector({
     setIsSystemCameraEnabled(false);
     setIsTrackPreviewEnabled(false);
     didAutoEnableLivekitPreview.current = false;
-  }, [isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]);
+  }, [appConfig, isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]);
 
   const enableTrackPreview = useCallback(
     async (trackId: string) => {
@@ -228,7 +257,7 @@ export function ConfigurableVideoSelector({
         return false;
       }
 
-      debugVideoLog('[ConfigurableVideoSelector] Enabling track preview:', trackId);
+      debugVideoLog(appConfig, '[ConfigurableVideoSelector] Enabling track preview:', trackId);
       if (option.config.type === 'system' || isSystemCameraEnabled) {
         await cleanupAllResources();
       }
@@ -249,14 +278,21 @@ export function ConfigurableVideoSelector({
 
       return true;
     },
-    [cleanupAllResources, getTrackById, isSystemCameraEnabled, onPressedChange, switchToTrack]
+    [
+      appConfig,
+      cleanupAllResources,
+      getTrackById,
+      isSystemCameraEnabled,
+      onPressedChange,
+      switchToTrack,
+    ]
   );
 
   const disableTrackPreview = useCallback(async () => {
-    debugVideoLog('[ConfigurableVideoSelector] Disabling track preview');
+    debugVideoLog(appConfig, '[ConfigurableVideoSelector] Disabling track preview');
     await cleanupAllResources();
     onPressedChange?.(false);
-  }, [cleanupAllResources, onPressedChange]);
+  }, [appConfig, cleanupAllResources, onPressedChange]);
 
   // 指定轨道预览开关逻辑
   const handleTrackPreviewToggle = useCallback(
@@ -317,7 +353,7 @@ export function ConfigurableVideoSelector({
   // 轨道切换逻辑
   const handleTrackChange = useCallback(
     async (trackId: string) => {
-      debugVideoLog('[ConfigurableVideoSelector] Switching to track:', trackId);
+      debugVideoLog(appConfig, '[ConfigurableVideoSelector] Switching to track:', trackId);
 
       selectTrack(trackId);
 
@@ -326,7 +362,7 @@ export function ConfigurableVideoSelector({
         await handleTrackPreviewToggle(true, trackId);
       }
     },
-    [effectivePressed, handleTrackPreviewToggle, selectTrack]
+    [appConfig, effectivePressed, handleTrackPreviewToggle, selectTrack]
   );
 
   // LiveKit 输入轨道来自 room 中的输入 participant，不需要用户再次手动打开本机摄像头。
@@ -401,6 +437,7 @@ export function ConfigurableVideoSelector({
 
     if (selectedContextTrackId === selectedTrackId) {
       debugVideoLog(
+        appConfig,
         '[ConfigurableVideoSelector] Selected livekit track disappeared, clearing stale track reference:',
         trackKey
       );
@@ -415,6 +452,7 @@ export function ConfigurableVideoSelector({
     getTrackByName,
     getLocalTrackReference,
     clearSelectedTrack,
+    appConfig,
   ]);
 
   // 获取可用的轨道选项

@@ -13,12 +13,8 @@ import { useSelectedVideoTrack } from '@/hooks/useSelectedVideoTrack';
 import { useSmartVoiceAssistant } from '@/hooks/useSmartVoiceAssistant';
 import { cn } from '@/lib/utils';
 
-const DEBUG_LEXVOICE_VIDEO =
-  (process.env.NEXT_PUBLIC_LEXVOICE_DEBUG_VIDEO ||
-    process.env.NEXT_PUBLIC_FRONTDESK_DEBUG_VIDEO) === 'true';
-
-function debugVideoLog(...args: unknown[]) {
-  if (DEBUG_LEXVOICE_VIDEO) {
+function debugVideoLog(enabled: boolean | undefined, ...args: unknown[]) {
+  if (enabled) {
     console.log(...args);
   }
 }
@@ -99,6 +95,7 @@ interface TileLayoutProps {
   videoTrackConfigs?: VideoTrackConfig[];
   defaultVideoTrackId?: string;
   showDefaultCameraPreview?: boolean;
+  debugVideo?: boolean;
 }
 
 export function TileLayout({
@@ -106,6 +103,7 @@ export function TileLayout({
   videoTrackConfigs = APP_CONFIG_DEFAULTS.availableVideoTracks,
   defaultVideoTrackId = APP_CONFIG_DEFAULTS.defaultVideoTrack,
   showDefaultCameraPreview = APP_CONFIG_DEFAULTS.showDefaultCameraPreview ?? true,
+  debugVideo = APP_CONFIG_DEFAULTS.debugVideo,
 }: TileLayoutProps) {
   const {
     state: agentState,
@@ -177,7 +175,7 @@ export function TileLayout({
   const videoHeight = agentVideoTrack?.publication.dimensions?.height ?? 0;
 
   // 调试日志
-  debugVideoLog('[TileLayout] Camera track:', {
+  debugVideoLog(debugVideo, '[TileLayout] Camera track:', {
     selectedTrack: selectedTrack ? selectedTrack.publication?.trackName : null,
     cameraTrack: cameraTrack ? cameraTrack.publication?.trackName : null,
     isCameraEnabled,

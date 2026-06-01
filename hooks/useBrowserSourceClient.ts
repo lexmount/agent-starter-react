@@ -10,35 +10,12 @@ import {
   createLocalAudioTrack,
   createLocalVideoTrack,
 } from 'livekit-client';
-import { AppConfig } from '@/app-config';
+import type { AppConfig } from '@/app-config';
 
 const BROWSER_AUDIO_TRACK_NAME = 'browser_audio_track';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
-const BROWSER_MEDIA_STREAM_NAME =
-  process.env.NEXT_PUBLIC_LEXVOICE_BROWSER_MEDIA_STREAM_NAME ||
-  process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_MEDIA_STREAM_NAME ||
-  'browser_lexvoice_input';
+const DEFAULT_BROWSER_MEDIA_STREAM_NAME = 'browser_input';
 const BROWSER_VIDEO_DEFAULT_ENABLED = true;
-const BROWSER_VIDEO_FRAME_RATE = readNumberEnv(
-  process.env.NEXT_PUBLIC_LEXVOICE_BROWSER_VIDEO_FPS ||
-    process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_VIDEO_FPS,
-  15
-);
-const BROWSER_VIDEO_MAX_BITRATE = readNumberEnv(
-  process.env.NEXT_PUBLIC_LEXVOICE_BROWSER_VIDEO_MAX_BITRATE ||
-    process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_VIDEO_MAX_BITRATE,
-  1700000
-);
-const BROWSER_VIDEO_WIDTH = readNumberEnv(
-  process.env.NEXT_PUBLIC_LEXVOICE_BROWSER_VIDEO_WIDTH ||
-    process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_VIDEO_WIDTH,
-  1280
-);
-const BROWSER_VIDEO_HEIGHT = readNumberEnv(
-  process.env.NEXT_PUBLIC_LEXVOICE_BROWSER_VIDEO_HEIGHT ||
-    process.env.NEXT_PUBLIC_FRONTDESK_BROWSER_VIDEO_HEIGHT,
-  720
-);
 
 interface BrowserSourceRuntime {
   audioTrack: LocalAudioTrack | null;
@@ -73,6 +50,12 @@ export function useBrowserSourceClient(
 ) {
   const runtimeRef = useRef<BrowserSourceRuntime | null>(null);
   const enabled = !!appConfig.usesBrowserRawMediaInput;
+  const browserMediaStreamName =
+    appConfig.browserMediaStreamName || DEFAULT_BROWSER_MEDIA_STREAM_NAME;
+  const browserVideoFrameRate = appConfig.browserVideoFps ?? 15;
+  const browserVideoMaxBitrate = appConfig.browserVideoMaxBitrate ?? 1700000;
+  const browserVideoWidth = appConfig.browserVideoWidth ?? 1280;
+  const browserVideoHeight = appConfig.browserVideoHeight ?? 720;
   const audioEnabledRef = useRef(true);
   const videoEnabledRef = useRef(BROWSER_VIDEO_DEFAULT_ENABLED);
   const [audioEnabled, setAudioEnabledState] = useState(true);
@@ -98,7 +81,7 @@ export function useBrowserSourceClient(
       const publication = await room.localParticipant.publishTrack(audioTrack, {
         name: BROWSER_AUDIO_TRACK_NAME,
         source: Track.Source.Microphone,
-        stream: BROWSER_MEDIA_STREAM_NAME,
+        stream: browserMediaStreamName,
       });
       runtime.audioTrack = audioTrack;
       runtime.audioPublication = publication;
@@ -106,7 +89,7 @@ export function useBrowserSourceClient(
       audioTrack.stop();
       throw error;
     }
-  }, [room]);
+  }, [browserMediaStreamName, room]);
 
   const ensureVideoPublished = useCallback(async () => {
     const runtime = runtimeRef.current;
@@ -116,11 +99,11 @@ export function useBrowserSourceClient(
 
     const videoTrack = await createLocalVideoTrack({
       facingMode: 'user',
-      frameRate: { ideal: BROWSER_VIDEO_FRAME_RATE, max: BROWSER_VIDEO_FRAME_RATE },
+      frameRate: { ideal: browserVideoFrameRate, max: browserVideoFrameRate },
       resolution: {
-        width: BROWSER_VIDEO_WIDTH,
-        height: BROWSER_VIDEO_HEIGHT,
-        frameRate: BROWSER_VIDEO_FRAME_RATE,
+        width: browserVideoWidth,
+        height: browserVideoHeight,
+        frameRate: browserVideoFrameRate,
       },
     });
     videoTrack.mediaStreamTrack.enabled = runtime.videoEnabled;
@@ -129,12 +112,12 @@ export function useBrowserSourceClient(
       const publication = await room.localParticipant.publishTrack(videoTrack, {
         name: BROWSER_VIDEO_TRACK_NAME,
         source: Track.Source.Camera,
-        stream: BROWSER_MEDIA_STREAM_NAME,
+        stream: browserMediaStreamName,
         simulcast: false,
         degradationPreference: 'maintain-resolution',
         videoEncoding: {
-          maxBitrate: BROWSER_VIDEO_MAX_BITRATE,
-          maxFramerate: BROWSER_VIDEO_FRAME_RATE,
+          maxBitrate: browserVideoMaxBitrate,
+          maxFramerate: browserVideoFrameRate,
         },
       });
       runtime.videoTrack = videoTrack;
@@ -144,7 +127,14 @@ export function useBrowserSourceClient(
       videoTrack.stop();
       throw error;
     }
-  }, [room]);
+  }, [
+    browserMediaStreamName,
+    browserVideoFrameRate,
+    browserVideoHeight,
+    browserVideoMaxBitrate,
+    browserVideoWidth,
+    room,
+  ]);
 
   const unpublishAudio = useCallback(
     async (runtime: BrowserSourceRuntime) => {
@@ -342,14 +332,6 @@ export function useBrowserSourceClient(
       stop,
     ]
   );
-}
-
-function readNumberEnv(value: string | undefined, fallback: number) {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {
