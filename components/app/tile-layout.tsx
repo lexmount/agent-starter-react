@@ -117,7 +117,11 @@ export function TileLayout({
   const defaultCameraTrack: TrackReference | undefined = useLocalTrackRef(Track.Source.Camera);
 
   // 获取选中的视频轨道（可能是远程轨道）
-  const { trackReference: selectedTrack, trackId: selectedTrackId } = useSelectedVideoTrack();
+  const {
+    trackReference: selectedTrack,
+    trackId: selectedTrackId,
+    isPreviewDisabled,
+  } = useSelectedVideoTrack();
 
   const configuredLivekitTrackNames = useMemo(() => {
     return new Set(
@@ -159,10 +163,11 @@ export function TileLayout({
     videoTrackConfigs,
   ]);
 
+  const canShowDefaultCameraPreview = showDefaultCameraPreview && !isPreviewDisabled;
   const cameraTrack =
     selectedTrack ||
-    (showDefaultCameraPreview && selectedTrackId === null ? configuredCameraTrack : undefined) ||
-    (showDefaultCameraPreview ? defaultCameraTrack : undefined);
+    (canShowDefaultCameraPreview && selectedTrackId === null ? configuredCameraTrack : undefined) ||
+    (canShowDefaultCameraPreview ? defaultCameraTrack : undefined);
 
   const isCameraEnabled =
     cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;
@@ -178,6 +183,7 @@ export function TileLayout({
   debugVideoLog(debugVideo, '[TileLayout] Camera track:', {
     selectedTrack: selectedTrack ? selectedTrack.publication?.trackName : null,
     cameraTrack: cameraTrack ? cameraTrack.publication?.trackName : null,
+    isPreviewDisabled,
     isCameraEnabled,
     hasPublication: !!cameraTrack?.publication,
     isMuted: cameraTrack?.publication?.isMuted,
@@ -185,7 +191,7 @@ export function TileLayout({
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-8 bottom-32 z-50 md:top-12 md:bottom-40">
-      <div className="relative mx-auto h-full max-w-2xl px-4 md:px-0">
+      <div className="relative mx-auto h-full max-w-[728px] px-4 md:px-0">
         <div className={cn(classNames.grid)}>
           {/* Agent */}
           <div
@@ -317,7 +323,7 @@ export function TileLayout({
                     trackRef={cameraTrack || screenShareTrack}
                     width={(cameraTrack || screenShareTrack)?.publication.dimensions?.width ?? 0}
                     height={(cameraTrack || screenShareTrack)?.publication.dimensions?.height ?? 0}
-                    className="bg-muted h-[270px] w-[360px] rounded-md object-cover"
+                    className="bg-muted max-h-[270px] w-[360px] max-w-full rounded-md object-contain"
                   />
                 </MotionContainer>
               )}

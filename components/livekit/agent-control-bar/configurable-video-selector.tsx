@@ -79,9 +79,6 @@ export function ConfigurableVideoSelector({
   const didAutoEnableLivekitPreview = useRef(false);
   const isMediaExternallyControlled =
     mediaEnabled !== undefined || onMediaEnabledChange !== undefined;
-  const effectivePressed = isMediaExternallyControlled
-    ? !!mediaEnabled
-    : !!pressed || isSystemCameraEnabled || isTrackPreviewEnabled;
 
   const getLocalTrackReference = useCallback(
     (trackName: string): TrackReference | null => {
@@ -229,26 +226,42 @@ export function ConfigurableVideoSelector({
     },
     onError: onMediaDeviceError,
   });
+  const selectedOption =
+    (selectedTrackId ? getTrackById(selectedTrackId) : undefined) ||
+    (defaultTrackId ? getTrackById(defaultTrackId) : undefined);
+  const effectivePressed = isMediaExternallyControlled
+    ? !!mediaEnabled
+    : selectedOption?.config.type === 'system'
+      ? !!pressed || isSystemCameraEnabled
+      : isTrackPreviewEnabled;
 
   // 清理所有资源
-  const cleanupAllResources = useCallback(async () => {
-    debugVideoLog(appConfig, '[ConfigurableVideoSelector] Complete cleanup - no state dependency');
+  const cleanupAllResources = useCallback(
+    async (resetAutoPreview = true) => {
+      debugVideoLog(
+        appConfig,
+        '[ConfigurableVideoSelector] Complete cleanup - no state dependency'
+      );
 
-    // 完全清理所有资源，不区分轨道类型
-    if (!isMediaExternallyControlled) {
-      const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-      if (currentCameraTrack?.track) {
-        await localParticipant.unpublishTrack(currentCameraTrack.track);
+      // 完全清理所有资源，不区分轨道类型
+      if (!isMediaExternallyControlled) {
+        const currentCameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
+        if (currentCameraTrack?.track) {
+          await localParticipant.unpublishTrack(currentCameraTrack.track);
+        }
       }
-    }
-    if (currentTrack instanceof LocalVideoTrack && !isMediaExternallyControlled) {
-      currentTrack.stop();
-    }
-    clearSelectedTrack();
-    setIsSystemCameraEnabled(false);
-    setIsTrackPreviewEnabled(false);
-    didAutoEnableLivekitPreview.current = false;
-  }, [appConfig, isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]);
+      if (currentTrack instanceof LocalVideoTrack && !isMediaExternallyControlled) {
+        currentTrack.stop();
+      }
+      clearSelectedTrack({ disablePreview: !resetAutoPreview });
+      setIsSystemCameraEnabled(false);
+      setIsTrackPreviewEnabled(false);
+      if (resetAutoPreview) {
+        didAutoEnableLivekitPreview.current = false;
+      }
+    },
+    [appConfig, isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]
+  );
 
   const enableTrackPreview = useCallback(
     async (trackId: string) => {
@@ -290,7 +303,8 @@ export function ConfigurableVideoSelector({
 
   const disableTrackPreview = useCallback(async () => {
     debugVideoLog(appConfig, '[ConfigurableVideoSelector] Disabling track preview');
-    await cleanupAllResources();
+    didAutoEnableLivekitPreview.current = true;
+    await cleanupAllResources(false);
     onPressedChange?.(false);
   }, [appConfig, cleanupAllResources, onPressedChange]);
 
@@ -321,6 +335,11 @@ export function ConfigurableVideoSelector({
   const handleToggleVideo = useCallback(
     async (enabled?: boolean) => {
       const shouldEnable = enabled !== undefined ? enabled : !effectivePressed;
+      debugVideoLog(appConfig, '[ConfigurableVideoSelector] Toggle video requested:', {
+        enabled,
+        effectivePressed,
+        shouldEnable,
+      });
       await onMediaEnabledChange?.(shouldEnable);
 
       if (shouldEnable) {
@@ -347,6 +366,7 @@ export function ConfigurableVideoSelector({
       onMediaEnabledChange,
       isMediaExternallyControlled,
       autoPreviewLivekitTracks,
+      appConfig,
     ]
   );
 

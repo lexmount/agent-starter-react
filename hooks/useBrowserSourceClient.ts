@@ -16,6 +16,7 @@ const BROWSER_AUDIO_TRACK_NAME = 'browser_audio_track';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 const DEFAULT_BROWSER_MEDIA_STREAM_NAME = 'browser_input';
 const BROWSER_VIDEO_DEFAULT_ENABLED = true;
+const BROWSER_VIDEO_STATS_INTERVAL_MS = 5000;
 
 interface BrowserSourceRuntime {
   audioTrack: LocalAudioTrack | null;
@@ -24,6 +25,17 @@ interface BrowserSourceRuntime {
   videoPublication: LocalTrackPublication | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  videoStatsStartedAt: number | null;
+  videoStatsTimer: number | null;
+  previousVideoStats: BrowserVideoStatsSnapshot | null;
+}
+
+interface BrowserVideoStatsSnapshot {
+  timestamp: number;
+  bytesSent: number;
+  framesEncoded: number;
+  packetsSent: number;
+  retransmittedPacketsSent: number;
 }
 
 export interface BrowserSourceClient {
@@ -123,6 +135,9 @@ export function useBrowserSourceClient(
       runtime.videoTrack = videoTrack;
       runtime.videoPublication = publication;
       setVideoTrackState(videoTrack);
+      if (appConfig.debugVideo) {
+        startBrowserVideoStatsLogging(runtime, videoTrack, publication);
+      }
     } catch (error) {
       videoTrack.stop();
       throw error;
@@ -133,6 +148,7 @@ export function useBrowserSourceClient(
     browserVideoHeight,
     browserVideoMaxBitrate,
     browserVideoWidth,
+    appConfig.debugVideo,
     room,
   ]);
 
@@ -152,6 +168,7 @@ export function useBrowserSourceClient(
   const unpublishVideo = useCallback(
     async (runtime: BrowserSourceRuntime) => {
       const track = runtime.videoTrack;
+      stopBrowserVideoStatsLogging(runtime);
       runtime.videoTrack = null;
       runtime.videoPublication = null;
       setVideoTrackState(null);
@@ -184,6 +201,9 @@ export function useBrowserSourceClient(
       videoPublication: null,
       audioEnabled: audioEnabledRef.current,
       videoEnabled: videoEnabledRef.current,
+      videoStatsStartedAt: null,
+      videoStatsTimer: null,
+      previousVideoStats: null,
     };
 
     try {
@@ -339,4 +359,250 @@ function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabl
 
   track.mediaStreamTrack.enabled = enabled;
   void (enabled ? track.unmute() : track.mute()).catch(() => undefined);
+}
+
+function startBrowserVideoStatsLogging(
+  runtime: BrowserSourceRuntime,
+  track: LocalVideoTrack,
+  publication: LocalTrackPublication
+) {
+  stopBrowserVideoStatsLogging(runtime);
+  runtime.videoStatsStartedAt = Date.now();
+  runtime.previousVideoStats = null;
+
+  const logStats = () => {
+    void logBrowserVideoStats(runtime, track, publication).catch((error) => {
+      console.warn('[browser-video-stats] failed to read WebRTC stats', error);
+    });
+  };
+
+  logStats();
+  runtime.videoStatsTimer = window.setInterval(logStats, BROWSER_VIDEO_STATS_INTERVAL_MS);
+}
+
+function stopBrowserVideoStatsLogging(runtime: BrowserSourceRuntime) {
+  if (runtime.videoStatsTimer !== null) {
+    window.clearInterval(runtime.videoStatsTimer);
+  }
+
+  runtime.videoStatsStartedAt = null;
+  runtime.videoStatsTimer = null;
+  runtime.previousVideoStats = null;
+}
+
+async function logBrowserVideoStats(
+  runtime: BrowserSourceRuntime,
+  track: LocalVideoTrack,
+  publication: LocalTrackPublication
+) {
+  if (runtime.videoTrack !== track || runtime.videoPublication !== publication) {
+    return;
+  }
+
+  const report = await track.getRTCStatsReport();
+  if (!report) {
+    return;
+  }
+
+  const outbound = findStats(
+    report,
+    (stats) => stats.type === 'outbound-rtp' && isVideoStats(stats)
+  );
+  if (!outbound) {
+    return;
+  }
+
+  const selectedPair = findSelectedCandidatePair(report);
+  const remoteInbound = findStats(
+    report,
+    (stats) => stats.type === 'remote-inbound-rtp' && isVideoStats(stats)
+  );
+  const timestamp = Date.now();
+  const previous = runtime.previousVideoStats;
+  const snapshot: BrowserVideoStatsSnapshot = {
+    timestamp,
+    bytesSent: readNumber(outbound, 'bytesSent') ?? 0,
+    framesEncoded: readNumber(outbound, 'framesEncoded') ?? 0,
+    packetsSent: readNumber(outbound, 'packetsSent') ?? 0,
+    retransmittedPacketsSent: readNumber(outbound, 'retransmittedPacketsSent') ?? 0,
+  };
+  runtime.previousVideoStats = snapshot;
+
+  const elapsedMs = previous ? timestamp - previous.timestamp : 0;
+  const elapsedSeconds = runtime.videoStatsStartedAt
+    ? (timestamp - runtime.videoStatsStartedAt) / 1000
+    : 0;
+  const retransmittedPacketsDelta = previous
+    ? snapshot.retransmittedPacketsSent - previous.retransmittedPacketsSent
+    : undefined;
+
+  const payload = {
+    trackSid: publication.trackSid,
+    elapsedSeconds: round(elapsedSeconds, 1),
+    selectedCandidatePair: formatSelectedCandidatePair(report, selectedPair),
+    video: {
+      width: readNumber(outbound, 'frameWidth'),
+      height: readNumber(outbound, 'frameHeight'),
+      framesPerSecond: readNumber(outbound, 'framesPerSecond'),
+      sentFps:
+        previous && elapsedMs > 0
+          ? round(((snapshot.framesEncoded - previous.framesEncoded) * 1000) / elapsedMs, 1)
+          : undefined,
+      bitrateKbps:
+        previous && elapsedMs > 0
+          ? round(((snapshot.bytesSent - previous.bytesSent) * 8) / elapsedMs, 1)
+          : undefined,
+      targetBitrateKbps: bitsPerSecondToKbps(readNumber(outbound, 'targetBitrate')),
+      packetsSent: snapshot.packetsSent,
+      retransmittedPacketsSent: snapshot.retransmittedPacketsSent,
+      retransmittedPacketsDelta,
+      nackCount: readNumber(outbound, 'nackCount'),
+      pliCount: readNumber(outbound, 'pliCount'),
+      firCount: readNumber(outbound, 'firCount'),
+      qualityLimitationReason: readString(outbound, 'qualityLimitationReason'),
+    },
+    network: {
+      availableOutgoingBitrateKbps: bitsPerSecondToKbps(
+        readNumber(selectedPair, 'availableOutgoingBitrate')
+      ),
+      currentRoundTripTimeMs: secondsToMilliseconds(
+        readNumber(selectedPair, 'currentRoundTripTime')
+      ),
+      remoteRoundTripTimeMs: secondsToMilliseconds(readNumber(remoteInbound, 'roundTripTime')),
+      remoteJitterMs: secondsToMilliseconds(readNumber(remoteInbound, 'jitter')),
+      remotePacketsLost: readNumber(remoteInbound, 'packetsLost'),
+      remoteFractionLost: readNumber(remoteInbound, 'fractionLost'),
+    },
+  };
+
+  console.info('[browser-video-stats]', JSON.stringify(payload));
+}
+
+type StatsRecord = RTCStats & Record<string, unknown>;
+
+function findStats(
+  report: RTCStatsReport,
+  predicate: (stats: StatsRecord) => boolean
+): StatsRecord | undefined {
+  let match: StatsRecord | undefined;
+  report.forEach((stats) => {
+    const record = stats as StatsRecord;
+    if (!match && predicate(record)) {
+      match = record;
+    }
+  });
+  return match;
+}
+
+function getStatsById(report: RTCStatsReport, id: string | undefined): StatsRecord | undefined {
+  if (!id) return undefined;
+  return report.get(id) as StatsRecord | undefined;
+}
+
+function findSelectedCandidatePair(report: RTCStatsReport): StatsRecord | undefined {
+  const transport = findStats(
+    report,
+    (stats) => stats.type === 'transport' && !!readString(stats, 'selectedCandidatePairId')
+  );
+  const selectedPairId = readString(transport, 'selectedCandidatePairId');
+  const selectedPair = getStatsById(report, selectedPairId);
+  if (selectedPair) {
+    return selectedPair;
+  }
+
+  return (
+    findStats(
+      report,
+      (stats) =>
+        stats.type === 'candidate-pair' &&
+        readString(stats, 'state') === 'succeeded' &&
+        (readBoolean(stats, 'nominated') === true || readBoolean(stats, 'selected') === true)
+    ) ??
+    findStats(
+      report,
+      (stats) => stats.type === 'candidate-pair' && readString(stats, 'state') === 'succeeded'
+    )
+  );
+}
+
+function formatSelectedCandidatePair(report: RTCStatsReport, pair: StatsRecord | undefined) {
+  if (!pair) {
+    return undefined;
+  }
+
+  const localCandidate = getStatsById(report, readString(pair, 'localCandidateId'));
+  const remoteCandidate = getStatsById(report, readString(pair, 'remoteCandidateId'));
+
+  return {
+    protocol:
+      readString(pair, 'protocol') ??
+      readString(localCandidate, 'protocol') ??
+      readString(remoteCandidate, 'protocol'),
+    state: readString(pair, 'state'),
+    local: formatCandidateStats(localCandidate),
+    remote: formatCandidateStats(remoteCandidate),
+  };
+}
+
+function formatCandidateStats(stats: StatsRecord | undefined) {
+  if (!stats) {
+    return undefined;
+  }
+
+  const address = readString(stats, 'address') ?? readString(stats, 'ip');
+  const port = readNumber(stats, 'port') ?? readNumber(stats, 'portNumber');
+  const relatedAddress = readString(stats, 'relatedAddress');
+  const relatedPort = readNumber(stats, 'relatedPort');
+
+  return {
+    endpoint: formatEndpoint(address, port),
+    protocol: readString(stats, 'protocol'),
+    candidateType: readString(stats, 'candidateType'),
+    networkType: readString(stats, 'networkType'),
+    relayProtocol: readString(stats, 'relayProtocol'),
+    tcpType: readString(stats, 'tcpType'),
+    relatedEndpoint: formatEndpoint(relatedAddress, relatedPort),
+  };
+}
+
+function formatEndpoint(address: string | undefined, port: number | undefined) {
+  if (!address) {
+    return undefined;
+  }
+  return port === undefined ? address : `${address}:${port}`;
+}
+
+function isVideoStats(stats: StatsRecord) {
+  return readString(stats, 'kind') === 'video' || readString(stats, 'mediaType') === 'video';
+}
+
+function readString(stats: StatsRecord | undefined, key: string): string | undefined {
+  const value = stats?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNumber(stats: StatsRecord | undefined, key: string): number | undefined {
+  const value = stats?.[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
+}
+
+function readBoolean(stats: StatsRecord | undefined, key: string): boolean | undefined {
+  const value = stats?.[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function bitsPerSecondToKbps(value: number | undefined) {
+  return value === undefined ? undefined : round(value / 1000, 1);
+}
+
+function secondsToMilliseconds(value: number | undefined) {
+  return value === undefined ? undefined : round(value * 1000, 1);
+}
+
+function round(value: number, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }

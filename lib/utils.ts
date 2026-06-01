@@ -50,6 +50,7 @@ export function getClientConfigFromEnv(): AppConfig {
     'NEXT_PUBLIC_FRONTDESK_DEVICE'
   ).toLowerCase();
   const isBrowserInput = inputSource === 'browser';
+  const usesServerRoomInput = ['xunfei', 'generic', 'primebot'].includes(inputSource);
   const agentName = readEnv(
     'AGENT_NAME',
     'NEXT_PUBLIC_AGENT_NAME',
@@ -61,6 +62,7 @@ export function getClientConfigFromEnv(): AppConfig {
     ...APP_CONFIG_DEFAULTS,
     supportsScreenShare: isBrowserInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
     usesBrowserRawMediaInput: isBrowserInput,
+    usesServerRoomInput,
     agentName: agentName || undefined,
     showDefaultCameraPreview: isBrowserInput ? false : APP_CONFIG_DEFAULTS.showDefaultCameraPreview,
     availableVideoTracks: buildDefaultVideoTracks(isBrowserInput),

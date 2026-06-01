@@ -18,6 +18,7 @@ export interface AppConfig {
   supportsScreenShare: boolean;
   isPreConnectBufferEnabled: boolean;
   usesBrowserRawMediaInput?: boolean;
+  usesServerRoomInput?: boolean;
   browserMediaStreamName?: string;
   browserVideoWidth?: number;
   browserVideoHeight?: number;
@@ -97,6 +98,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   supportsScreenShare: true,
   isPreConnectBufferEnabled: true,
   usesBrowserRawMediaInput: false,
+  usesServerRoomInput: false,
   browserMediaStreamName: 'browser_input',
   browserVideoWidth: 1280,
   browserVideoHeight: 720,

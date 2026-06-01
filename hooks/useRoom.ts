@@ -106,6 +106,10 @@ export function useRoom(appConfig: AppConfig) {
         return;
       }
 
+      if (appConfig.usesServerRoomInput) {
+        return;
+      }
+
       await room.localParticipant.setMicrophoneEnabled(true, undefined, {
         preConnectBuffer: appConfig.isPreConnectBufferEnabled,
       });
