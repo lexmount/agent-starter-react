@@ -36,8 +36,9 @@ export async function POST(req: Request) {
 
     // Generate participant token
     const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${randomUUID()}`;
-    const roomName = `voice_assistant_room_${randomUUID()}`;
+    const roomId = randomUUID();
+    const participantIdentity = `voice_assistant_user_${roomId}`;
+    const roomName = `voice_assistant_room_${roomId}`;
 
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },

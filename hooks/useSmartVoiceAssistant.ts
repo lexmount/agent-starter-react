@@ -5,6 +5,8 @@ import { useRemoteParticipants, useVoiceAssistant } from '@livekit/components-re
 import { VideoTrackConfig } from '@/app-config';
 import { useExcludedVideoTracks } from './useExcludedVideoTracks';
 
+const EXCLUDED_AVATAR_PARTICIPANT_IDENTITIES = new Set(['room_input']);
+
 export interface UseSmartVoiceAssistantOptions {
   videoTrackConfigs?: VideoTrackConfig[];
 }
@@ -26,18 +28,25 @@ export function useSmartVoiceAssistant({
       const trackName =
         voiceAssistant.videoTrack.publication.trackName ||
         voiceAssistant.videoTrack.publication.trackSid;
+      const participantIdentity = voiceAssistant.videoTrack.participant.identity;
 
-      if (!shouldExcludeTrack(trackName)) {
+      if (
+        !EXCLUDED_AVATAR_PARTICIPANT_IDENTITIES.has(participantIdentity) &&
+        !shouldExcludeTrack(trackName)
+      ) {
         console.log(`[useSmartVoiceAssistant] Using original voice assistant track: ${trackName}`);
         return voiceAssistant.videoTrack;
       } else {
-        console.log(`[useSmartVoiceAssistant] Original track excluded: ${trackName}`);
+        console.log(
+          `[useSmartVoiceAssistant] Original track excluded: ${trackName} from ${participantIdentity}`
+        );
       }
     }
 
     // 如果原始轨道被排除，寻找其他合适的轨道
     for (const participant of remoteParticipants) {
       if (!participant.isAgent) continue;
+      if (EXCLUDED_AVATAR_PARTICIPANT_IDENTITIES.has(participant.identity)) continue;
 
       for (const [, publication] of participant.videoTrackPublications) {
         if (!publication.isSubscribed || !publication.track) continue;

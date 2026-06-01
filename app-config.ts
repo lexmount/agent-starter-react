@@ -51,7 +51,6 @@ export interface AppConfig {
 const FRONTDESK_DEVICE = (process.env.NEXT_PUBLIC_FRONTDESK_DEVICE || '').trim().toLowerCase();
 const IS_BROWSER_FRONTDESK = FRONTDESK_DEVICE === 'browser';
 const FRONTDESK_AGENT_NAME = (process.env.NEXT_PUBLIC_FRONTDESK_AGENT_NAME || '').trim();
-const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME = 'room_video';
 
@@ -95,19 +94,8 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // 视频轨道配置
   showDefaultCameraPreview: !IS_BROWSER_FRONTDESK,
   availableVideoTracks: [
-    ...(IS_BROWSER_FRONTDESK
+    ...(!IS_BROWSER_FRONTDESK
       ? [
-          {
-            id: BROWSER_VIDEO_TRACK_NAME,
-            label: '浏览器摄像头',
-            type: 'livekit' as const,
-            livekitTrackName: BROWSER_VIDEO_TRACK_NAME,
-            enabled: true,
-            icon: 'camera' as const,
-            description: '浏览器原始摄像头画面',
-          },
-        ]
-      : [
           {
             id: 'system_camera_default',
             label: '系统默认摄像头',
@@ -116,7 +104,8 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
             icon: 'camera' as const,
             description: '系统默认摄像头设备',
           },
-        ]),
+        ]
+      : []),
     {
       id: ROOM_INPUT_VIDEO_TRACK_NAME,
       label: '人脸检测频道',
