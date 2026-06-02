@@ -85,7 +85,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
   showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: ['xunfei_service_agent'], // 用户转录身份标识（自定义音频track）
+  userTranscriptionIdentities: ['xunfei_service_agent', 'room_input'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置
