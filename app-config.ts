@@ -30,10 +30,10 @@ export interface AppConfig {
 
   excludeAudioTracks: string[];
   showAudioFilterDebug?: boolean;
-  
+
   // 全局调试配置
   enableGlobalDebug?: boolean; // 全局调试开关，控制所有调试信息的显示
-  
+
   // 字幕和转录配置
   enableSmartParticipantMatching?: boolean; // 启用智能参与者匹配
   enableTranscriptionDebug?: boolean; // 启用转录调试日志
@@ -68,24 +68,21 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // for LiveKit Cloud Sandbox
   sandboxId: undefined,
   agentName: undefined,
-  
+
   // 音频过滤配置
-  excludeAudioTracks: [
-    'xunfei_audio_track',
-    'room_audio'
-  ], // 要排除的音频轨道名称列表
-  
+  excludeAudioTracks: ['xunfei_audio_track', 'room_audio'], // 要排除的音频轨道名称列表
+
   // 调试配置
   showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
-  
+
   // 全局调试配置
   enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
-  
+
   // 字幕和转录配置
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
   showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
-  userTranscriptionIdentities: ['xunfei_service_agent', 'room_input'], // 用户转录身份标识（自定义音频track）
+  userTranscriptionIdentities: ['xunfei_service_agent', 'room_input', 'room_audio_input'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置

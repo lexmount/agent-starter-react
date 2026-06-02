@@ -5,7 +5,13 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
-  const room = useMemo(() => new Room(), []);
+  const room = useMemo(
+    () =>
+      new Room({
+        reconnectPolicy: { nextRetryDelayInMs: () => null },
+      }),
+    []
+  );
   const [isSessionActive, setIsSessionActive] = useState(false);
 
   useEffect(() => {
@@ -68,36 +74,45 @@ export function useRoom(appConfig: AppConfig) {
     [appConfig]
   );
 
-  const startSession = useCallback(() => {
-    setIsSessionActive(true);
+  const startSession = useCallback(async () => {
+    try {
+      if (room.state !== 'disconnected') {
+        await room.disconnect();
+      }
 
-    if (room.state === 'disconnected') {
-      tokenSource
-        .fetch({ agentName: appConfig.agentName })
-        .then((connectionDetails) =>
-          room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-        )
-        .catch((error) => {
-          if (aborted.current) {
-            // Once the effect has cleaned up after itself, drop any errors
-            //
-            // These errors are likely caused by this effect rerunning rapidly,
-            // resulting in a previous run `disconnect` running in parallel with
-            // a current run `connect`
-            return;
-          }
+      setIsSessionActive(true);
+      const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
+      await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+      await room.localParticipant.setMicrophoneEnabled(false);
+    } catch (error) {
+      if (aborted.current) {
+        // Once the effect has cleaned up after itself, drop any errors
+        //
+        // These errors are likely caused by this effect rerunning rapidly,
+        // resulting in a previous run `disconnect` running in parallel with
+        // a current run `connect`
+        return;
+      }
 
-          toastAlert({
-            title: 'There was an error connecting to the agent',
-            description: `${error.name}: ${error.message}`,
-          });
+      setIsSessionActive(false);
+      if (error instanceof Error) {
+        toastAlert({
+          title: 'There was an error connecting to the agent',
+          description: `${error.name}: ${error.message}`,
         });
+      } else {
+        toastAlert({
+          title: 'There was an error connecting to the agent',
+          description: String(error),
+        });
+      }
     }
   }, [room, appConfig, tokenSource]);
 
   const endSession = useCallback(() => {
     setIsSessionActive(false);
-  }, []);
+    room.disconnect();
+  }, [room]);
 
   return { room, isSessionActive, startSession, endSession };
 }

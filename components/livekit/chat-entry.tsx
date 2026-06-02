@@ -33,13 +33,17 @@ export const ChatEntry = ({
     <li
       title={title}
       data-lk-message-origin={messageOrigin}
-      className={cn('group flex w-full flex-col gap-0.5', className)}
+      className={cn(
+        'group flex w-full flex-col gap-0.5',
+        messageOrigin === 'local' ? 'items-end' : 'items-start',
+        className
+      )}
       {...props}
     >
       <header
         className={cn(
           'text-muted-foreground flex items-center gap-2 text-sm',
-          messageOrigin === 'local' ? 'flex-row-reverse' : 'text-left'
+          messageOrigin === 'local' ? 'flex-row-reverse text-right' : 'text-left'
         )}
       >
         {name && <strong>{name}</strong>}
@@ -50,8 +54,10 @@ export const ChatEntry = ({
       </header>
       <span
         className={cn(
-          'max-w-4/5 rounded-[20px]',
-          messageOrigin === 'local' ? 'bg-muted ml-auto p-2' : 'mr-auto'
+          'max-w-4/5 rounded-[20px] px-3 py-2 text-sm leading-relaxed shadow-sm',
+          messageOrigin === 'local'
+            ? 'bg-muted text-foreground ml-auto'
+            : 'bg-background/95 border-border text-foreground mr-auto border'
         )}
       >
         {message}
