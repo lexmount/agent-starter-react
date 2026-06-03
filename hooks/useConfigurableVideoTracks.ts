@@ -16,6 +16,43 @@ function debugVideoLog(config: Pick<AppConfig, 'debugVideo'> | undefined, ...arg
   }
 }
 
+type TrackSelectionOrigin = 'auto' | 'user';
+
+export function getInitialAvailableOption(
+  options: VideoTrackOption[],
+  defaultTrackId?: string | null
+) {
+  if (!defaultTrackId) {
+    return options.find((option) => option.available);
+  }
+
+  const defaultOption = options.find((option) => option.id === defaultTrackId);
+  if (defaultOption?.available) {
+    return defaultOption;
+  }
+
+  return options.find((option) => option.available);
+}
+
+export function getAutoPromotedDefaultOption(
+  options: VideoTrackOption[],
+  currentTrackId: string | null,
+  defaultTrackId?: string | null,
+  selectionOrigin: TrackSelectionOrigin = 'auto'
+) {
+  if (
+    selectionOrigin !== 'auto' ||
+    !currentTrackId ||
+    !defaultTrackId ||
+    currentTrackId === defaultTrackId
+  ) {
+    return undefined;
+  }
+
+  const defaultOption = options.find((option) => option.id === defaultTrackId);
+  return defaultOption?.available ? defaultOption : undefined;
+}
+
 export interface VideoTrackOption {
   id: string;
   label: string;
@@ -71,6 +108,7 @@ export function useConfigurableVideoTracks({
   const room = useRoomContext();
   const [videoOptions, setVideoOptions] = useState<VideoTrackOption[]>([]);
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
+  const [selectionOrigin, setSelectionOrigin] = useState<TrackSelectionOrigin>('auto');
   const [currentTrack, setCurrentTrack] = useState<LocalVideoTrack | RemoteVideoTrack | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,26 +173,14 @@ export function useConfigurableVideoTracks({
     setVideoOptions(options);
     setIsLoading(false);
 
-    // 设置默认选中的轨道（但不连接）- 只在初始化时设置
-    if (defaultTrackId && !currentTrackId) {
-      const defaultOption = options.find((opt) => opt.id === defaultTrackId);
-      if (defaultOption) {
-        setCurrentTrackId(defaultTrackId);
-        debugVideoLog(
-          appConfig,
-          `Default track selected: ${defaultOption.label} (not connected yet)`
-        );
-      } else {
-        // 如果默认轨道不存在，选择第一个可用的轨道
-        const firstAvailable = options.find((opt) => opt.available);
-        if (firstAvailable) {
-          setCurrentTrackId(firstAvailable.id);
-          debugVideoLog(
-            appConfig,
-            `Fallback track selected: ${firstAvailable.label} (not connected yet)`
-          );
-        }
-      }
+    const nextAutoOption = currentTrackId
+      ? getAutoPromotedDefaultOption(options, currentTrackId, defaultTrackId, selectionOrigin)
+      : getInitialAvailableOption(options, defaultTrackId);
+
+    if (nextAutoOption && nextAutoOption.id !== currentTrackId) {
+      setCurrentTrackId(nextAutoOption.id);
+      setSelectionOrigin('auto');
+      debugVideoLog(appConfig, `Auto track selected: ${nextAutoOption.label} (not connected yet)`);
     }
   }, [
     appConfig,
@@ -163,6 +189,7 @@ export function useConfigurableVideoTracks({
     defaultTrackId,
     existingLivekitTracks,
     getTrackByName,
+    selectionOrigin,
   ]);
 
   // 切换到指定轨道
@@ -183,7 +210,7 @@ export function useConfigurableVideoTracks({
         if (!option) {
           const errorMsg = `视频轨道 "${trackId}" 不存在`;
           setError(errorMsg);
-          console.error(errorMsg);
+          debugVideoLog(appConfig, errorMsg);
           return false;
         }
 
@@ -227,7 +254,7 @@ export function useConfigurableVideoTracks({
               if (!subscribed) {
                 const errorMsg = `无法订阅LiveKit轨道 "${option.label}"，请检查轨道状态`;
                 setError(errorMsg);
-                console.error(errorMsg);
+                debugVideoLog(appConfig, errorMsg);
                 return false;
               }
 
@@ -242,7 +269,7 @@ export function useConfigurableVideoTracks({
                 if (!trackReference) {
                   const errorMsg = `LiveKit轨道 "${option.label}" 所属参与者未找到`;
                   setError(errorMsg);
-                  console.error(errorMsg);
+                  debugVideoLog(appConfig, errorMsg);
                   return false;
                 }
 
@@ -276,7 +303,7 @@ export function useConfigurableVideoTracks({
             } else {
               const errorMsg = `LiveKit轨道 "${option.label}" 未找到，请确保轨道已正确发布`;
               setError(errorMsg);
-              console.error(errorMsg);
+              debugVideoLog(appConfig, errorMsg);
               // 不要回退到其他轨道，保持当前选择但不连接
               return false;
             }
@@ -287,7 +314,7 @@ export function useConfigurableVideoTracks({
         if (option.config.type === 'system' && !option.available) {
           const errorMsg = `系统摄像头 "${option.label}" 当前不可用，请检查设备连接或权限`;
           setError(errorMsg);
-          console.error(errorMsg);
+          debugVideoLog(appConfig, errorMsg);
           return false;
         }
 
@@ -314,7 +341,7 @@ export function useConfigurableVideoTracks({
         } else {
           const errorMsg = `无法创建视频轨道 "${option.label}"，请检查设备或权限`;
           setError(errorMsg);
-          console.error(errorMsg);
+          debugVideoLog(appConfig, errorMsg);
           // 保持选择但不连接轨道
           return false;
         }
@@ -346,6 +373,7 @@ export function useConfigurableVideoTracks({
 
   const selectTrack = useCallback((trackId: string | null) => {
     setCurrentTrackId(trackId);
+    setSelectionOrigin(trackId ? 'user' : 'auto');
     setError(null);
   }, []);
 

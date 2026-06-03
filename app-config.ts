@@ -24,6 +24,7 @@ export interface AppConfig {
   browserVideoHeight?: number;
   browserVideoFps?: number;
   browserVideoMaxBitrate?: number;
+  browserVideoStats?: boolean;
   remoteVideoWidth?: number;
   remoteVideoHeight?: number;
   remoteVideoFps?: number;
@@ -61,21 +62,36 @@ export interface AppConfig {
 
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME = 'room_video';
+const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
+export function buildDefaultVideoTracks(
+  isBrowserInput: boolean,
+  usesServerRoomInput = false
+): VideoTrackConfig[] {
+  const inputVideoTracks: VideoTrackConfig[] = [];
 
-export function buildDefaultVideoTracks(isBrowserInput: boolean): VideoTrackConfig[] {
+  if (isBrowserInput) {
+    inputVideoTracks.push({
+      id: BROWSER_VIDEO_TRACK_NAME,
+      label: '原始摄像头视频',
+      type: 'livekit',
+      livekitTrackName: BROWSER_VIDEO_TRACK_NAME,
+      enabled: true,
+      icon: 'camera',
+      description: '浏览器原始摄像头视频',
+    });
+  } else if (!usesServerRoomInput) {
+    inputVideoTracks.push({
+      id: 'system_camera_default',
+      label: '系统默认摄像头',
+      type: 'system',
+      enabled: true,
+      icon: 'camera',
+      description: '系统默认摄像头设备',
+    });
+  }
+
   return [
-    ...(!isBrowserInput
-      ? [
-          {
-            id: 'system_camera_default',
-            label: '系统默认摄像头',
-            type: 'system' as const,
-            enabled: true,
-            icon: 'camera' as const,
-            description: '系统默认摄像头设备',
-          },
-        ]
-      : []),
+    ...inputVideoTracks,
     {
       id: ROOM_INPUT_VIDEO_TRACK_NAME,
       label: '人脸检测频道',
@@ -86,6 +102,10 @@ export function buildDefaultVideoTracks(isBrowserInput: boolean): VideoTrackConf
       description: '统一输入视频预览',
     },
   ];
+}
+
+export function getDefaultVideoTrack(): string {
+  return ROOM_INPUT_VIDEO_TRACK_NAME;
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
@@ -100,13 +120,14 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   usesBrowserRawMediaInput: false,
   usesServerRoomInput: false,
   browserMediaStreamName: 'browser_input',
-  browserVideoWidth: 1280,
-  browserVideoHeight: 720,
-  browserVideoFps: 15,
+  browserVideoWidth: 640,
+  browserVideoHeight: 480,
+  browserVideoFps: 25,
   browserVideoMaxBitrate: 1700000,
-  remoteVideoWidth: 1280,
-  remoteVideoHeight: 720,
-  remoteVideoFps: 15,
+  browserVideoStats: false,
+  remoteVideoWidth: 640,
+  remoteVideoHeight: 480,
+  remoteVideoFps: 25,
 
   logo: '/lk-logo.png',
   accent: '#002cf2',
@@ -132,12 +153,12 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // 字幕和转录配置
   enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
   enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
-  showTranscriptByDefault: true, // 默认显示字幕窗口，交互时直接可见
+  showTranscriptByDefault: true, // 默认显示字幕；文本输入栏由用户点击 text 按钮后展开
   userTranscriptionIdentities: ['room_input'], // 用户转录身份标识（自定义音频track）
   showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
 
   // 视频轨道配置
   showDefaultCameraPreview: true,
   availableVideoTracks: buildDefaultVideoTracks(false),
-  defaultVideoTrack: ROOM_INPUT_VIDEO_TRACK_NAME, // 默认选择统一输入视频轨道
+  defaultVideoTrack: getDefaultVideoTrack(), // 默认选择统一输入视频轨道
 };

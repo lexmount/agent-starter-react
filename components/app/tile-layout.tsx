@@ -27,6 +27,28 @@ const ANIMATION_TRANSITION = {
   damping: 75,
   mass: 1,
 };
+const COMPACT_TILE_HEIGHT = 270;
+const COMPACT_AGENT_TILE_WIDTH = 360;
+const DEFAULT_CAMERA_TILE_WIDTH = 360;
+const DEFAULT_SCREEN_SHARE_TILE_WIDTH = 480;
+const MIN_SECOND_TILE_WIDTH = 270;
+const MAX_SECOND_TILE_WIDTH = 480;
+const GRID_GAP_PX = 8;
+
+function resolveSecondTileWidth(trackRef: TrackReference | undefined, fallbackWidth: number) {
+  const width = trackRef?.publication.dimensions?.width ?? 0;
+  const height = trackRef?.publication.dimensions?.height ?? 0;
+  if (width <= 0 || height <= 0) {
+    return fallbackWidth;
+  }
+
+  return Math.round(
+    Math.min(
+      MAX_SECOND_TILE_WIDTH,
+      Math.max(MIN_SECOND_TILE_WIDTH, COMPACT_TILE_HEIGHT * (width / height))
+    )
+  );
+}
 
 function isUsableCameraTrack(trackRef: TrackReference, allowedTrackNames: ReadonlySet<string>) {
   const publication = trackRef.publication;
@@ -44,11 +66,8 @@ function isUsableCameraTrack(trackRef: TrackReference, allowedTrackNames: Readon
 const classNames = {
   // GRID
   // 2 Columns x 3 Rows
-  grid: [
-    'h-full w-full',
-    'grid gap-x-2 place-content-center',
-    'grid-cols-[1fr_1fr] grid-rows-[270px_1fr_270px]',
-  ],
+  grid: ['h-full w-full', 'grid gap-x-2 place-content-center', 'grid-rows-[270px_1fr_270px]'],
+  gridDefault: ['grid-cols-[1fr_1fr]'],
   // Agent
   // chatOpen: true,
   // hasSecondTile: true
@@ -169,12 +188,23 @@ export function TileLayout({
     (canShowDefaultCameraPreview && selectedTrackId === null ? configuredCameraTrack : undefined) ||
     (canShowDefaultCameraPreview ? defaultCameraTrack : undefined);
 
-  const isCameraEnabled =
-    cameraTrack && cameraTrack.publication && !cameraTrack.publication.isMuted;
-  const isScreenShareEnabled = screenShareTrack && !screenShareTrack.publication.isMuted;
-  const hasSecondTile = isCameraEnabled || isScreenShareEnabled;
+  const isCameraEnabled = Boolean(cameraTrack?.publication && !cameraTrack.publication.isMuted);
+  const isScreenShareEnabled = Boolean(screenShareTrack && !screenShareTrack.publication.isMuted);
+  const secondTileTrack = isCameraEnabled
+    ? cameraTrack
+    : isScreenShareEnabled
+      ? screenShareTrack
+      : undefined;
+  const isSecondTileScreenShare = !isCameraEnabled && isScreenShareEnabled;
+  const secondTileWidth = resolveSecondTileWidth(
+    secondTileTrack,
+    isSecondTileScreenShare ? DEFAULT_SCREEN_SHARE_TILE_WIDTH : DEFAULT_CAMERA_TILE_WIDTH
+  );
+  const hasSecondTile = Boolean(isCameraEnabled || isScreenShareEnabled);
+  const compactGridMaxWidth = COMPACT_AGENT_TILE_WIDTH + secondTileWidth + GRID_GAP_PX;
 
-  const animationDelay = chatOpen ? 0 : 0.15;
+  const useCompactAgentTile = chatOpen || hasSecondTile;
+  const animationDelay = useCompactAgentTile ? 0 : 0.15;
   const isAvatar = agentVideoTrack !== undefined;
   const videoWidth = agentVideoTrack?.publication.dimensions?.width ?? 0;
   const videoHeight = agentVideoTrack?.publication.dimensions?.height ?? 0;
@@ -191,15 +221,28 @@ export function TileLayout({
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-8 bottom-32 z-50 md:top-12 md:bottom-40">
-      <div className="relative mx-auto h-full max-w-[728px] px-4 md:px-0">
-        <div className={cn(classNames.grid)}>
+      <div
+        className={cn('relative mx-auto h-full px-4 md:px-0', !hasSecondTile && 'max-w-[728px]')}
+        style={{
+          maxWidth: hasSecondTile ? `${compactGridMaxWidth}px` : undefined,
+        }}
+      >
+        <div
+          className={cn(classNames.grid, !hasSecondTile && classNames.gridDefault)}
+          style={{
+            gridTemplateColumns: hasSecondTile
+              ? `${COMPACT_AGENT_TILE_WIDTH}fr ${secondTileWidth}fr`
+              : undefined,
+          }}
+        >
           {/* Agent */}
           <div
             className={cn([
               'grid',
-              !chatOpen && classNames.agentChatClosed,
-              chatOpen && hasSecondTile && classNames.agentChatOpenWithSecondTile,
-              chatOpen && !hasSecondTile && classNames.agentChatOpenWithoutSecondTile,
+              hasSecondTile && 'w-full',
+              hasSecondTile && classNames.agentChatOpenWithSecondTile,
+              !hasSecondTile && !chatOpen && classNames.agentChatClosed,
+              !hasSecondTile && chatOpen && classNames.agentChatOpenWithoutSecondTile,
             ])}
           >
             <AnimatePresence mode="popLayout">
@@ -214,15 +257,18 @@ export function TileLayout({
                   }}
                   animate={{
                     opacity: 1,
-                    scale: chatOpen ? 1 : 5,
+                    scale: useCompactAgentTile ? 1 : 5,
                   }}
                   transition={{
                     ...ANIMATION_TRANSITION,
                     delay: animationDelay,
                   }}
                   className={cn(
-                    'bg-background h-[270px] w-[360px] rounded-md border border-transparent transition-[border,drop-shadow]',
-                    chatOpen && 'border-input/50 drop-shadow-lg/10 delay-200'
+                    'bg-background rounded-md border border-transparent transition-[border,drop-shadow]',
+                    useCompactAgentTile
+                      ? 'aspect-[4/3] w-full max-w-[360px]'
+                      : 'h-[270px] w-[360px]',
+                    useCompactAgentTile && 'border-input/50 drop-shadow-lg/10 delay-200'
                   )}
                 >
                   <BarVisualizer
@@ -259,7 +305,7 @@ export function TileLayout({
                     maskImage:
                       'radial-gradient(circle, rgba(0, 0, 0, 1) 0, rgba(0, 0, 0, 1) 500px, transparent 500px)',
                     filter: 'blur(0px)',
-                    borderRadius: chatOpen ? 6 : 12,
+                    borderRadius: useCompactAgentTile ? 6 : 12,
                   }}
                   transition={{
                     ...ANIMATION_TRANSITION,
@@ -273,14 +319,14 @@ export function TileLayout({
                   }}
                   className={cn(
                     'overflow-hidden bg-black drop-shadow-xl/80',
-                    chatOpen ? 'h-[270px] w-[360px]' : 'h-auto w-full'
+                    useCompactAgentTile ? 'aspect-[4/3] w-full max-w-[360px]' : 'h-auto w-full'
                   )}
                 >
                   <VideoTrack
                     width={videoWidth}
                     height={videoHeight}
                     trackRef={agentVideoTrack}
-                    className={cn(chatOpen && 'h-[270px] w-[360px] object-cover')}
+                    className={cn(useCompactAgentTile && 'h-full w-full object-cover')}
                   />
                 </MotionContainer>
               )}
@@ -290,13 +336,14 @@ export function TileLayout({
           <div
             className={cn([
               'grid',
-              chatOpen && classNames.secondTileChatOpen,
-              !chatOpen && classNames.secondTileChatClosed,
+              hasSecondTile && 'w-full max-w-full',
+              hasSecondTile && classNames.secondTileChatOpen,
+              !hasSecondTile && classNames.secondTileChatClosed,
             ])}
           >
             {/* Camera & Screen Share */}
             <AnimatePresence>
-              {((cameraTrack && isCameraEnabled) || (screenShareTrack && isScreenShareEnabled)) && (
+              {secondTileTrack && (
                 <MotionContainer
                   key="camera"
                   layout="position"
@@ -317,13 +364,18 @@ export function TileLayout({
                     ...ANIMATION_TRANSITION,
                     delay: animationDelay,
                   }}
-                  className="drop-shadow-lg/20"
+                  className="w-full max-w-full drop-shadow-lg/20"
                 >
                   <VideoTrack
-                    trackRef={cameraTrack || screenShareTrack}
-                    width={(cameraTrack || screenShareTrack)?.publication.dimensions?.width ?? 0}
-                    height={(cameraTrack || screenShareTrack)?.publication.dimensions?.height ?? 0}
-                    className="bg-muted max-h-[270px] w-[360px] max-w-full rounded-md object-contain"
+                    trackRef={secondTileTrack}
+                    width={secondTileTrack.publication.dimensions?.width ?? 0}
+                    height={secondTileTrack.publication.dimensions?.height ?? 0}
+                    className="bg-muted w-full rounded-md object-contain"
+                    style={{
+                      aspectRatio: `${secondTileWidth} / ${COMPACT_TILE_HEIGHT}`,
+                      maxWidth: `${secondTileWidth}px`,
+                      maxHeight: `${COMPACT_TILE_HEIGHT}px`,
+                    }}
                   />
                 </MotionContainer>
               )}

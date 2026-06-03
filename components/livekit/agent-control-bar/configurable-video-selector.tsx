@@ -27,6 +27,22 @@ function debugVideoLog(config: Pick<AppConfig, 'debugVideo'> | undefined, ...arg
   }
 }
 
+export function shouldDeferAutoPreviewRetry(
+  pendingTrackId: string | null,
+  requestedTrackId: string | null | undefined,
+  previewReady: boolean
+) {
+  return Boolean(requestedTrackId && pendingTrackId === requestedTrackId && !previewReady);
+}
+
+export function shouldClearPendingAutoPreviewRetry(
+  pendingTrackId: string | null,
+  requestedTrackId: string | null | undefined,
+  previewAvailable: boolean
+) {
+  return Boolean(requestedTrackId && pendingTrackId === requestedTrackId && !previewAvailable);
+}
+
 interface ConfigurableVideoSelectorProps {
   availableConfigs: VideoTrackConfig[];
   defaultTrackId?: string;
@@ -76,7 +92,9 @@ export function ConfigurableVideoSelector({
 
   const [isSystemCameraEnabled, setIsSystemCameraEnabled] = useState(false);
   const [isTrackPreviewEnabled, setIsTrackPreviewEnabled] = useState(false);
-  const didAutoEnableLivekitPreview = useRef(false);
+  const previewedTrackIdRef = useRef<string | null>(null);
+  const pendingAutoPreviewTrackIdRef = useRef<string | null>(null);
+  const autoPreviewDisabledRef = useRef(false);
   const isMediaExternallyControlled =
     mediaEnabled !== undefined || onMediaEnabledChange !== undefined;
 
@@ -229,11 +247,46 @@ export function ConfigurableVideoSelector({
   const selectedOption =
     (selectedTrackId ? getTrackById(selectedTrackId) : undefined) ||
     (defaultTrackId ? getTrackById(defaultTrackId) : undefined);
+  const getPreviewTrackId = useCallback(
+    (trackIdOverride?: string | null) => {
+      const preferredTrackIds = [trackIdOverride, selectedTrackId, defaultTrackId];
+
+      for (const trackId of preferredTrackIds) {
+        if (!trackId) {
+          continue;
+        }
+
+        const option = getTrackById(trackId);
+        if (option?.available) {
+          return option.id;
+        }
+      }
+
+      return videoOptions.find((option) => option.available)?.id ?? null;
+    },
+    [defaultTrackId, getTrackById, selectedTrackId, videoOptions]
+  );
   const effectivePressed = isMediaExternallyControlled
     ? !!mediaEnabled
     : selectedOption?.config.type === 'system'
       ? !!pressed || isSystemCameraEnabled
       : isTrackPreviewEnabled;
+  const isLivekitPreviewReady = useCallback(
+    (trackId: string) => {
+      const option = getTrackById(trackId);
+      if (option?.config.type !== 'livekit' || !option.available) {
+        return false;
+      }
+
+      const trackKey = option.config.livekitTrackName || option.config.id;
+      if (existingLivekitTracks?.has(trackKey) || getLocalTrackReference(trackKey)) {
+        return true;
+      }
+
+      return Boolean(getTrackByName(trackKey)?.track);
+    },
+    [existingLivekitTracks, getLocalTrackReference, getTrackById, getTrackByName]
+  );
 
   // 清理所有资源
   const cleanupAllResources = useCallback(
@@ -257,7 +310,9 @@ export function ConfigurableVideoSelector({
       setIsSystemCameraEnabled(false);
       setIsTrackPreviewEnabled(false);
       if (resetAutoPreview) {
-        didAutoEnableLivekitPreview.current = false;
+        previewedTrackIdRef.current = null;
+        pendingAutoPreviewTrackIdRef.current = null;
+        autoPreviewDisabledRef.current = false;
       }
     },
     [appConfig, isMediaExternallyControlled, localParticipant, currentTrack, clearSelectedTrack]
@@ -288,6 +343,7 @@ export function ConfigurableVideoSelector({
         setIsSystemCameraEnabled(false);
         setIsTrackPreviewEnabled(true);
       }
+      previewedTrackIdRef.current = trackId;
 
       return true;
     },
@@ -303,7 +359,9 @@ export function ConfigurableVideoSelector({
 
   const disableTrackPreview = useCallback(async () => {
     debugVideoLog(appConfig, '[ConfigurableVideoSelector] Disabling track preview');
-    didAutoEnableLivekitPreview.current = true;
+    previewedTrackIdRef.current = null;
+    pendingAutoPreviewTrackIdRef.current = null;
+    autoPreviewDisabledRef.current = true;
     await cleanupAllResources(false);
     onPressedChange?.(false);
   }, [appConfig, cleanupAllResources, onPressedChange]);
@@ -312,7 +370,7 @@ export function ConfigurableVideoSelector({
   const handleTrackPreviewToggle = useCallback(
     async (enabled?: boolean, trackIdOverride?: string) => {
       const shouldEnable = enabled !== undefined ? enabled : !isTrackPreviewEnabled;
-      const trackToUse = trackIdOverride || selectedTrackId || defaultTrackId;
+      const trackToUse = getPreviewTrackId(trackIdOverride);
 
       if (shouldEnable) {
         if (trackToUse) {
@@ -322,13 +380,7 @@ export function ConfigurableVideoSelector({
         await disableTrackPreview();
       }
     },
-    [
-      isTrackPreviewEnabled,
-      selectedTrackId,
-      defaultTrackId,
-      enableTrackPreview,
-      disableTrackPreview,
-    ]
+    [isTrackPreviewEnabled, getPreviewTrackId, enableTrackPreview, disableTrackPreview]
   );
 
   // 统一的摄像头开关逻辑
@@ -343,8 +395,11 @@ export function ConfigurableVideoSelector({
       await onMediaEnabledChange?.(shouldEnable);
 
       if (shouldEnable) {
-        didAutoEnableLivekitPreview.current = false;
+        previewedTrackIdRef.current = null;
+        pendingAutoPreviewTrackIdRef.current = null;
+        autoPreviewDisabledRef.current = false;
         if (isMediaExternallyControlled && !autoPreviewLivekitTracks) {
+          clearSelectedTrack();
           return;
         }
 
@@ -366,6 +421,7 @@ export function ConfigurableVideoSelector({
       onMediaEnabledChange,
       isMediaExternallyControlled,
       autoPreviewLivekitTracks,
+      clearSelectedTrack,
       appConfig,
     ]
   );
@@ -388,34 +444,52 @@ export function ConfigurableVideoSelector({
   // LiveKit 输入轨道来自 room 中的输入 participant，不需要用户再次手动打开本机摄像头。
   // 当默认远程轨道已经订阅成功时，自动把它选为预览轨道。
   useEffect(() => {
+    const trackToUse = selectedTrackId || defaultTrackId;
+    const option = trackToUse ? getTrackById(trackToUse) : undefined;
+    const canPreviewTrack = option?.config.type === 'livekit' && option.available;
+    const previewReady = trackToUse && canPreviewTrack ? isLivekitPreviewReady(trackToUse) : false;
+
     if (
-      didAutoEnableLivekitPreview.current ||
+      shouldClearPendingAutoPreviewRetry(
+        pendingAutoPreviewTrackIdRef.current,
+        trackToUse,
+        Boolean(canPreviewTrack)
+      )
+    ) {
+      pendingAutoPreviewTrackIdRef.current = null;
+      previewedTrackIdRef.current = null;
+    }
+
+    if (
       !autoPreviewLivekitTracks ||
       disabled ||
       isLoading ||
-      isTrackPreviewEnabled ||
+      autoPreviewDisabledRef.current ||
+      shouldDeferAutoPreviewRetry(pendingAutoPreviewTrackIdRef.current, trackToUse, previewReady) ||
+      (isTrackPreviewEnabled && previewedTrackIdRef.current === trackToUse) ||
       (isMediaExternallyControlled && !mediaEnabled)
     ) {
       return;
     }
 
-    const trackToUse = selectedTrackId || defaultTrackId;
     if (!trackToUse) {
       return;
     }
 
-    const option = getTrackById(trackToUse);
-    if (option?.config.type !== 'livekit' || !option.available) {
+    if (!canPreviewTrack) {
       return;
     }
 
-    didAutoEnableLivekitPreview.current = true;
+    previewedTrackIdRef.current = trackToUse;
+    pendingAutoPreviewTrackIdRef.current = trackToUse;
     void enableTrackPreview(trackToUse)
       .then((connected) => {
-        didAutoEnableLivekitPreview.current = connected;
+        previewedTrackIdRef.current = connected ? trackToUse : null;
+        pendingAutoPreviewTrackIdRef.current = connected ? null : trackToUse;
       })
       .catch((err) => {
-        didAutoEnableLivekitPreview.current = false;
+        previewedTrackIdRef.current = null;
+        pendingAutoPreviewTrackIdRef.current = null;
         onMediaDeviceError?.(err as Error);
       });
   }, [
@@ -426,6 +500,7 @@ export function ConfigurableVideoSelector({
     defaultTrackId,
     getTrackById,
     enableTrackPreview,
+    isLivekitPreviewReady,
     onMediaDeviceError,
     isMediaExternallyControlled,
     mediaEnabled,
@@ -463,7 +538,9 @@ export function ConfigurableVideoSelector({
       );
       clearSelectedTrack();
       setIsTrackPreviewEnabled(false);
-      didAutoEnableLivekitPreview.current = false;
+      previewedTrackIdRef.current = null;
+      pendingAutoPreviewTrackIdRef.current = null;
+      autoPreviewDisabledRef.current = false;
     }
   }, [
     selectedTrackId,

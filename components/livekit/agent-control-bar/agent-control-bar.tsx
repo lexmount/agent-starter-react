@@ -28,6 +28,8 @@ export interface ControlBarControls {
 
 export interface AgentControlBarProps extends UseInputControlsProps {
   controls?: ControlBarControls;
+  chatOpen?: boolean;
+  defaultChatOpen?: boolean;
   onDisconnect?: () => void;
   onChatOpenChange?: (open: boolean) => void;
   onDeviceError?: (error: { source: Track.Source; error: Error }) => void;
@@ -38,6 +40,8 @@ export interface AgentControlBarProps extends UseInputControlsProps {
  */
 export function AgentControlBar({
   controls,
+  chatOpen: controlledChatOpen,
+  defaultChatOpen = false,
   saveUserChoices = true,
   className,
   onDisconnect,
@@ -47,9 +51,11 @@ export function AgentControlBar({
 }: AgentControlBarProps & HTMLAttributes<HTMLDivElement>) {
   const { send } = useChat();
   const participants = useRemoteParticipants();
-  const [chatOpen, setChatOpen] = useState(false);
+  const [uncontrolledChatOpen, setUncontrolledChatOpen] = useState(defaultChatOpen);
   const publishPermissions = usePublishPermissions();
   const { appConfig, isSessionActive, endSession, browserSourceClient } = useSession();
+  const isChatControlled = controlledChatOpen !== undefined;
+  const chatOpen = controlledChatOpen ?? uncontrolledChatOpen;
   const usesBrowserRawMediaInput =
     !!appConfig.usesBrowserRawMediaInput && browserSourceClient.enabled;
   const browserRawVideoTracks = useMemo(() => {
@@ -89,12 +95,14 @@ export function AgentControlBar({
     await send(message);
   };
 
-  const handleToggleTranscript = useCallback(
+  const handleToggleTextInput = useCallback(
     (open: boolean) => {
-      setChatOpen(open);
+      if (!isChatControlled) {
+        setUncontrolledChatOpen(open);
+      }
       onChatOpenChange?.(open);
     },
-    [onChatOpenChange, setChatOpen]
+    [isChatControlled, onChatOpenChange]
   );
 
   const handleDisconnect = useCallback(async () => {
@@ -189,7 +197,7 @@ export function AgentControlBar({
               disabled={cameraToggle.pending}
               mediaEnabled={usesBrowserRawMediaInput ? browserSourceClient.videoEnabled : undefined}
               mediaPending={usesBrowserRawMediaInput ? browserSourceClient.videoPending : undefined}
-              autoPreviewLivekitTracks={!usesBrowserRawMediaInput}
+              autoPreviewLivekitTracks
               onMediaEnabledChange={usesBrowserRawMediaInput ? handleRawVideoToggle : undefined}
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
@@ -210,13 +218,13 @@ export function AgentControlBar({
             />
           )}
 
-          {/* Toggle Transcript */}
+          {/* Toggle text input */}
           <Toggle
             size="icon"
             variant="secondary"
-            aria-label="Toggle transcript"
+            aria-label="Toggle text input"
             pressed={chatOpen}
-            onPressedChange={handleToggleTranscript}
+            onPressedChange={handleToggleTextInput}
           >
             <ChatTextIcon weight="bold" />
           </Toggle>

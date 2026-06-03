@@ -64,10 +64,11 @@ export function useBrowserSourceClient(
   const enabled = !!appConfig.usesBrowserRawMediaInput;
   const browserMediaStreamName =
     appConfig.browserMediaStreamName || DEFAULT_BROWSER_MEDIA_STREAM_NAME;
-  const browserVideoFrameRate = appConfig.browserVideoFps ?? 15;
+  const browserVideoFrameRate = appConfig.browserVideoFps ?? 25;
   const browserVideoMaxBitrate = appConfig.browserVideoMaxBitrate ?? 1700000;
-  const browserVideoWidth = appConfig.browserVideoWidth ?? 1280;
-  const browserVideoHeight = appConfig.browserVideoHeight ?? 720;
+  const browserVideoWidth = appConfig.browserVideoWidth ?? 640;
+  const browserVideoHeight = appConfig.browserVideoHeight ?? 480;
+  const browserVideoStatsEnabled = appConfig.browserVideoStats ?? appConfig.debugVideo ?? false;
   const audioEnabledRef = useRef(true);
   const videoEnabledRef = useRef(BROWSER_VIDEO_DEFAULT_ENABLED);
   const [audioEnabled, setAudioEnabledState] = useState(true);
@@ -135,8 +136,8 @@ export function useBrowserSourceClient(
       runtime.videoTrack = videoTrack;
       runtime.videoPublication = publication;
       setVideoTrackState(videoTrack);
-      if (appConfig.debugVideo) {
-        startBrowserVideoStatsLogging(runtime, videoTrack, publication);
+      if (browserVideoStatsEnabled) {
+        startBrowserVideoStatsLogging(runtime, videoTrack, publication, room);
       }
     } catch (error) {
       videoTrack.stop();
@@ -147,8 +148,8 @@ export function useBrowserSourceClient(
     browserVideoFrameRate,
     browserVideoHeight,
     browserVideoMaxBitrate,
+    browserVideoStatsEnabled,
     browserVideoWidth,
-    appConfig.debugVideo,
     room,
   ]);
 
@@ -364,14 +365,15 @@ function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabl
 function startBrowserVideoStatsLogging(
   runtime: BrowserSourceRuntime,
   track: LocalVideoTrack,
-  publication: LocalTrackPublication
+  publication: LocalTrackPublication,
+  room: Room
 ) {
   stopBrowserVideoStatsLogging(runtime);
   runtime.videoStatsStartedAt = Date.now();
   runtime.previousVideoStats = null;
 
   const logStats = () => {
-    void logBrowserVideoStats(runtime, track, publication).catch((error) => {
+    void logBrowserVideoStats(runtime, track, publication, room).catch((error) => {
       console.warn('[browser-video-stats] failed to read WebRTC stats', error);
     });
   };
@@ -393,7 +395,8 @@ function stopBrowserVideoStatsLogging(runtime: BrowserSourceRuntime) {
 async function logBrowserVideoStats(
   runtime: BrowserSourceRuntime,
   track: LocalVideoTrack,
-  publication: LocalTrackPublication
+  publication: LocalTrackPublication,
+  room: Room
 ) {
   if (runtime.videoTrack !== track || runtime.videoPublication !== publication) {
     return;
@@ -435,15 +438,33 @@ async function logBrowserVideoStats(
   const retransmittedPacketsDelta = previous
     ? snapshot.retransmittedPacketsSent - previous.retransmittedPacketsSent
     : undefined;
+  const bytesSentDelta = previous ? snapshot.bytesSent - previous.bytesSent : undefined;
+  const framesEncodedDelta = previous ? snapshot.framesEncoded - previous.framesEncoded : undefined;
+  const packetsSentDelta = previous ? snapshot.packetsSent - previous.packetsSent : undefined;
+  const settings = track.mediaStreamTrack.getSettings();
 
   const payload = {
+    timestamp: new Date(timestamp).toISOString(),
+    roomName: room.name,
+    localParticipantIdentity: room.localParticipant.identity,
+    trackName: BROWSER_VIDEO_TRACK_NAME,
     trackSid: publication.trackSid,
     elapsedSeconds: round(elapsedSeconds, 1),
+    capture: {
+      width: settings.width,
+      height: settings.height,
+      frameRate: settings.frameRate,
+      aspectRatio: settings.aspectRatio,
+    },
     selectedCandidatePair: formatSelectedCandidatePair(report, selectedPair),
     video: {
       width: readNumber(outbound, 'frameWidth'),
       height: readNumber(outbound, 'frameHeight'),
       framesPerSecond: readNumber(outbound, 'framesPerSecond'),
+      framesSent: readNumber(outbound, 'framesSent'),
+      framesEncoded: snapshot.framesEncoded,
+      framesEncodedDelta,
+      framesDropped: readNumber(outbound, 'framesDropped'),
       sentFps:
         previous && elapsedMs > 0
           ? round(((snapshot.framesEncoded - previous.framesEncoded) * 1000) / elapsedMs, 1)
@@ -452,14 +473,26 @@ async function logBrowserVideoStats(
         previous && elapsedMs > 0
           ? round(((snapshot.bytesSent - previous.bytesSent) * 8) / elapsedMs, 1)
           : undefined,
+      bytesSent: snapshot.bytesSent,
+      bytesSentDelta,
       targetBitrateKbps: bitsPerSecondToKbps(readNumber(outbound, 'targetBitrate')),
       packetsSent: snapshot.packetsSent,
+      packetsSentDelta,
       retransmittedPacketsSent: snapshot.retransmittedPacketsSent,
       retransmittedPacketsDelta,
       nackCount: readNumber(outbound, 'nackCount'),
       pliCount: readNumber(outbound, 'pliCount'),
       firCount: readNumber(outbound, 'firCount'),
+      totalEncodeTimeSeconds: readNumber(outbound, 'totalEncodeTime'),
+      totalPacketSendDelaySeconds: readNumber(outbound, 'totalPacketSendDelay'),
+      qpSum: readNumber(outbound, 'qpSum'),
+      encoderImplementation: readString(outbound, 'encoderImplementation'),
+      powerEfficientEncoder: readBoolean(outbound, 'powerEfficientEncoder'),
       qualityLimitationReason: readString(outbound, 'qualityLimitationReason'),
+      qualityLimitationResolutionChanges: readNumber(
+        outbound,
+        'qualityLimitationResolutionChanges'
+      ),
     },
     network: {
       availableOutgoingBitrateKbps: bitsPerSecondToKbps(

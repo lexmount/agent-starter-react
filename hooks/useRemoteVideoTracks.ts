@@ -57,10 +57,10 @@ export function requestRemoteVideoHighQuality(
 
   publication.setVideoQuality(VideoQuality.HIGH);
   publication.setVideoDimensions({
-    width: config?.remoteVideoWidth ?? 1280,
-    height: config?.remoteVideoHeight ?? 720,
+    width: config?.remoteVideoWidth ?? 640,
+    height: config?.remoteVideoHeight ?? 480,
   });
-  publication.setVideoFPS(config?.remoteVideoFps ?? 15);
+  publication.setVideoFPS(config?.remoteVideoFps ?? 25);
 }
 
 export function createRemoteVideoTrackReference(
