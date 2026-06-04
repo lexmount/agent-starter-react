@@ -29,6 +29,7 @@ const ANIMATION_TRANSITION = {
 };
 const COMPACT_TILE_HEIGHT = 270;
 const COMPACT_AGENT_TILE_WIDTH = 360;
+const COMPACT_AGENT_TILE_CLASS = 'aspect-[4/3] w-[360px] max-w-[calc(100vw-32px)]';
 const DEFAULT_CAMERA_TILE_WIDTH = 360;
 const DEFAULT_SCREEN_SHARE_TILE_WIDTH = 480;
 const MIN_SECOND_TILE_WIDTH = 270;
@@ -265,9 +266,7 @@ export function TileLayout({
                   }}
                   className={cn(
                     'bg-background rounded-md border border-transparent transition-[border,drop-shadow]',
-                    useCompactAgentTile
-                      ? 'aspect-[4/3] w-full max-w-[360px]'
-                      : 'h-[270px] w-[360px]',
+                    useCompactAgentTile ? COMPACT_AGENT_TILE_CLASS : 'h-[270px] w-[360px]',
                     useCompactAgentTile && 'border-input/50 drop-shadow-lg/10 delay-200'
                   )}
                 >
@@ -319,7 +318,7 @@ export function TileLayout({
                   }}
                   className={cn(
                     'overflow-hidden bg-black drop-shadow-xl/80',
-                    useCompactAgentTile ? 'aspect-[4/3] w-full max-w-[360px]' : 'h-auto w-full'
+                    useCompactAgentTile ? COMPACT_AGENT_TILE_CLASS : 'h-auto w-full'
                   )}
                 >
                   <VideoTrack
