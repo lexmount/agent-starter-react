@@ -201,15 +201,15 @@ export function AgentControlBar({
               defaultTrackId={appConfig.defaultVideoTrack}
               existingLivekitTracks={browserRawVideoTracks}
               appConfig={appConfig}
-              pressed={cameraToggle.enabled}
-              pending={cameraToggle.pending}
-              disabled={cameraToggle.pending}
+              pressed={usesBrowserRawMediaInput ? undefined : cameraToggle.enabled}
+              pending={usesBrowserRawMediaInput ? false : cameraToggle.pending}
+              disabled={usesBrowserRawMediaInput ? !isSessionActive : cameraToggle.pending}
               mediaPending={usesBrowserRawMediaInput ? browserSourceClient.videoPending : undefined}
               autoPreviewLivekitTracks
               onMediaEnabledChange={
                 usesBrowserRawMediaInput ? handleRawVideoPreviewToggle : undefined
               }
-              onPressedChange={cameraToggle.toggle}
+              onPressedChange={usesBrowserRawMediaInput ? undefined : cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
               onTrackChange={handleVideoDeviceChange}
             />
