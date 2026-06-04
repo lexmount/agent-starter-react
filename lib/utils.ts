@@ -62,7 +62,7 @@ export function getClientConfigFromEnv(): AppConfig {
     usesBrowserRawMediaInput: isBrowserInput,
     usesServerRoomInput,
     agentName: agentName || undefined,
-    showDefaultCameraPreview: APP_CONFIG_DEFAULTS.showDefaultCameraPreview,
+    showDefaultCameraPreview: isBrowserInput ? false : APP_CONFIG_DEFAULTS.showDefaultCameraPreview,
     availableVideoTracks: buildDefaultVideoTracks(isBrowserInput, usesServerRoomInput),
     defaultVideoTrack: getDefaultVideoTrack(),
     browserMediaStreamName:

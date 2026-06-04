@@ -266,11 +266,12 @@ export function ConfigurableVideoSelector({
     },
     [defaultTrackId, getTrackById, selectedTrackId, videoOptions]
   );
-  const effectivePressed = isMediaExternallyControlled
-    ? !!mediaEnabled
-    : selectedOption?.config.type === 'system'
-      ? !!pressed || isSystemCameraEnabled
-      : isTrackPreviewEnabled;
+  const effectivePressed =
+    mediaEnabled !== undefined
+      ? !!mediaEnabled
+      : selectedOption?.config.type === 'system'
+        ? !!pressed || isSystemCameraEnabled
+        : isTrackPreviewEnabled;
   const isLivekitPreviewReady = useCallback(
     (trackId: string) => {
       const option = getTrackById(trackId);

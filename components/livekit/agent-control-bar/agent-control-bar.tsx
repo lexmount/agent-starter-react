@@ -129,6 +129,15 @@ export function AgentControlBar({
     },
     [browserSourceClient, handleDeviceError]
   );
+  const handleRawVideoPreviewToggle = useCallback(
+    async (enabled: boolean) => {
+      if (!enabled) {
+        return;
+      }
+      await handleRawVideoToggle(true);
+    },
+    [handleRawVideoToggle]
+  );
 
   const visibleControls = {
     leave: controls?.leave ?? true,
@@ -195,10 +204,11 @@ export function AgentControlBar({
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
               disabled={cameraToggle.pending}
-              mediaEnabled={usesBrowserRawMediaInput ? browserSourceClient.videoEnabled : undefined}
               mediaPending={usesBrowserRawMediaInput ? browserSourceClient.videoPending : undefined}
               autoPreviewLivekitTracks
-              onMediaEnabledChange={usesBrowserRawMediaInput ? handleRawVideoToggle : undefined}
+              onMediaEnabledChange={
+                usesBrowserRawMediaInput ? handleRawVideoPreviewToggle : undefined
+              }
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
               onTrackChange={handleVideoDeviceChange}
