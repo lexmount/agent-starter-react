@@ -98,7 +98,26 @@ export function useRoom(appConfig: AppConfig) {
       });
     };
 
+    const handleStartError = (error: Error) => {
+      if (aborted.current) {
+        // Once the effect has cleaned up after itself, drop any errors
+        //
+        // These errors are likely caused by this effect rerunning rapidly,
+        // resulting in a previous run `disconnect` running in parallel with
+        // a current run `connect`
+        return;
+      }
+
+      recoverFromStartError(error);
+    };
+
     setIsSessionActive(true);
+
+    const startDefaultMicrophone = async () => {
+      await room.localParticipant.setMicrophoneEnabled(true, undefined, {
+        preConnectBuffer: appConfig.isPreConnectBufferEnabled,
+      });
+    };
 
     const startLocalInput = async () => {
       if (browserSourceClient.enabled) {
@@ -110,31 +129,29 @@ export function useRoom(appConfig: AppConfig) {
         return;
       }
 
-      await room.localParticipant.setMicrophoneEnabled(true, undefined, {
-        preConnectBuffer: appConfig.isPreConnectBufferEnabled,
-      });
+      await startDefaultMicrophone();
     };
 
     if (room.state === 'disconnected') {
-      const roomConnectPromise = tokenSource
-        .fetch({ agentName: appConfig.agentName })
-        .then((connectionDetails) =>
-          room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-        )
-        .then(() => startLocalInput());
+      if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
+        tokenSource
+          .fetch({ agentName: appConfig.agentName })
+          .then((connectionDetails) =>
+            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+          )
+          .then(() => startLocalInput())
+          .catch(handleStartError);
+        return;
+      }
 
-      roomConnectPromise.catch((error) => {
-        if (aborted.current) {
-          // Once the effect has cleaned up after itself, drop any errors
-          //
-          // These errors are likely caused by this effect rerunning rapidly,
-          // resulting in a previous run `disconnect` running in parallel with
-          // a current run `connect`
-          return;
-        }
-
-        recoverFromStartError(error);
-      });
+      Promise.all([
+        startDefaultMicrophone(),
+        tokenSource
+          .fetch({ agentName: appConfig.agentName })
+          .then((connectionDetails) =>
+            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+          ),
+      ]).catch(handleStartError);
     } else {
       startLocalInput().catch((error) => {
         recoverFromStartError(error);

@@ -68,7 +68,7 @@ export function useBrowserSourceClient(
   const browserVideoMaxBitrate = appConfig.browserVideoMaxBitrate ?? 1700000;
   const browserVideoWidth = appConfig.browserVideoWidth ?? 640;
   const browserVideoHeight = appConfig.browserVideoHeight ?? 480;
-  const browserVideoStatsEnabled = appConfig.browserVideoStats ?? appConfig.debugVideo ?? false;
+  const browserVideoStatsEnabled = appConfig.browserVideoStats || appConfig.debugVideo || false;
   const audioEnabledRef = useRef(true);
   const videoEnabledRef = useRef(BROWSER_VIDEO_DEFAULT_ENABLED);
   const [audioEnabled, setAudioEnabledState] = useState(true);
