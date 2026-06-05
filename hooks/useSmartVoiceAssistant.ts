@@ -34,12 +34,7 @@ export function useSmartVoiceAssistant({
         !EXCLUDED_AVATAR_PARTICIPANT_IDENTITIES.has(participantIdentity) &&
         !shouldExcludeTrack(trackName)
       ) {
-        console.log(`[useSmartVoiceAssistant] Using original voice assistant track: ${trackName}`);
         return voiceAssistant.videoTrack;
-      } else {
-        console.log(
-          `[useSmartVoiceAssistant] Original track excluded: ${trackName} from ${participantIdentity}`
-        );
       }
     }
 
@@ -55,7 +50,6 @@ export function useSmartVoiceAssistant({
 
         // 跳过配置中的轨道
         if (shouldExcludeTrack(trackName)) {
-          console.log(`[useSmartVoiceAssistant] Skipping excluded track: ${trackName}`);
           continue;
         }
 
@@ -66,14 +60,10 @@ export function useSmartVoiceAssistant({
           source: publication.source,
         };
 
-        console.log(
-          `[useSmartVoiceAssistant] Found alternative avatar track: ${trackName} from ${participant.identity}`
-        );
         return trackRef;
       }
     }
 
-    console.log(`[useSmartVoiceAssistant] No suitable avatar track found`);
     return undefined;
   }, [voiceAssistant.videoTrack, remoteParticipants, shouldExcludeTrack]);
 

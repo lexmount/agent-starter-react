@@ -3,6 +3,8 @@ import { Room, RoomEvent, TokenSource } from 'livekit-client';
 import { AppConfig } from '@/app-config';
 import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
+import { getBrowserRoomSessionId } from '@/lib/browser-room-session';
+import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
@@ -55,6 +57,8 @@ export function useRoom(appConfig: AppConfig) {
         );
 
         try {
+          const roomId = appConfig.usesBrowserRawMediaInput ? getBrowserRoomSessionId() : undefined;
+
           const res = await fetch(url.toString(), {
             method: 'POST',
             headers: {
@@ -62,6 +66,7 @@ export function useRoom(appConfig: AppConfig) {
               'X-Sandbox-Id': appConfig.sandboxId ?? '',
             },
             body: JSON.stringify({
+              room_id: roomId,
               room_config: appConfig.agentName
                 ? {
                     agents: [{ agent_name: appConfig.agentName }],
@@ -69,9 +74,12 @@ export function useRoom(appConfig: AppConfig) {
                 : undefined,
             }),
           });
-          return await res.json();
+          return await readConnectionDetailsResponse(res);
         } catch (error) {
           console.error('Error fetching connection details:', error);
+          if (error instanceof Error) {
+            throw error;
+          }
           throw new Error('Error fetching connection details!');
         }
       }),
