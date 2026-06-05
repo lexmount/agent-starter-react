@@ -122,7 +122,7 @@ export function getClientConfigFromEnv(): AppConfig {
     'NEXT_PUBLIC_LEXVOICE_DEVICE'
   ).toLowerCase();
   const isBrowserInput = inputSource === 'browser';
-  const usesServerRoomInput = ['xunfei', 'generic', 'primebot'].includes(inputSource);
+  const usesServerRoomInput = ['xunfei', 'generic'].includes(inputSource);
   const agentName = readEnv(
     'AGENT_NAME',
     'NEXT_PUBLIC_AGENT_NAME',

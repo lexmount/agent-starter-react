@@ -75,10 +75,7 @@ export interface UseConfigurableVideoTracksOptions {
   availableConfigs: VideoTrackConfig[];
   defaultTrackId?: string;
   existingLivekitTracks?: Map<string, LocalVideoTrack>; // 现有的LiveKit轨道
-  remoteVideoTracksApi: Pick<
-    UseRemoteVideoTracksReturn,
-    'remoteVideoTracks' | 'subscribeToTrack' | 'getTrackByName'
-  >;
+  remoteVideoTracksApi: Pick<UseRemoteVideoTracksReturn, 'subscribeToTrack' | 'getTrackByName'>;
   appConfig?: Pick<AppConfig, 'debugVideo'>;
   onTrackChange?: (trackId: string, track: ConfigurableVideoTrackChange) => void | Promise<void>;
   onError?: (error: Error) => void;
@@ -114,7 +111,7 @@ export function useConfigurableVideoTracks({
   const [error, setError] = useState<string | null>(null);
 
   const trackFactory = useVideoTrackFactory();
-  const { remoteVideoTracks, subscribeToTrack, getTrackByName } = remoteVideoTracksApi;
+  const { subscribeToTrack, getTrackByName } = remoteVideoTracksApi;
 
   // 初始化视频选项
   const initializeVideoOptions = useCallback(async () => {
@@ -397,15 +394,6 @@ export function useConfigurableVideoTracks({
   useEffect(() => {
     initializeVideoOptions();
   }, [initializeVideoOptions]);
-
-  // 监听远程轨道变化
-  useEffect(() => {
-    debugVideoLog(
-      appConfig,
-      '[useConfigurableVideoTracks] Remote tracks updated, refreshing availability'
-    );
-    initializeVideoOptions();
-  }, [appConfig, remoteVideoTracks, initializeVideoOptions]);
 
   return {
     videoOptions,
