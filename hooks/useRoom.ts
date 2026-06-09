@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Room, RoomEvent, TokenSource } from 'livekit-client';
 import { AppConfig } from '@/app-config';
 import { toastAlert } from '@/components/livekit/alert-toast';
+import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
+import { getBrowserRoomSessionId } from '@/lib/browser-room-session';
+import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
@@ -13,6 +16,15 @@ export function useRoom(appConfig: AppConfig) {
     []
   );
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const handleBrowserVideoError = useCallback((error: Error) => {
+    toastAlert({
+      title: 'Camera could not start',
+      description: `${error.name}: ${error.message}`,
+    });
+  }, []);
+  const browserSourceClient = useBrowserSourceClient(room, appConfig, {
+    onVideoError: handleBrowserVideoError,
+  });
 
   useEffect(() => {
     function onDisconnected() {
@@ -51,6 +63,8 @@ export function useRoom(appConfig: AppConfig) {
         );
 
         try {
+          const roomId = appConfig.usesBrowserRawMediaInput ? getBrowserRoomSessionId() : undefined;
+
           const res = await fetch(url.toString(), {
             method: 'POST',
             headers: {
@@ -58,6 +72,7 @@ export function useRoom(appConfig: AppConfig) {
               'X-Sandbox-Id': appConfig.sandboxId ?? '',
             },
             body: JSON.stringify({
+              room_id: roomId,
               room_config: appConfig.agentName
                 ? {
                     agents: [{ agent_name: appConfig.agentName }],
@@ -65,26 +80,39 @@ export function useRoom(appConfig: AppConfig) {
                 : undefined,
             }),
           });
-          return await res.json();
+          return await readConnectionDetailsResponse(res);
         } catch (error) {
           console.error('Error fetching connection details:', error);
+          if (error instanceof Error) {
+            throw error;
+          }
           throw new Error('Error fetching connection details!');
         }
       }),
     [appConfig]
   );
 
-  const startSession = useCallback(async () => {
-    try {
-      if (room.state !== 'disconnected') {
-        await room.disconnect();
-      }
+  const startSession = useCallback(() => {
+    if (browserSourceClient.enabled && !isBrowserMediaAvailable()) {
+      toastAlert({
+        title: 'Camera and microphone require a secure page',
+        description:
+          'Open this page with HTTPS, localhost, or launch Chrome/Edge with --unsafely-treat-insecure-origin-as-secure for this IP address.',
+      });
+      return;
+    }
 
-      setIsSessionActive(true);
-      const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
-      await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
-      await room.localParticipant.setMicrophoneEnabled(false);
-    } catch (error) {
+    const recoverFromStartError = (error: Error) => {
+      browserSourceClient.stop();
+      room.disconnect();
+      setIsSessionActive(false);
+      toastAlert({
+        title: 'There was an error connecting to the agent',
+        description: `${error.name}: ${error.message}`,
+      });
+    };
+
+    const handleStartError = (error: Error) => {
       if (aborted.current) {
         // Once the effect has cleaned up after itself, drop any errors
         //
@@ -94,25 +122,75 @@ export function useRoom(appConfig: AppConfig) {
         return;
       }
 
-      setIsSessionActive(false);
-      if (error instanceof Error) {
-        toastAlert({
-          title: 'There was an error connecting to the agent',
-          description: `${error.name}: ${error.message}`,
-        });
-      } else {
-        toastAlert({
-          title: 'There was an error connecting to the agent',
-          description: String(error),
-        });
+      recoverFromStartError(error);
+    };
+
+    setIsSessionActive(true);
+
+    const startDefaultMicrophone = async () => {
+      await room.localParticipant.setMicrophoneEnabled(true, undefined, {
+        preConnectBuffer: appConfig.isPreConnectBufferEnabled,
+      });
+    };
+
+    const startLocalInput = async () => {
+      if (browserSourceClient.enabled) {
+        await browserSourceClient.start();
+        return;
       }
+
+      if (appConfig.usesServerRoomInput) {
+        await room.localParticipant.setMicrophoneEnabled(false);
+        return;
+      }
+
+      await startDefaultMicrophone();
+    };
+
+    if (room.state === 'disconnected') {
+      if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
+        tokenSource
+          .fetch({ agentName: appConfig.agentName })
+          .then((connectionDetails) =>
+            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+          )
+          .then(() => startLocalInput())
+          .catch(handleStartError);
+        return;
+      }
+
+      Promise.all([
+        startDefaultMicrophone(),
+        tokenSource
+          .fetch({ agentName: appConfig.agentName })
+          .then((connectionDetails) =>
+            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+          ),
+      ]).catch(handleStartError);
+    } else {
+      startLocalInput().catch((error) => {
+        recoverFromStartError(error);
+      });
     }
-  }, [room, appConfig, tokenSource]);
+  }, [room, appConfig, tokenSource, browserSourceClient]);
 
   const endSession = useCallback(() => {
-    setIsSessionActive(false);
+    browserSourceClient.stop();
     room.disconnect();
-  }, [room]);
+    setIsSessionActive(false);
+  }, [browserSourceClient, room]);
 
-  return { room, isSessionActive, startSession, endSession };
+  return { room, isSessionActive, startSession, endSession, browserSourceClient };
+}
+
+function isBrowserMediaAvailable() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return Boolean(
+    window.isSecureContext &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function'
+  );
 }
