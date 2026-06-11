@@ -5,7 +5,10 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getBrowserRoomSessionId, resetBrowserRoomSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
-import { requestAgentSessionDispatch } from '@/lib/session-dispatch-client';
+import {
+  AgentSessionDispatchCancelledError,
+  requestAgentSessionDispatch,
+} from '@/lib/session-dispatch-client';
 import {
   beginAgentSessionStart,
   registerAgentSessionDispatch,
@@ -98,7 +101,7 @@ export function useRoom(appConfig: AppConfig) {
     [appConfig]
   );
 
-  const startSession = useCallback(() => {
+  const startSession = useCallback(async () => {
     if (browserSourceClient.enabled && !isBrowserMediaAvailable()) {
       toastAlert({
         title: 'Camera and microphone require a secure page',
@@ -108,18 +111,19 @@ export function useRoom(appConfig: AppConfig) {
       return;
     }
 
-    const recoverFromStartError = (error: Error) => {
+    const recoverFromStartError = (error: unknown) => {
+      const startError = error instanceof Error ? error : new Error(String(error));
       browserSourceClient.stop();
       room.disconnect();
       setIsSessionActive(false);
       toastAlert({
         title: 'There was an error connecting to the agent',
-        description: `${error.name}: ${error.message}`,
+        description: `${startError.name}: ${startError.message}`,
       });
     };
 
-    const handleStartError = (error: Error) => {
-      if (aborted.current) {
+    const handleStartError = (error: unknown) => {
+      if (aborted.current || isExpectedStartCancellation(error)) {
         // Once the effect has cleaned up after itself, drop any errors
         //
         // These errors are likely caused by this effect rerunning rapidly,
@@ -133,7 +137,7 @@ export function useRoom(appConfig: AppConfig) {
 
     setIsSessionActive(true);
 
-    const dispatchAgentSession = () => {
+    const dispatchAgentSession = async () => {
       const sessionId = crypto.randomUUID();
       const signal = beginAgentSessionStart(room.name, sessionId);
       const dispatchPromise = requestAgentSessionDispatch(
@@ -143,6 +147,7 @@ export function useRoom(appConfig: AppConfig) {
         { signal }
       );
       registerAgentSessionDispatch(room.name, sessionId, dispatchPromise);
+      await dispatchPromise;
     };
 
     const startDefaultMicrophone = async () => {
@@ -166,7 +171,7 @@ export function useRoom(appConfig: AppConfig) {
     };
 
     if (room.state === 'disconnected') {
-      void (async () => {
+      try {
         await waitForAgentSessionStop();
 
         if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
@@ -184,12 +189,17 @@ export function useRoom(appConfig: AppConfig) {
           ]);
         }
 
-        dispatchAgentSession();
-      })().catch(handleStartError);
-    } else {
-      startLocalInput().catch((error) => {
-        recoverFromStartError(error);
-      });
+        await dispatchAgentSession();
+      } catch (error) {
+        handleStartError(error);
+      }
+      return;
+    }
+
+    try {
+      await startLocalInput();
+    } catch (error) {
+      recoverFromStartError(error);
     }
   }, [room, appConfig, tokenSource, browserSourceClient]);
 
@@ -215,4 +225,13 @@ function isBrowserMediaAvailable() {
       navigator.mediaDevices &&
       typeof navigator.mediaDevices.getUserMedia === 'function'
   );
+}
+
+function isExpectedStartCancellation(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const name = 'name' in error ? String(error.name) : '';
+  return name === 'AbortError' || error instanceof AgentSessionDispatchCancelledError;
 }

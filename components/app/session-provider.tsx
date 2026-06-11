@@ -23,13 +23,13 @@ const DEFAULT_BROWSER_SOURCE_CLIENT: BrowserSourceClient = {
 const SessionContext = createContext<{
   appConfig: AppConfig;
   isSessionActive: boolean;
-  startSession: () => void;
+  startSession: () => Promise<void>;
   endSession: () => void;
   browserSourceClient: BrowserSourceClient;
 }>({
   appConfig: APP_CONFIG_DEFAULTS,
   isSessionActive: false,
-  startSession: () => {},
+  startSession: async () => {},
   endSession: () => {},
   browserSourceClient: DEFAULT_BROWSER_SOURCE_CLIENT,
 });

@@ -83,10 +83,13 @@ test('session dispatch route only accepts explicitly named agent participants as
 test('start call dispatches the agent with a cancellable room session id', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
+  assert.match(useRoomSource, /const startSession = useCallback\(async \(\) =>/);
   assert.match(useRoomSource, /crypto\.randomUUID\(\)/);
   assert.match(useRoomSource, /beginAgentSessionStart/);
   assert.match(useRoomSource, /registerAgentSessionDispatch/);
   assert.match(useRoomSource, /requestAgentSessionDispatch/);
+  assert.match(useRoomSource, /await dispatchPromise/);
+  assert.match(useRoomSource, /isExpectedStartCancellation/);
   assert.match(useRoomSource, /waitForAgentSessionStop/);
   assert.match(
     useRoomSource,
