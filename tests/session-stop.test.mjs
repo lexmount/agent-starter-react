@@ -60,3 +60,28 @@ test('session stop route cancels room session before remote cleanup', async () =
   assert.match(routeSource, /sessionId/);
   assert.match(routeSource, /dispatch_ids/);
 });
+
+test('session stop route deletes livekit room after room input stops', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(
+    routeSource,
+    /const cleanupResults = \[\s*await waitForPendingDispatches\(roomName, sessionId\),\s*await stopRoomInput\(roomName\),\s*await deleteLiveKitRoom\(roomName\),\s*\]/s
+  );
+});
+
+test('session stop route defers remote cleanup for browser input source', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(routeSource, /function shouldDeferRemoteSessionCleanup/);
+  assert.match(routeSource, /readStopInputSource\(\) === 'browser'/);
+  assert.match(routeSource, /void runRemoteSessionCleanup/);
+  assert.match(routeSource, /status: 'stopping'/);
+  assert.match(routeSource, /\{ status: 202 \}/);
+});

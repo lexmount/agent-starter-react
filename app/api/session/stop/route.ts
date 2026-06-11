@@ -25,6 +25,14 @@ type StopResult = {
 
 export const revalidate = 0;
 
+type StopRequestBody = {
+  roomName?: string;
+  room_name?: string;
+  sessionId?: string;
+  session_id?: string;
+  wait?: boolean | string | number;
+};
+
 async function stopRoomInput(roomName: string): Promise<StopResult> {
   const stopUrl = resolveRoomInputStopUrl(process.env.ROOM_INPUT_URL);
   if (!stopUrl) {
@@ -61,6 +69,38 @@ function readPositiveIntEnv(name: string, fallback: number) {
 
   const value = Number.parseInt(raw, 10);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readStopInputSource(): string {
+  return (
+    process.env.INPUT_SOURCE ||
+    process.env.NEXT_PUBLIC_INPUT_SOURCE ||
+    process.env.NEXT_PUBLIC_LEXVOICE_DEVICE ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function requestWaitsForRemoteCleanup(body: StopRequestBody): boolean {
+  const wait = body.wait;
+  if (typeof wait === 'boolean') {
+    return wait;
+  }
+  if (typeof wait === 'number') {
+    return wait !== 0;
+  }
+  if (typeof wait === 'string') {
+    return ['1', 'true', 'yes', 'on'].includes(wait.trim().toLowerCase());
+  }
+  return false;
+}
+
+function shouldDeferRemoteSessionCleanup(body: StopRequestBody): boolean {
+  if (requestWaitsForRemoteCleanup(body)) {
+    return false;
+  }
+  return readStopInputSource() === 'browser';
 }
 
 async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {
@@ -123,8 +163,35 @@ async function waitForPendingDispatches(roomName: string, sessionId: string): Pr
   return { target: 'agent_dispatch_barrier', ok: true };
 }
 
+async function runRemoteSessionCleanup(
+  roomName: string,
+  sessionId: string,
+  dispatchResult: StopResult,
+  dispatchIds: string[]
+): Promise<{ results: StopResult[]; failures: StopResult[] }> {
+  const cleanupResults = [
+    await waitForPendingDispatches(roomName, sessionId),
+    await stopRoomInput(roomName),
+    await deleteLiveKitRoom(roomName),
+  ];
+  const results = [
+    {
+      target: 'session_registry',
+      ok: true,
+      dispatch_ids: dispatchIds,
+    },
+    dispatchResult,
+    ...cleanupResults,
+  ];
+  const failures = results.filter((result) => !result.ok && !result.skipped);
+  if (failures.length === 0) {
+    markRoomSessionStopped(roomName, sessionId);
+  }
+  return { results, failures };
+}
+
 export async function POST(req: Request) {
-  let body: { roomName?: string; room_name?: string; sessionId?: string; session_id?: string };
+  let body: StopRequestBody;
   try {
     body = await req.json();
   } catch {
@@ -139,25 +206,50 @@ export async function POST(req: Request) {
 
   const stoppingSession = markRoomSessionStopping(roomName, sessionId);
   const dispatchResult = await cancelPendingDispatches(roomName, stoppingSession.dispatchIds);
-  const cleanupResults = await Promise.all([
-    waitForPendingDispatches(roomName, sessionId),
-    stopRoomInput(roomName),
-    deleteLiveKitRoom(roomName),
-  ]);
-  const results = [
-    {
-      target: 'session_registry',
-      ok: true,
-      dispatch_ids: stoppingSession.dispatchIds,
-    },
-    dispatchResult,
-    ...cleanupResults,
-  ];
-  const failures = results.filter((result) => !result.ok && !result.skipped);
-  if (failures.length === 0) {
-    markRoomSessionStopped(roomName, sessionId);
+  if (shouldDeferRemoteSessionCleanup(body)) {
+    void runRemoteSessionCleanup(roomName, sessionId, dispatchResult, stoppingSession.dispatchIds)
+      .then(({ failures }) => {
+        if (failures.length > 0) {
+          console.error('deferred agent session stop completed with failures', {
+            roomName,
+            sessionId,
+            failures,
+          });
+        }
+      })
+      .catch((error) => {
+        console.error('deferred agent session stop failed', {
+          roomName,
+          sessionId,
+          error,
+        });
+      });
+
+    return NextResponse.json(
+      {
+        status: 'stopping',
+        roomName,
+        sessionId,
+        results: [
+          {
+            target: 'session_registry',
+            ok: true,
+            dispatch_ids: stoppingSession.dispatchIds,
+          },
+          dispatchResult,
+          { target: 'remote_cleanup', ok: true, status: 202 },
+        ],
+      },
+      { status: 202 }
+    );
   }
 
+  const { results, failures } = await runRemoteSessionCleanup(
+    roomName,
+    sessionId,
+    dispatchResult,
+    stoppingSession.dispatchIds
+  );
   return NextResponse.json(
     {
       status: failures.length === 0 ? 'stopped' : 'partial',

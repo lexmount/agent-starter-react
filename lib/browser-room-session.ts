@@ -33,6 +33,20 @@ export function getBrowserRoomSessionId(
   return fallbackRoomId;
 }
 
+export function resetBrowserRoomSessionId(
+  storage: Pick<Storage, 'removeItem'> | null | undefined = getSessionStorage()
+) {
+  fallbackRoomId = null;
+  if (!storage) {
+    return;
+  }
+  try {
+    storage.removeItem(BROWSER_ROOM_ID_STORAGE_KEY);
+  } catch {
+    // Ignore blocked sessionStorage and rely on the in-memory fallback reset.
+  }
+}
+
 function getSessionStorage() {
   if (typeof window === 'undefined') {
     return null;

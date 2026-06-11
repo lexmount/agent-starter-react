@@ -79,3 +79,20 @@ test('start call dispatches the agent with a cancellable room session id', async
     /requestAgentSessionDispatch\(\s*room\.name,\s*appConfig\.agentName,\s*sessionId,/
   );
 });
+
+test('browser video input shows the camera control as enabled by default', async () => {
+  const browserSourceSource = await readFile(
+    new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
+    'utf8'
+  );
+  const controlBarSource = await readFile(
+    new URL('../components/livekit/agent-control-bar/agent-control-bar.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(browserSourceSource, /const BROWSER_VIDEO_DEFAULT_ENABLED = true/);
+  assert.match(
+    controlBarSource,
+    /mediaEnabled=\{usesBrowserRawVideoInput \? browserSourceClient\.videoEnabled : undefined\}/
+  );
+});

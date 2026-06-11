@@ -21,3 +21,58 @@ test('frontend keeps explicit AGENT_NAME as an override', async () => {
 
   assert.equal(resolveAgentNameForInputSource('generic', 'custom-agent'), 'custom-agent');
 });
+
+test('frontend resolves mixed browser audio with xunfei vision role devices', async () => {
+  const { resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  const config = resolveInputDeviceConfig({
+    inputSource: 'mixed',
+    audioInputDevice: 'browser',
+    visionInputDevice: 'xunfei',
+  });
+
+  assert.equal(config.inputSource, 'mixed');
+  assert.equal(config.audioInputDevice, 'browser');
+  assert.equal(config.visionInputDevice, 'xunfei');
+  assert.equal(config.usesBrowserRawAudioInput, true);
+  assert.equal(config.usesBrowserRawVideoInput, false);
+  assert.equal(config.usesBrowserRawMediaInput, true);
+  assert.equal(config.usesServerRoomInput, true);
+  assert.equal(config.supportsScreenShare, true);
+  assert.equal(config.showDefaultCameraPreview, true);
+});
+
+test('frontend resolves mixed xunfei audio with browser vision role devices', async () => {
+  const { resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  const config = resolveInputDeviceConfig({
+    inputSource: 'mixed',
+    audioInputDevice: 'xunfei',
+    visionInputDevice: 'browser',
+  });
+
+  assert.equal(config.usesBrowserRawAudioInput, false);
+  assert.equal(config.usesBrowserRawVideoInput, true);
+  assert.equal(config.usesBrowserRawMediaInput, true);
+  assert.equal(config.usesServerRoomInput, true);
+  assert.equal(config.supportsScreenShare, false);
+  assert.equal(config.showDefaultCameraPreview, false);
+});
+
+test('frontend ignores role devices unless INPUT_SOURCE is mixed', async () => {
+  const { resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  const config = resolveInputDeviceConfig({
+    inputSource: 'browser',
+    audioInputDevice: 'xunfei',
+    visionInputDevice: 'generic',
+    outputDevice: 'primebot_output',
+  });
+
+  assert.equal(config.inputSource, 'browser');
+  assert.equal(config.audioInputDevice, 'browser');
+  assert.equal(config.visionInputDevice, 'browser');
+  assert.equal(config.outputDevice, 'browser');
+  assert.equal(config.usesBrowserRawAudioInput, true);
+  assert.equal(config.usesBrowserRawVideoInput, true);
+});

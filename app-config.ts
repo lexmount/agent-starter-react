@@ -18,6 +18,8 @@ export interface AppConfig {
   supportsScreenShare: boolean;
   isPreConnectBufferEnabled: boolean;
   usesBrowserRawMediaInput?: boolean;
+  usesBrowserRawAudioInput?: boolean;
+  usesBrowserRawVideoInput?: boolean;
   usesServerRoomInput?: boolean;
   browserMediaStreamName?: string;
   browserVideoWidth?: number;
@@ -39,6 +41,9 @@ export interface AppConfig {
   sandboxId?: string;
   agentName?: string;
   inputSource?: string;
+  audioInputDevice?: string;
+  visionInputDevice?: string;
+  outputDevice?: string;
 
   excludeAudioTracks: string[];
   showAudioFilterDebug?: boolean;
@@ -63,15 +68,83 @@ export interface AppConfig {
 
 const XUNFEI_AUDIO_TRACK_NAME = 'xunfei_audio_track';
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
-const ROOM_INPUT_VIDEO_TRACK_NAME =
-  process.env.NEXT_PUBLIC_FRONTDESK_VIDEO_TRACK_NAME || 'room_video';
+const ROOM_INPUT_VIDEO_TRACK_NAME = process.env.NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME || 'room_video';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
 const DEFAULT_INPUT_SOURCE = 'xunfei';
+const VALID_INPUT_DEVICES = new Set(['xunfei', 'generic', 'primebot', 'browser']);
+
+export interface InputDeviceConfigOptions {
+  inputSource?: string | null;
+  audioInputDevice?: string | null;
+  visionInputDevice?: string | null;
+  outputDevice?: string | null;
+}
+
+export interface InputDeviceConfig {
+  inputSource: string;
+  audioInputDevice: string;
+  visionInputDevice: string;
+  outputDevice: string;
+  usesBrowserRawAudioInput: boolean;
+  usesBrowserRawVideoInput: boolean;
+  usesBrowserRawMediaInput: boolean;
+  usesServerRoomInput: boolean;
+  supportsScreenShare: boolean;
+  showDefaultCameraPreview: boolean;
+}
 
 export function normalizeInputSource(inputSource?: string | null) {
   const normalized = (inputSource || DEFAULT_INPUT_SOURCE).trim().toLowerCase();
   return normalized || DEFAULT_INPUT_SOURCE;
+}
+
+function normalizeRoleInputDevice(inputDevice: string | null | undefined, fallback: string) {
+  const normalized = (inputDevice || '').trim().toLowerCase();
+  if (VALID_INPUT_DEVICES.has(normalized)) {
+    return normalized;
+  }
+  return fallback;
+}
+
+export function resolveInputDeviceConfig({
+  inputSource,
+  audioInputDevice,
+  visionInputDevice,
+  outputDevice,
+}: InputDeviceConfigOptions = {}): InputDeviceConfig {
+  const normalizedInputSource = normalizeInputSource(inputSource);
+  const isMixedInputSource = normalizedInputSource === 'mixed';
+  const baseInputDevice = isMixedInputSource
+    ? DEFAULT_INPUT_SOURCE
+    : normalizeRoleInputDevice(normalizedInputSource, DEFAULT_INPUT_SOURCE);
+  const resolvedAudioInputDevice = isMixedInputSource
+    ? normalizeRoleInputDevice(audioInputDevice, baseInputDevice)
+    : baseInputDevice;
+  const resolvedVisionInputDevice = isMixedInputSource
+    ? normalizeRoleInputDevice(visionInputDevice, baseInputDevice)
+    : baseInputDevice;
+  const resolvedOutputDevice = isMixedInputSource
+    ? (outputDevice || baseInputDevice).trim().toLowerCase() || baseInputDevice
+    : baseInputDevice;
+  const usesBrowserRawAudioInput = resolvedAudioInputDevice === 'browser';
+  const usesBrowserRawVideoInput = resolvedVisionInputDevice === 'browser';
+  const usesBrowserRawMediaInput = usesBrowserRawAudioInput || usesBrowserRawVideoInput;
+
+  return {
+    inputSource: normalizedInputSource,
+    audioInputDevice: resolvedAudioInputDevice,
+    visionInputDevice: resolvedVisionInputDevice,
+    outputDevice: resolvedOutputDevice,
+    usesBrowserRawAudioInput,
+    usesBrowserRawVideoInput,
+    usesBrowserRawMediaInput,
+    usesServerRoomInput: true,
+    supportsScreenShare: usesBrowserRawVideoInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
+    showDefaultCameraPreview: usesBrowserRawVideoInput
+      ? false
+      : (APP_CONFIG_DEFAULTS.showDefaultCameraPreview ?? true),
+  };
 }
 
 export function resolveAgentNameForInputSource(
@@ -155,6 +228,8 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   supportsScreenShare: true,
   isPreConnectBufferEnabled: true,
   usesBrowserRawMediaInput: false,
+  usesBrowserRawAudioInput: false,
+  usesBrowserRawVideoInput: false,
   usesServerRoomInput: false,
   browserMediaStreamName: 'browser_input',
   browserVideoWidth: 640,
@@ -176,6 +251,9 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   sandboxId: undefined,
   agentName: undefined,
   inputSource: DEFAULT_INPUT_SOURCE,
+  audioInputDevice: DEFAULT_INPUT_SOURCE,
+  visionInputDevice: DEFAULT_INPUT_SOURCE,
+  outputDevice: DEFAULT_INPUT_SOURCE,
 
   // 音频过滤配置
   excludeAudioTracks: [XUNFEI_AUDIO_TRACK_NAME, ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表

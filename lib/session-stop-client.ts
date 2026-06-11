@@ -12,6 +12,10 @@ type ActiveAgentSession = {
   dispatchPromise: Promise<void>;
 };
 
+type AgentSessionStopOptions = {
+  waitForRemote?: boolean;
+};
+
 let activeStart: ActiveAgentSession | null = null;
 
 function readStopSettleMs(): number {
@@ -56,11 +60,15 @@ function endStopRequestPending() {
   setStopRequestPending(stopRequestPendingCount > 0);
 }
 
-async function sendAgentSessionStop(roomName: string, sessionId?: string): Promise<void> {
+async function sendAgentSessionStop(
+  roomName: string,
+  sessionId?: string,
+  options: AgentSessionStopOptions = {}
+): Promise<void> {
   const response = await fetch('/api/session/stop', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomName, sessionId }),
+    body: JSON.stringify({ roomName, sessionId, wait: options.waitForRemote }),
     keepalive: true,
   });
 
@@ -78,14 +86,29 @@ async function waitForAgentWorkerSettle(): Promise<void> {
   await sleep(settleMs);
 }
 
-async function sendAgentSessionStopAndSettle(roomName: string, sessionId?: string): Promise<void> {
+async function sendAgentSessionStopAndSettle(
+  roomName: string,
+  sessionId?: string,
+  options: AgentSessionStopOptions = {}
+): Promise<void> {
   try {
-    await sendAgentSessionStop(roomName, sessionId);
+    await sendAgentSessionStop(roomName, sessionId, options);
   } finally {
     endStopRequestPending();
     await waitForAgentWorkerSettle();
     clearActiveAgentSession(roomName, sessionId);
   }
+}
+
+function sendAgentSessionStopInBackground(
+  roomName: string,
+  sessionId?: string,
+  options: AgentSessionStopOptions = {}
+): void {
+  void sendAgentSessionStop(roomName, sessionId, options).catch((error: unknown) => {
+    console.warn('Failed to stop remote agent session', error);
+  });
+  clearActiveAgentSession(roomName, sessionId);
 }
 
 export function waitForAgentSessionStop(): Promise<void> {
@@ -198,7 +221,8 @@ export function getActiveAgentSession(): { roomName: string; sessionId: string }
 
 export async function requestAgentSessionStop(
   roomName?: string | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  options: AgentSessionStopOptions = {}
 ): Promise<void> {
   const normalizedRoomName = normalize(roomName);
   if (!normalizedRoomName) {
@@ -209,10 +233,15 @@ export async function requestAgentSessionStop(
     activeStart?.roomName === normalizedRoomName ? activeStart.sessionId : undefined;
   const normalizedSessionId = normalize(sessionId) || activeSessionId;
   cancelAgentSessionStart(normalizedRoomName, normalizedSessionId);
+  if (options.waitForRemote === false) {
+    sendAgentSessionStopInBackground(normalizedRoomName, normalizedSessionId, options);
+    return waitForAgentSessionStop();
+  }
+
   beginStopRequestPending();
   const stopPromise = pendingStopPromise
     .catch(() => undefined)
-    .then(() => sendAgentSessionStopAndSettle(normalizedRoomName, normalizedSessionId));
+    .then(() => sendAgentSessionStopAndSettle(normalizedRoomName, normalizedSessionId, options));
   pendingStopPromise = stopPromise
     .catch(() => undefined)
     .then(() => pendingStartPromise.catch(() => undefined));

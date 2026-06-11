@@ -7,6 +7,7 @@ import {
   getDefaultVideoTrack,
   normalizeInputSource,
   resolveAgentNameForInputSource,
+  resolveInputDeviceConfig,
 } from '@/app-config';
 import type { AppConfig, VideoTrackConfig } from '@/app-config';
 
@@ -125,8 +126,12 @@ export function getClientConfigFromEnv(): AppConfig {
   const inputSource = normalizeInputSource(
     readEnv('INPUT_SOURCE', 'NEXT_PUBLIC_INPUT_SOURCE', 'NEXT_PUBLIC_LEXVOICE_DEVICE')
   );
-  const isBrowserInput = inputSource === 'browser';
-  const usesServerRoomInput = ['xunfei', 'generic'].includes(inputSource);
+  const inputDeviceConfig = resolveInputDeviceConfig({
+    inputSource,
+    audioInputDevice: readEnv('ROOM_AUDIO_INPUT_DEVICE', 'NEXT_PUBLIC_ROOM_AUDIO_INPUT_DEVICE'),
+    visionInputDevice: readEnv('ROOM_VISION_INPUT_DEVICE', 'NEXT_PUBLIC_ROOM_VISION_INPUT_DEVICE'),
+    outputDevice: readEnv('ROOM_OUTPUT_DEVICE', 'NEXT_PUBLIC_ROOM_OUTPUT_DEVICE'),
+  });
   const agentName = readEnv(
     'AGENT_NAME',
     'NEXT_PUBLIC_AGENT_NAME',
@@ -135,13 +140,21 @@ export function getClientConfigFromEnv(): AppConfig {
 
   return {
     ...APP_CONFIG_DEFAULTS,
-    supportsScreenShare: isBrowserInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
-    usesBrowserRawMediaInput: isBrowserInput,
-    usesServerRoomInput,
+    supportsScreenShare: inputDeviceConfig.supportsScreenShare,
+    usesBrowserRawMediaInput: inputDeviceConfig.usesBrowserRawMediaInput,
+    usesBrowserRawAudioInput: inputDeviceConfig.usesBrowserRawAudioInput,
+    usesBrowserRawVideoInput: inputDeviceConfig.usesBrowserRawVideoInput,
+    usesServerRoomInput: inputDeviceConfig.usesServerRoomInput,
     agentName: resolveAgentNameForInputSource(inputSource, agentName),
-    inputSource,
-    showDefaultCameraPreview: isBrowserInput ? false : APP_CONFIG_DEFAULTS.showDefaultCameraPreview,
-    availableVideoTracks: buildDefaultVideoTracks(isBrowserInput, usesServerRoomInput),
+    inputSource: inputDeviceConfig.inputSource,
+    audioInputDevice: inputDeviceConfig.audioInputDevice,
+    visionInputDevice: inputDeviceConfig.visionInputDevice,
+    outputDevice: inputDeviceConfig.outputDevice,
+    showDefaultCameraPreview: inputDeviceConfig.showDefaultCameraPreview,
+    availableVideoTracks: buildDefaultVideoTracks(
+      inputDeviceConfig.usesBrowserRawVideoInput,
+      inputDeviceConfig.usesServerRoomInput
+    ),
     defaultVideoTrack: getDefaultVideoTrack(),
     browserMediaStreamName:
       readEnv(

@@ -3,7 +3,7 @@ import { Room, RoomEvent, TokenSource } from 'livekit-client';
 import { AppConfig } from '@/app-config';
 import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
-import { getBrowserRoomSessionId } from '@/lib/browser-room-session';
+import { getBrowserRoomSessionId, resetBrowserRoomSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 import { requestAgentSessionDispatch } from '@/lib/session-dispatch-client';
 import {
@@ -196,8 +196,11 @@ export function useRoom(appConfig: AppConfig) {
   const endSession = useCallback(() => {
     browserSourceClient.stop();
     room.disconnect();
+    if (appConfig.usesBrowserRawMediaInput) {
+      resetBrowserRoomSessionId();
+    }
     setIsSessionActive(false);
-  }, [browserSourceClient, room]);
+  }, [appConfig.usesBrowserRawMediaInput, browserSourceClient, room]);
 
   return { room, isSessionActive, startSession, endSession, browserSourceClient };
 }

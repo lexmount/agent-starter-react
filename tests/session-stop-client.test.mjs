@@ -93,6 +93,29 @@ test('clears visible stop pending while keeping start gated during worker settle
   }
 });
 
+test('browser stop does not gate the next start on remote cleanup', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () =>
+    new Promise(() => {
+      fetchCalled = true;
+    });
+
+  try {
+    const { requestAgentSessionStop, waitForAgentSessionStop } =
+      await loadSessionStopClientModule();
+
+    void requestAgentSessionStop('voice_assistant_room_1', undefined, {
+      waitForRemote: false,
+    });
+    await waitForAgentSessionStop();
+
+    assert.equal(fetchCalled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('welcome start button shows disabled pending cleanup state', async () => {
   const source = await readFile(
     new URL('../components/app/welcome-view.tsx', import.meta.url),
@@ -127,7 +150,7 @@ test('disconnect control exits the local session before remote stop finishes', a
   assert.match(controlBarSource, /registerAgentSessionLocalCleanup/);
   assert.match(
     controlBarSource,
-    /requestAgentSessionStop\(room\.name,\s*activeSession\?\.sessionId\)/
+    /requestAgentSessionStop\(room\.name,\s*activeSession\?\.sessionId,\s*\{\s*waitForRemote:\s*!usesFastBrowserStop,\s*\}\)/
   );
   assert.doesNotMatch(controlBarSource, /await requestAgentSessionStop\(room\.name\)/);
 });
