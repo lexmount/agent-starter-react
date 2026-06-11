@@ -31,9 +31,12 @@ export async function POST(req: Request) {
       throw new Error('LIVEKIT_API_SECRET is not defined');
     }
 
-    // Parse agent configuration from request body
+    // Parse room configuration from request body
     const body = await req.json();
-    const agentName: string = body?.room_config?.agents?.[0]?.agent_name;
+    const roomConfig = body?.room_config
+      ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
+      : new RoomConfiguration();
+    const tokenRoomConfig = buildTokenRoomConfig(roomConfig);
 
     // Generate participant token
     const participantName = 'user';
@@ -44,7 +47,7 @@ export async function POST(req: Request) {
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
       roomName,
-      agentName
+      tokenRoomConfig
     );
 
     // Return connection details
@@ -69,7 +72,7 @@ export async function POST(req: Request) {
 function createParticipantToken(
   userInfo: AccessTokenOptions,
   roomName: string,
-  agentName?: string
+  roomConfig: RoomConfiguration | undefined
 ): Promise<string> {
   const at = new AccessToken(API_KEY, API_SECRET, {
     ...userInfo,
@@ -84,11 +87,20 @@ function createParticipantToken(
   };
   at.addGrant(grant);
 
-  if (agentName) {
-    at.roomConfig = new RoomConfiguration({
-      agents: [{ agentName }],
-    });
+  if (roomConfig) {
+    at.roomConfig = roomConfig;
   }
 
   return at.toJwt();
+}
+
+function buildTokenRoomConfig(roomConfig: RoomConfiguration) {
+  if (roomConfig.agents.length === 0) {
+    return roomConfig;
+  }
+
+  return new RoomConfiguration({
+    ...roomConfig,
+    agents: [],
+  });
 }

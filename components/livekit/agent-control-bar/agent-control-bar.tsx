@@ -2,13 +2,18 @@
 
 import { type HTMLAttributes, useCallback, useMemo, useState } from 'react';
 import { Track } from 'livekit-client';
-import { useChat, useRemoteParticipants } from '@livekit/components-react';
+import { useChat, useRemoteParticipants, useRoomContext } from '@livekit/components-react';
 import { ChatTextIcon, PhoneDisconnectIcon } from '@phosphor-icons/react/dist/ssr';
 import { useSession } from '@/components/app/session-provider';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
 import { toastAlert } from '@/components/livekit/alert-toast';
 import { Button } from '@/components/livekit/button';
 import { Toggle } from '@/components/livekit/toggle';
+import {
+  getActiveAgentSession,
+  registerAgentSessionLocalCleanup,
+  requestAgentSessionStop,
+} from '@/lib/session-stop-client';
 import { cn } from '@/lib/utils';
 import { ChatInput } from './chat-input';
 import { ConfigurableVideoSelector } from './configurable-video-selector';
@@ -50,6 +55,7 @@ export function AgentControlBar({
   ...props
 }: AgentControlBarProps & HTMLAttributes<HTMLDivElement>) {
   const { send } = useChat();
+  const room = useRoomContext();
   const participants = useRemoteParticipants();
   const [uncontrolledChatOpen, setUncontrolledChatOpen] = useState(defaultChatOpen);
   const publishPermissions = usePublishPermissions();
@@ -106,9 +112,14 @@ export function AgentControlBar({
   );
 
   const handleDisconnect = useCallback(async () => {
-    endSession();
-    onDisconnect?.();
-  }, [endSession, onDisconnect]);
+    const activeSession = getActiveAgentSession();
+    const localDisconnectPromise = Promise.resolve().then(() => {
+      endSession();
+      onDisconnect?.();
+    });
+    registerAgentSessionLocalCleanup(localDisconnectPromise);
+    void requestAgentSessionStop(room.name, activeSession?.sessionId);
+  }, [endSession, onDisconnect, room.name]);
 
   const handleRawMicrophoneToggle = useCallback(
     (enabled: boolean) => {

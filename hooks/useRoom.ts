@@ -5,6 +5,12 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getBrowserRoomSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
+import { requestAgentSessionDispatch } from '@/lib/session-dispatch-client';
+import {
+  beginAgentSessionStart,
+  registerAgentSessionDispatch,
+  waitForAgentSessionStop,
+} from '@/lib/session-stop-client';
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
@@ -127,6 +133,18 @@ export function useRoom(appConfig: AppConfig) {
 
     setIsSessionActive(true);
 
+    const dispatchAgentSession = () => {
+      const sessionId = crypto.randomUUID();
+      const signal = beginAgentSessionStart(room.name, sessionId);
+      const dispatchPromise = requestAgentSessionDispatch(
+        room.name,
+        appConfig.agentName,
+        sessionId,
+        { signal }
+      );
+      registerAgentSessionDispatch(room.name, sessionId, dispatchPromise);
+    };
+
     const startDefaultMicrophone = async () => {
       await room.localParticipant.setMicrophoneEnabled(true, undefined, {
         preConnectBuffer: appConfig.isPreConnectBufferEnabled,
@@ -148,25 +166,26 @@ export function useRoom(appConfig: AppConfig) {
     };
 
     if (room.state === 'disconnected') {
-      if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
-        tokenSource
-          .fetch({ agentName: appConfig.agentName })
-          .then((connectionDetails) =>
-            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-          )
-          .then(() => startLocalInput())
-          .catch(handleStartError);
-        return;
-      }
+      void (async () => {
+        await waitForAgentSessionStop();
 
-      Promise.all([
-        startDefaultMicrophone(),
-        tokenSource
-          .fetch({ agentName: appConfig.agentName })
-          .then((connectionDetails) =>
-            room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-          ),
-      ]).catch(handleStartError);
+        if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
+          const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
+          await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+          await startLocalInput();
+        } else {
+          await Promise.all([
+            startDefaultMicrophone(),
+            tokenSource
+              .fetch({ agentName: appConfig.agentName })
+              .then((connectionDetails) =>
+                room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+              ),
+          ]);
+        }
+
+        dispatchAgentSession();
+      })().catch(handleStartError);
     } else {
       startLocalInput().catch((error) => {
         recoverFromStartError(error);

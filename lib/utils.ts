@@ -1,7 +1,13 @@
 import { cache } from 'react';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { APP_CONFIG_DEFAULTS, buildDefaultVideoTracks, getDefaultVideoTrack } from '@/app-config';
+import {
+  APP_CONFIG_DEFAULTS,
+  buildDefaultVideoTracks,
+  getDefaultVideoTrack,
+  normalizeInputSource,
+  resolveAgentNameForInputSource,
+} from '@/app-config';
 import type { AppConfig, VideoTrackConfig } from '@/app-config';
 
 export const CONFIG_ENDPOINT =
@@ -116,11 +122,9 @@ function canApplySandboxConfigEntry(key: keyof AppConfig, entry: NonNullable<San
 }
 
 export function getClientConfigFromEnv(): AppConfig {
-  const inputSource = readEnv(
-    'INPUT_SOURCE',
-    'NEXT_PUBLIC_INPUT_SOURCE',
-    'NEXT_PUBLIC_LEXVOICE_DEVICE'
-  ).toLowerCase();
+  const inputSource = normalizeInputSource(
+    readEnv('INPUT_SOURCE', 'NEXT_PUBLIC_INPUT_SOURCE', 'NEXT_PUBLIC_LEXVOICE_DEVICE')
+  );
   const isBrowserInput = inputSource === 'browser';
   const usesServerRoomInput = ['xunfei', 'generic'].includes(inputSource);
   const agentName = readEnv(
@@ -134,7 +138,8 @@ export function getClientConfigFromEnv(): AppConfig {
     supportsScreenShare: isBrowserInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
     usesBrowserRawMediaInput: isBrowserInput,
     usesServerRoomInput,
-    agentName: agentName || undefined,
+    agentName: resolveAgentNameForInputSource(inputSource, agentName),
+    inputSource,
     showDefaultCameraPreview: isBrowserInput ? false : APP_CONFIG_DEFAULTS.showDefaultCameraPreview,
     availableVideoTracks: buildDefaultVideoTracks(isBrowserInput, usesServerRoomInput),
     defaultVideoTrack: getDefaultVideoTrack(),

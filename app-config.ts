@@ -38,6 +38,7 @@ export interface AppConfig {
   // for LiveKit Cloud Sandbox
   sandboxId?: string;
   agentName?: string;
+  inputSource?: string;
 
   excludeAudioTracks: string[];
   showAudioFilterDebug?: boolean;
@@ -65,6 +66,40 @@ const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME =
   process.env.NEXT_PUBLIC_FRONTDESK_VIDEO_TRACK_NAME || 'room_video';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
+
+const DEFAULT_INPUT_SOURCE = 'xunfei';
+
+export function normalizeInputSource(inputSource?: string | null) {
+  const normalized = (inputSource || DEFAULT_INPUT_SOURCE).trim().toLowerCase();
+  return normalized || DEFAULT_INPUT_SOURCE;
+}
+
+export function resolveAgentNameForInputSource(
+  inputSource?: string | null,
+  agentName?: string | null
+) {
+  const configuredAgentName = agentName?.trim();
+  if (configuredAgentName) {
+    return configuredAgentName;
+  }
+
+  const normalizedInputSource = normalizeInputSource(inputSource);
+  switch (normalizedInputSource) {
+    case 'browser':
+      return 'frontdesk-browser-agent';
+    case 'generic':
+      return 'frontdesk-generic-agent';
+    case 'mixed':
+      return 'frontdesk-mixed-agent';
+    case 'primebot':
+      return 'frontdesk-agent';
+    case 'xunfei':
+      return 'frontdesk-xunfei-agent';
+    default:
+      return `frontdesk-${normalizedInputSource}-agent`;
+  }
+}
+
 export function buildDefaultVideoTracks(
   isBrowserInput: boolean,
   usesServerRoomInput = false
@@ -140,6 +175,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // for LiveKit Cloud Sandbox
   sandboxId: undefined,
   agentName: undefined,
+  inputSource: DEFAULT_INPUT_SOURCE,
 
   // 音频过滤配置
   excludeAudioTracks: [XUNFEI_AUDIO_TRACK_NAME, ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
