@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
-import { type ParticipantInfo, ParticipantInfo_Kind } from '@livekit/protocol';
+import { type ParticipantInfo } from '@livekit/protocol';
 import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
   type RoomSessionToken,
@@ -227,11 +227,7 @@ async function roomHasAgentParticipant(
 
 function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: string) {
   const attributes = participant.attributes ?? {};
-  return (
-    attributes['lk.agent.name'] === agentName ||
-    attributes['lk.agent_name'] === agentName ||
-    (participant.kind === ParticipantInfo_Kind.AGENT && participant.identity.startsWith('agent-'))
-  );
+  return attributes['lk.agent.name'] === agentName || attributes['lk.agent_name'] === agentName;
 }
 
 async function deleteDispatchQuietly(

@@ -66,6 +66,20 @@ test('session dispatch route cleans up dispatch when the room session is cancell
   assert.match(routeSource, /status: 409/);
 });
 
+test('session dispatch route only accepts explicitly named agent participants as already joined', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+  const participantMatcher = routeSource.match(/function isExpectedAgentParticipant[\s\S]*?\n}/);
+
+  assert.ok(participantMatcher, 'isExpectedAgentParticipant should be defined');
+  const participantMatcherSource = participantMatcher[0];
+  assert.match(participantMatcherSource, /attributes\['lk\.agent\.name'\] === agentName/);
+  assert.match(participantMatcherSource, /attributes\['lk\.agent_name'\] === agentName/);
+  assert.doesNotMatch(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
+});
+
 test('start call dispatches the agent with a cancellable room session id', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
