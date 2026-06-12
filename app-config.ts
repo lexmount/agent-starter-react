@@ -156,21 +156,7 @@ export function resolveAgentNameForInputSource(
     return configuredAgentName;
   }
 
-  const normalizedInputSource = normalizeInputSource(inputSource);
-  switch (normalizedInputSource) {
-    case 'browser':
-      return 'frontdesk-browser-agent';
-    case 'generic':
-      return 'frontdesk-generic-agent';
-    case 'mixed':
-      return 'frontdesk-mixed-agent';
-    case 'primebot':
-      return 'frontdesk-agent';
-    case 'xunfei':
-      return 'frontdesk-xunfei-agent';
-    default:
-      return `frontdesk-${normalizedInputSource}-agent`;
-  }
+  return `lexvoice-${normalizeInputSource(inputSource)}-agent`;
 }
 
 export function buildDefaultVideoTracks(

@@ -8,12 +8,12 @@ async function loadAppConfigModule() {
 test('frontend derives dispatch agent name from INPUT_SOURCE when AGENT_NAME is unset', async () => {
   const { resolveAgentNameForInputSource } = await loadAppConfigModule();
 
-  assert.equal(resolveAgentNameForInputSource('xunfei'), 'frontdesk-xunfei-agent');
-  assert.equal(resolveAgentNameForInputSource('generic'), 'frontdesk-generic-agent');
-  assert.equal(resolveAgentNameForInputSource('browser'), 'frontdesk-browser-agent');
-  assert.equal(resolveAgentNameForInputSource('primebot'), 'frontdesk-agent');
-  assert.equal(resolveAgentNameForInputSource('mixed'), 'frontdesk-mixed-agent');
-  assert.equal(resolveAgentNameForInputSource('robot'), 'frontdesk-robot-agent');
+  assert.equal(resolveAgentNameForInputSource('xunfei'), 'lexvoice-xunfei-agent');
+  assert.equal(resolveAgentNameForInputSource('generic'), 'lexvoice-generic-agent');
+  assert.equal(resolveAgentNameForInputSource('browser'), 'lexvoice-browser-agent');
+  assert.equal(resolveAgentNameForInputSource('primebot'), 'lexvoice-primebot-agent');
+  assert.equal(resolveAgentNameForInputSource('mixed'), 'lexvoice-mixed-agent');
+  assert.equal(resolveAgentNameForInputSource('robot'), 'lexvoice-robot-agent');
 });
 
 test('frontend keeps explicit AGENT_NAME as an override', async () => {
