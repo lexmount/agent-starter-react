@@ -18,3 +18,10 @@ test('README matches the documented LexVoice environment source', async () => {
   assert.match(readme, /\.\.\/lex-voice\/\.env/);
   assert.doesNotMatch(readme, /copy `\.env\.example`/i);
 });
+
+test('avatar filtering excludes the current room video input identity', async () => {
+  const source = await readFile('hooks/useSmartVoiceAssistant.ts', 'utf8');
+
+  assert.match(source, /room_video_input/);
+  assert.doesNotMatch(source, /room_vision_input/);
+});
