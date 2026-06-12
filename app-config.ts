@@ -71,7 +71,7 @@ const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
 const ROOM_INPUT_VIDEO_TRACK_NAME = process.env.NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME || 'room_video';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
-const DEFAULT_INPUT_SOURCE = 'xunfei';
+const DEFAULT_ROLE_INPUT_DEVICE = 'xunfei';
 const VALID_INPUT_DEVICES = new Set(['xunfei', 'generic', 'primebot', 'browser']);
 
 export interface InputDeviceConfigOptions {
@@ -95,8 +95,11 @@ export interface InputDeviceConfig {
 }
 
 export function normalizeInputSource(inputSource?: string | null) {
-  const normalized = (inputSource || DEFAULT_INPUT_SOURCE).trim().toLowerCase();
-  return normalized || DEFAULT_INPUT_SOURCE;
+  const normalized = (inputSource || '').trim().toLowerCase();
+  if (!normalized) {
+    throw new Error('INPUT_SOURCE is required');
+  }
+  return normalized;
 }
 
 function normalizeRoleInputDevice(inputDevice: string | null | undefined, fallback: string) {
@@ -116,8 +119,8 @@ export function resolveInputDeviceConfig({
   const normalizedInputSource = normalizeInputSource(inputSource);
   const isMixedInputSource = normalizedInputSource === 'mixed';
   const baseInputDevice = isMixedInputSource
-    ? DEFAULT_INPUT_SOURCE
-    : normalizeRoleInputDevice(normalizedInputSource, DEFAULT_INPUT_SOURCE);
+    ? DEFAULT_ROLE_INPUT_DEVICE
+    : normalizeRoleInputDevice(normalizedInputSource, DEFAULT_ROLE_INPUT_DEVICE);
   const resolvedAudioInputDevice = isMixedInputSource
     ? normalizeRoleInputDevice(audioInputDevice, baseInputDevice)
     : baseInputDevice;
@@ -236,10 +239,10 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // for LiveKit Cloud Sandbox
   sandboxId: undefined,
   agentName: undefined,
-  inputSource: DEFAULT_INPUT_SOURCE,
-  audioInputDevice: DEFAULT_INPUT_SOURCE,
-  visionInputDevice: DEFAULT_INPUT_SOURCE,
-  outputDevice: DEFAULT_INPUT_SOURCE,
+  inputSource: undefined,
+  audioInputDevice: undefined,
+  visionInputDevice: undefined,
+  outputDevice: undefined,
 
   // 音频过滤配置
   excludeAudioTracks: [XUNFEI_AUDIO_TRACK_NAME, ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表

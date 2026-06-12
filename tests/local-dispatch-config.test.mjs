@@ -22,6 +22,13 @@ test('frontend keeps explicit AGENT_NAME as an override', async () => {
   assert.equal(resolveAgentNameForInputSource('generic', 'custom-agent'), 'custom-agent');
 });
 
+test('frontend requires INPUT_SOURCE before deriving input config', async () => {
+  const { normalizeInputSource, resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  assert.throws(() => normalizeInputSource(''), /INPUT_SOURCE is required/);
+  assert.throws(() => resolveInputDeviceConfig({}), /INPUT_SOURCE is required/);
+});
+
 test('frontend resolves mixed browser audio with xunfei vision role devices', async () => {
   const { resolveInputDeviceConfig } = await loadAppConfigModule();
 
