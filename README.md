@@ -30,19 +30,17 @@ agent-starter-react/
 ├── app/
 │   ├── (app)/
 │   ├── api/
-│   ├── components/
-│   ├── fonts/
-│   ├── globals.css
+│   ├── ui/
 │   └── layout.tsx
 ├── components/
+│   ├── app/
 │   ├── livekit/
-│   ├── ui/
-│   ├── app.tsx
-│   ├── session-view.tsx
-│   └── welcome.tsx
+│   └── ...
 ├── hooks/
 ├── lib/
 ├── public/
+├── styles/
+│   └── globals.css
 └── package.json
 ```
 
@@ -59,7 +57,13 @@ Run the following command to automatically clone this template.
 lk app create --template agent-starter-react
 ```
 
-Then run the app with:
+For integrated LexVoice runs, configure `../lex-voice/.env` and start the
+frontend through the LexVoice runtime scripts. `../lex-voice/run.sh` injects
+LiveKit, room-input, input-source, role-device, agent, media, and debug settings
+into this Next.js process.
+
+For standalone frontend development, install dependencies and run the dev
+server directly:
 
 ```bash
 pnpm install
@@ -68,7 +72,8 @@ pnpm dev
 
 And open http://localhost:3000 in your browser.
 
-You'll also need an agent to speak with. Try our starter agent for [Python](https://github.com/livekit-examples/agent-starter-python), [Node.js](https://github.com/livekit-examples/agent-starter-node), or [create your own from scratch](https://docs.livekit.io/agents/start/voice-ai/).
+You'll also need a LiveKit server and an agent worker. In this workspace, those
+are normally provided by the sibling `../lex-voice` project.
 
 ## Configuration
 
@@ -107,7 +112,10 @@ You can update these values in [`app-config.ts`](./app-config.ts) to customize b
 
 #### Environment Variables
 
-You'll also need to configure your LiveKit credentials in `.env.local` (copy `.env.example` if you don't have one):
+Integrated runs should keep runtime variables in `../lex-voice/.env`; this
+repository's `.env.example` is documentation-only. Only create
+`agent-starter-react/.env.local` for standalone frontend development launched
+directly with `pnpm dev`.
 
 ```env
 LIVEKIT_API_KEY=your_livekit_api_key
@@ -115,7 +123,8 @@ LIVEKIT_API_SECRET=your_livekit_api_secret
 LIVEKIT_URL=https://your-livekit-server-url
 ```
 
-These are required for the voice agent functionality to work with your LiveKit project.
+These are required for standalone voice agent functionality to work with your
+LiveKit project.
 
 ## Contributing
 
