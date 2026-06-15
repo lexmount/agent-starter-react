@@ -96,10 +96,7 @@ export interface InputDeviceConfig {
 
 export function normalizeInputSource(inputSource?: string | null) {
   const normalized = (inputSource || '').trim().toLowerCase();
-  if (!normalized) {
-    throw new Error('INPUT_SOURCE is required');
-  }
-  return normalized;
+  return normalized || 'browser';
 }
 
 function normalizeRoleInputDevice(inputDevice: string | null | undefined, fallback: string) {

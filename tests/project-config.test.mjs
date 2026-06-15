@@ -16,6 +16,7 @@ test('README matches the documented LexVoice environment source', async () => {
 
   assert.match(envExample, /documentation-only/);
   assert.match(readme, /\.\.\/lex-voice\/\.env/);
+  assert.doesNotMatch(readme, /INPUT_SOURCE=browser/);
   assert.doesNotMatch(readme, /copy `\.env\.example`/i);
 });
 

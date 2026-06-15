@@ -123,8 +123,10 @@ LIVEKIT_API_SECRET=your_livekit_api_secret
 LIVEKIT_URL=https://your-livekit-server-url
 ```
 
-These are required for standalone voice agent functionality to work with your
-LiveKit project.
+The frontend defaults to the browser camera/microphone input when no input
+source is provided. Configure `INPUT_SOURCE` only in `../lex-voice/.env` for
+integrated backend runs. The LiveKit variables above are required for
+standalone voice agent functionality to work with your LiveKit project.
 
 ## Contributing
 
