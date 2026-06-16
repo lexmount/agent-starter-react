@@ -179,6 +179,9 @@ export function markRoomSessionStopped(roomName: string, sessionId?: string | nu
   record.state = 'stopped';
   record.cancelled = true;
   record.dispatchIds.clear();
+  record.activeDispatches = 0;
+  record.dispatchWaiters.forEach((resolve) => resolve());
+  record.dispatchWaiters.clear();
 }
 
 export function finishRoomSessionDispatch(token: RoomSessionToken): void {
@@ -193,10 +196,7 @@ export function finishRoomSessionDispatch(token: RoomSessionToken): void {
     record.dispatchWaiters.clear();
   }
 
-  if (!record.cancelled) {
-    record.dispatchIds.clear();
-    record.state = 'running';
-  }
+  record.dispatchIds.clear();
 }
 
 export function getRoomSessionSnapshot(roomName: string): RoomSessionSnapshot | undefined {

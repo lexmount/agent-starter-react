@@ -97,6 +97,27 @@ test('start call dispatches the agent with a cancellable room session id', async
   );
 });
 
+test('start call stops the remote room session when dispatch fails after connect', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+
+  assert.match(useRoomSource, /requestAgentSessionStop/);
+  assert.match(useRoomSource, /let dispatchSessionId: string \| null = null/);
+  assert.match(
+    useRoomSource,
+    /await requestAgentSessionStop\(\s*room\.name,\s*dispatchSessionId,\s*\{\s*waitForRemote:\s*true,\s*\}\s*\)/
+  );
+});
+
+test('start call reconnects only after any previous room disconnect has completed', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+
+  assert.match(useRoomSource, /waitForRoomDisconnected/);
+  assert.match(
+    useRoomSource,
+    /await waitForAgentSessionStop\(\);\s*await waitForRoomDisconnected\(room\);/
+  );
+});
+
 test('browser video input shows the camera control as enabled by default', async () => {
   const browserSourceSource = await readFile(
     new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),

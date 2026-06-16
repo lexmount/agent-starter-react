@@ -5,6 +5,7 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getBrowserRoomSessionId, resetBrowserRoomSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
+import { waitForRoomDisconnected } from '@/lib/room-disconnect';
 import {
   AgentSessionDispatchCancelledError,
   requestAgentSessionDispatch,
@@ -12,6 +13,7 @@ import {
 import {
   beginAgentSessionStart,
   registerAgentSessionDispatch,
+  requestAgentSessionStop,
   waitForAgentSessionStop,
 } from '@/lib/session-stop-client';
 
@@ -111,10 +113,21 @@ export function useRoom(appConfig: AppConfig) {
       return;
     }
 
-    const recoverFromStartError = (error: unknown) => {
+    let dispatchSessionId: string | null = null;
+
+    const recoverFromStartError = async (error: unknown) => {
       const startError = error instanceof Error ? error : new Error(String(error));
       browserSourceClient.stop();
       room.disconnect();
+      if (dispatchSessionId) {
+        try {
+          await requestAgentSessionStop(room.name, dispatchSessionId, {
+            waitForRemote: true,
+          });
+        } catch (stopError) {
+          console.warn('Failed to stop remote agent session after start failure', stopError);
+        }
+      }
       setIsSessionActive(false);
       toastAlert({
         title: 'There was an error connecting to the agent',
@@ -122,7 +135,7 @@ export function useRoom(appConfig: AppConfig) {
       });
     };
 
-    const handleStartError = (error: unknown) => {
+    const handleStartError = async (error: unknown) => {
       if (aborted.current || isExpectedStartCancellation(error)) {
         // Once the effect has cleaned up after itself, drop any errors
         //
@@ -132,13 +145,14 @@ export function useRoom(appConfig: AppConfig) {
         return;
       }
 
-      recoverFromStartError(error);
+      await recoverFromStartError(error);
     };
 
     setIsSessionActive(true);
 
     const dispatchAgentSession = async () => {
       const sessionId = crypto.randomUUID();
+      dispatchSessionId = sessionId;
       const signal = beginAgentSessionStart(room.name, sessionId);
       const dispatchPromise = requestAgentSessionDispatch(
         room.name,
@@ -170,36 +184,28 @@ export function useRoom(appConfig: AppConfig) {
       await startDefaultMicrophone();
     };
 
-    if (room.state === 'disconnected') {
-      try {
-        await waitForAgentSessionStop();
-
-        if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
-          const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
-          await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
-          await startLocalInput();
-        } else {
-          await Promise.all([
-            startDefaultMicrophone(),
-            tokenSource
-              .fetch({ agentName: appConfig.agentName })
-              .then((connectionDetails) =>
-                room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-              ),
-          ]);
-        }
-
-        await dispatchAgentSession();
-      } catch (error) {
-        handleStartError(error);
-      }
-      return;
-    }
-
     try {
-      await startLocalInput();
+      await waitForAgentSessionStop();
+      await waitForRoomDisconnected(room);
+
+      if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
+        const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
+        await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+        await startLocalInput();
+      } else {
+        await Promise.all([
+          startDefaultMicrophone(),
+          tokenSource
+            .fetch({ agentName: appConfig.agentName })
+            .then((connectionDetails) =>
+              room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
+            ),
+        ]);
+      }
+
+      await dispatchAgentSession();
     } catch (error) {
-      recoverFromStartError(error);
+      await handleStartError(error);
     }
   }, [room, appConfig, tokenSource, browserSourceClient]);
 

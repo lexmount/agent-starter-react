@@ -154,6 +154,7 @@ export function beginAgentSessionStart(roomName: string, sessionId: string): Abo
   const normalizedRoomName = normalize(roomName);
   const normalizedSessionId = normalize(sessionId);
   const abortController = new AbortController();
+  pendingStartPromise = Promise.resolve();
   activeStart = {
     roomName: normalizedRoomName,
     sessionId: normalizedSessionId,

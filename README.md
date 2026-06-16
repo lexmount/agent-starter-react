@@ -62,6 +62,9 @@ frontend through the LexVoice runtime scripts. `../lex-voice/run.sh` injects
 LiveKit, room-input, input-source, role-device, agent, media, and debug settings
 into this Next.js process.
 
+The session lifecycle API keeps start/stop state in memory, so integrated
+deployments should route `/api/session/*` to a single Next.js instance or sticky routing.
+
 For standalone frontend development, install dependencies and run the dev
 server directly:
 

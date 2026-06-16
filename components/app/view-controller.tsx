@@ -6,11 +6,7 @@ import { useRoomContext } from '@livekit/components-react';
 import { useSession } from '@/components/app/session-provider';
 import { SessionView } from '@/components/app/session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
-import {
-  getAgentSessionStopPending,
-  subscribeAgentSessionStop,
-  waitForAgentSessionStop,
-} from '@/lib/session-stop-client';
+import { getAgentSessionStopPending, subscribeAgentSessionStop } from '@/lib/session-stop-client';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(SessionView);
@@ -63,7 +59,6 @@ export function ViewController() {
     void (async () => {
       setStartPending(true);
       try {
-        await waitForAgentSessionStop();
         await startSession();
       } finally {
         setStartPending(false);

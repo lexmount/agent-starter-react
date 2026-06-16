@@ -140,6 +140,14 @@ test('session lifecycle cancels in-flight dispatch before stop releases next sta
   assert.match(source, /waitForAgentSessionStop/);
 });
 
+test('new session starts truncate the previous dispatch wait chain', async () => {
+  const source = await readFile(new URL('../lib/session-stop-client.ts', import.meta.url), 'utf8');
+  const beginStartSource = source.match(/export function beginAgentSessionStart[\s\S]*?\n}/)?.[0];
+
+  assert.ok(beginStartSource, 'beginAgentSessionStart should be defined');
+  assert.match(beginStartSource, /pendingStartPromise = Promise\.resolve\(\)/);
+});
+
 test('disconnect control exits the local session before remote stop finishes', async () => {
   const controlBarSource = await readFile(
     new URL('../components/livekit/agent-control-bar/agent-control-bar.tsx', import.meta.url),

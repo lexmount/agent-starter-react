@@ -169,11 +169,12 @@ async function runRemoteSessionCleanup(
   dispatchResult: StopResult,
   dispatchIds: string[]
 ): Promise<{ results: StopResult[]; failures: StopResult[] }> {
-  const cleanupResults = [
-    await waitForPendingDispatches(roomName, sessionId),
-    await stopRoomInput(roomName),
-    await deleteLiveKitRoom(roomName),
-  ];
+  const dispatchBarrierResult = await waitForPendingDispatches(roomName, sessionId);
+  const [roomInputResult, liveKitRoomResult] = await Promise.all([
+    stopRoomInput(roomName),
+    deleteLiveKitRoom(roomName),
+  ]);
+  const cleanupResults = [dispatchBarrierResult, roomInputResult, liveKitRoomResult];
   const results = [
     {
       target: 'session_registry',

@@ -73,6 +73,7 @@ const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
 const DEFAULT_ROLE_INPUT_DEVICE = 'xunfei';
 const VALID_INPUT_DEVICES = new Set(['xunfei', 'generic', 'primebot', 'browser']);
+const SERVER_ROOM_INPUT_DEVICES = new Set(['xunfei', 'generic', 'browser']);
 
 export interface InputDeviceConfigOptions {
   inputSource?: string | null;
@@ -107,6 +108,10 @@ function normalizeRoleInputDevice(inputDevice: string | null | undefined, fallba
   return fallback;
 }
 
+function usesServerRoomInputDevice(inputDevice: string) {
+  return SERVER_ROOM_INPUT_DEVICES.has(inputDevice);
+}
+
 export function resolveInputDeviceConfig({
   inputSource,
   audioInputDevice,
@@ -130,6 +135,9 @@ export function resolveInputDeviceConfig({
   const usesBrowserRawAudioInput = resolvedAudioInputDevice === 'browser';
   const usesBrowserRawVideoInput = resolvedVisionInputDevice === 'browser';
   const usesBrowserRawMediaInput = usesBrowserRawAudioInput || usesBrowserRawVideoInput;
+  const usesServerRoomInput =
+    usesServerRoomInputDevice(resolvedAudioInputDevice) ||
+    usesServerRoomInputDevice(resolvedVisionInputDevice);
 
   return {
     inputSource: normalizedInputSource,
@@ -139,7 +147,7 @@ export function resolveInputDeviceConfig({
     usesBrowserRawAudioInput,
     usesBrowserRawVideoInput,
     usesBrowserRawMediaInput,
-    usesServerRoomInput: true,
+    usesServerRoomInput,
     supportsScreenShare: usesBrowserRawVideoInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
     showDefaultCameraPreview: usesBrowserRawVideoInput
       ? false

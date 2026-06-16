@@ -90,3 +90,19 @@ test('frontend ignores role devices unless INPUT_SOURCE is mixed', async () => {
   assert.equal(config.usesBrowserRawAudioInput, true);
   assert.equal(config.usesBrowserRawVideoInput, true);
 });
+
+test('frontend keeps primebot on the non-server room input path', async () => {
+  const { buildDefaultVideoTracks, resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  const config = resolveInputDeviceConfig({ inputSource: 'primebot' });
+  const tracks = buildDefaultVideoTracks(
+    config.usesBrowserRawVideoInput,
+    config.usesServerRoomInput
+  );
+
+  assert.equal(config.audioInputDevice, 'primebot');
+  assert.equal(config.visionInputDevice, 'primebot');
+  assert.equal(config.usesBrowserRawMediaInput, false);
+  assert.equal(config.usesServerRoomInput, false);
+  assert.ok(tracks.some((track) => track.id === 'system_camera_default'));
+});
