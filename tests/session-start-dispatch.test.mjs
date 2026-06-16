@@ -50,6 +50,15 @@ test('session dispatch route retries explicit agent dispatch after the browser j
   assert.match(routeSource, /finishRoomSessionDispatch/);
 });
 
+test('session dispatch route pins the Next.js runtime to nodejs', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(routeSource, /export const runtime = 'nodejs'/);
+});
+
 test('session dispatch route cleans up dispatch when the room session is cancelled', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/dispatch/route.ts', import.meta.url),

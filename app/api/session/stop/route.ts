@@ -23,6 +23,7 @@ type StopResult = {
   dispatch_ids?: string[];
 };
 
+export const runtime = 'nodejs';
 export const revalidate = 0;
 
 type StopRequestBody = {
@@ -185,9 +186,7 @@ async function runRemoteSessionCleanup(
     ...cleanupResults,
   ];
   const failures = results.filter((result) => !result.ok && !result.skipped);
-  if (failures.length === 0) {
-    markRoomSessionStopped(roomName, sessionId);
-  }
+  markRoomSessionStopped(roomName, sessionId);
   return { results, failures };
 }
 

@@ -182,6 +182,7 @@ export function markRoomSessionStopped(roomName: string, sessionId?: string | nu
   record.activeDispatches = 0;
   record.dispatchWaiters.forEach((resolve) => resolve());
   record.dispatchWaiters.clear();
+  sessions.delete(normalizedRoomName);
 }
 
 export function finishRoomSessionDispatch(token: RoomSessionToken): void {

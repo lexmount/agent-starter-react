@@ -73,7 +73,7 @@ const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
 const DEFAULT_ROLE_INPUT_DEVICE = 'xunfei';
 const VALID_INPUT_DEVICES = new Set(['xunfei', 'generic', 'primebot', 'browser']);
-const SERVER_ROOM_INPUT_DEVICES = new Set(['xunfei', 'generic', 'browser']);
+const SERVER_ROOM_INPUT_DEVICES = new Set(['xunfei', 'generic']);
 
 export interface InputDeviceConfigOptions {
   inputSource?: string | null;

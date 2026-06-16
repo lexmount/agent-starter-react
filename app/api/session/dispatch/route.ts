@@ -15,6 +15,7 @@ const AGENT_DISPATCH_TIMEOUT_MS = readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS'
 const AGENT_DISPATCH_RETRY_MS = readPositiveIntEnv('AGENT_DISPATCH_RETRY_MS', 500);
 const AGENT_DISPATCH_POLL_MS = readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200);
 
+export const runtime = 'nodejs';
 export const revalidate = 0;
 
 class RoomSessionCancelledError extends Error {

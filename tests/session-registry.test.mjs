@@ -64,18 +64,21 @@ test('session registry stop barrier waits for active dispatch to finish', async 
   assert.equal(resolved, true);
 });
 
-test('session registry keeps stopped session cancelled until a new session replaces it', async () => {
+test('session registry removes stopped session records after cleanup', async () => {
   const registry = await loadRegistryModule();
   const session = registry.beginRoomSessionDispatch('room-stopped', 'session-1', 'agent-a');
   registry.markRoomSessionRunning(session);
 
   registry.markRoomSessionStopped('room-stopped', 'session-1');
-  const lateDispatch = registry.beginRoomSessionDispatch('room-stopped', 'session-1', 'agent-a');
 
-  assert.equal(registry.isRoomSessionCancelled(lateDispatch), true);
+  assert.equal(registry.getRoomSessionSnapshot('room-stopped'), undefined);
 
-  const nextSession = registry.beginRoomSessionDispatch('room-stopped', 'session-2', 'agent-a');
+  const restartedSession = registry.beginRoomSessionDispatch(
+    'room-stopped',
+    'session-1',
+    'agent-a'
+  );
 
-  assert.equal(registry.isRoomSessionCancelled(nextSession), false);
-  assert.equal(registry.getRoomSessionSnapshot('room-stopped').sessionId, 'session-2');
+  assert.equal(registry.isRoomSessionCancelled(restartedSession), false);
+  assert.equal(registry.getRoomSessionSnapshot('room-stopped').sessionId, 'session-1');
 });

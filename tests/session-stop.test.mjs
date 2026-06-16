@@ -61,6 +61,15 @@ test('session stop route cancels room session before remote cleanup', async () =
   assert.match(routeSource, /dispatch_ids/);
 });
 
+test('session stop route pins the Next.js runtime to nodejs', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(routeSource, /export const runtime = 'nodejs'/);
+});
+
 test('session stop route runs independent remote cleanup after the dispatch barrier', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
@@ -85,4 +94,19 @@ test('session stop route defers remote cleanup for browser input source', async 
   assert.match(routeSource, /void runRemoteSessionCleanup/);
   assert.match(routeSource, /status: 'stopping'/);
   assert.match(routeSource, /\{ status: 202 \}/);
+});
+
+test('session stop route closes the registry even when remote cleanup is partial', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+  const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
+
+  assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
+  assert.match(cleanupSource, /const failures = results\.filter/);
+  assert.match(
+    cleanupSource,
+    /markRoomSessionStopped\(roomName, sessionId\);\s*return \{ results, failures \};/
+  );
 });

@@ -34,6 +34,7 @@ test('frontend defaults to browser input when INPUT_SOURCE is unset', async () =
   assert.equal(config.outputDevice, 'browser');
   assert.equal(config.usesBrowserRawAudioInput, true);
   assert.equal(config.usesBrowserRawVideoInput, true);
+  assert.equal(config.usesServerRoomInput, false);
 });
 
 test('frontend resolves mixed browser audio with xunfei vision role devices', async () => {
