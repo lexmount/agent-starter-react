@@ -5,18 +5,13 @@ import {
   deriveSessionIdFromLiveKitRoomName,
   isValidConnectionRoomId,
 } from '@/lib/connection-room-id';
-import {
-  buildRoomInputStopPayload,
-  resolveLiveKitHttpUrl,
-  resolveRoomInputStopUrl,
-} from '@/lib/session-stop';
+import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
   markRoomSessionStopped,
   markRoomSessionStopping,
   waitForRoomSessionDispatchesToFinish,
 } from '../session-registry';
 
-const ROOM_INPUT_STOP_TIMEOUT_MS = readPositiveIntEnv('ROOM_INPUT_STOP_TIMEOUT_MS', 12_000);
 const AGENT_DISPATCH_STOP_BARRIER_MS = readPositiveIntEnv('AGENT_DISPATCH_STOP_BARRIER_MS', 2_000);
 
 type StopResult = {
@@ -38,34 +33,6 @@ type StopRequestBody = {
   session_id?: string;
   wait?: boolean | string | number;
 };
-
-async function stopRoomInput(roomName: string, sessionId: string): Promise<StopResult> {
-  const stopUrl = resolveRoomInputStopUrl(process.env.ROOM_INPUT_URL);
-  if (!stopUrl) {
-    return { target: 'room_input', ok: true, skipped: true };
-  }
-
-  try {
-    const response = await fetch(stopUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildRoomInputStopPayload(roomName, sessionId)),
-      signal: AbortSignal.timeout(ROOM_INPUT_STOP_TIMEOUT_MS),
-    });
-    return {
-      target: 'room_input',
-      ok: response.ok,
-      status: response.status,
-      error: response.ok ? undefined : await response.text(),
-    };
-  } catch (error) {
-    return {
-      target: 'room_input',
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
 
 function readPositiveIntEnv(name: string, fallback: number) {
   const raw = process.env[name];
@@ -194,11 +161,8 @@ async function runRemoteSessionCleanup(
   dispatchIds: string[]
 ): Promise<{ results: StopResult[]; failures: StopResult[] }> {
   const dispatchBarrierResult = await waitForPendingDispatches(roomName, sessionId);
-  const [roomInputResult, liveKitRoomResult] = await Promise.all([
-    stopRoomInput(roomName, sessionId),
-    deleteLiveKitRoom(roomName),
-  ]);
-  const cleanupResults = [dispatchBarrierResult, roomInputResult, liveKitRoomResult];
+  const liveKitRoomResult = await deleteLiveKitRoom(roomName);
+  const cleanupResults = [dispatchBarrierResult, liveKitRoomResult];
   const results = [
     {
       target: 'session_registry',

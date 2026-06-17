@@ -15,23 +15,7 @@ async function loadSessionStopModule() {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 }
 
-const { buildRoomInputStopPayload, resolveLiveKitHttpUrl, resolveRoomInputStopUrl } =
-  await loadSessionStopModule();
-
-test('derives room input stop URL from start URL', () => {
-  assert.equal(
-    resolveRoomInputStopUrl('http://localhost:8013/start'),
-    'http://localhost:8013/stop'
-  );
-  assert.equal(resolveRoomInputStopUrl('http://localhost:8013'), 'http://localhost:8013/stop');
-});
-
-test('builds room input stop payload with current session identity', () => {
-  assert.deepEqual(buildRoomInputStopPayload('voice_assistant_room_1', 'session-1'), {
-    room_name: 'voice_assistant_room_1',
-    session_id: 'session-1',
-  });
-});
+const { resolveLiveKitHttpUrl } = await loadSessionStopModule();
 
 test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('ws://localhost:7818'), 'http://localhost:7818');
@@ -39,13 +23,15 @@ test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('https://livekit.example'), 'https://livekit.example');
 });
 
-test('session stop route does not use generic camera endpoint fallback', async () => {
+test('session stop route does not call the room-input control endpoint', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
     'utf8'
   );
 
-  assert.match(routeSource, /process\.env\.ROOM_INPUT_URL/);
+  assert.doesNotMatch(routeSource, /process\.env\.ROOM_INPUT_URL/);
+  assert.doesNotMatch(routeSource, /resolveRoomInputStopUrl/);
+  assert.doesNotMatch(routeSource, /stopRoomInput/);
   assert.doesNotMatch(routeSource, /GENERIC_CAMERA_PARTICIPANT_URL/);
 });
 
@@ -79,14 +65,13 @@ test('session stop route pins the Next.js runtime to nodejs', async () => {
   assert.match(routeSource, /export const runtime = 'nodejs'/);
 });
 
-test('session stop route runs independent remote cleanup after the dispatch barrier', async () => {
+test('session stop route deletes the LiveKit room after the dispatch barrier', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
     'utf8'
   );
 
   assert.match(routeSource, /await waitForPendingDispatches\(roomName, sessionId\)/);
-  assert.match(routeSource, /stopRoomInput\(roomName,\s*sessionId\)/);
   assert.match(routeSource, /deleteLiveKitRoom\(roomName\)/);
 });
 

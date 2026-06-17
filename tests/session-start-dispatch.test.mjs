@@ -110,7 +110,7 @@ test('session dispatch route logs successful dispatch with canonical session ide
   assert.match(routeSource, /roomName/);
 });
 
-test('session dispatch route only accepts explicitly named agent participants as already joined', async () => {
+test('session dispatch route accepts LiveKit agent participants when attributes are unavailable', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/dispatch/route.ts', import.meta.url),
     'utf8'
@@ -121,7 +121,8 @@ test('session dispatch route only accepts explicitly named agent participants as
   const participantMatcherSource = participantMatcher[0];
   assert.match(participantMatcherSource, /attributes\['lk\.agent\.name'\] === agentName/);
   assert.match(participantMatcherSource, /attributes\['lk\.agent_name'\] === agentName/);
-  assert.doesNotMatch(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
+  assert.match(participantMatcherSource, /ParticipantInfo_Kind\.AGENT/);
+  assert.match(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
 });
 
 test('start call dispatches the agent with a cancellable room session id', async () => {
