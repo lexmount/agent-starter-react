@@ -24,7 +24,8 @@ test('connection details route strips room-config agents from the participant to
   assert.match(routeSource, /function buildTokenRoomConfig/);
   assert.match(routeSource, /RoomConfiguration\.fromJson/);
   assert.match(routeSource, /agents: \[\]/);
-  assert.match(routeSource, /resolveConnectionRoomId/);
+  assert.match(routeSource, /resolveConnectionSessionId/);
+  assert.match(routeSource, /deriveLiveKitRoomName/);
 });
 
 test('session dispatch route retries explicit agent dispatch after the browser joins', async () => {
@@ -48,6 +49,14 @@ test('session dispatch route retries explicit agent dispatch after the browser j
   assert.match(routeSource, /isRoomSessionCancelled/);
   assert.match(routeSource, /markRoomSessionRunning/);
   assert.match(routeSource, /finishRoomSessionDispatch/);
+  assert.match(routeSource, /deriveLiveKitRoomName/);
+  assert.match(routeSource, /deriveSessionIdFromLiveKitRoomName/);
+  assert.match(routeSource, /isValidConnectionRoomId/);
+  assert.match(routeSource, /requestedSessionId && !isValidConnectionRoomId\(requestedSessionId\)/);
+  assert.match(
+    routeSource,
+    /const roomName = sessionId \? deriveLiveKitRoomName\(sessionId\) : requestedRoomName/
+  );
 });
 
 test('session dispatch route pins the Next.js runtime to nodejs', async () => {
@@ -66,6 +75,8 @@ test('session dispatch route cleans up dispatch when the room session is cancell
   );
 
   assert.match(routeSource, /class RoomSessionCancelledError extends Error/);
+  assert.match(routeSource, /constructor\(session: RoomSessionToken\)/);
+  assert.match(routeSource, /session\.sessionId/);
   assert.match(routeSource, /throwIfSessionCancelled/);
   assert.match(
     routeSource,
@@ -73,6 +84,17 @@ test('session dispatch route cleans up dispatch when the room session is cancell
   );
   assert.match(routeSource, /await deleteLiveKitRoomQuietly\(roomClient,\s*roomName\)/);
   assert.match(routeSource, /status: 409/);
+});
+
+test('session dispatch route logs successful dispatch with canonical session identity', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(routeSource, /console\.info\('agent session dispatch completed'/);
+  assert.match(routeSource, /sessionId/);
+  assert.match(routeSource, /roomName/);
 });
 
 test('session dispatch route only accepts explicitly named agent participants as already joined', async () => {
@@ -91,30 +113,53 @@ test('session dispatch route only accepts explicitly named agent participants as
 
 test('start call dispatches the agent with a cancellable room session id', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  const dispatchAgentSessionSource =
+    useRoomSource.match(/const dispatchAgentSession = async \(\) => \{[\s\S]*?\n    \};/)?.[0] ??
+    '';
 
   assert.match(useRoomSource, /const startSession = useCallback\(async \(\) =>/);
-  assert.match(useRoomSource, /crypto\.randomUUID\(\)/);
+  assert.match(useRoomSource, /const sessionId = getVoiceSessionId\(\)/);
+  assert.doesNotMatch(dispatchAgentSessionSource, /crypto\.randomUUID\(\)/);
   assert.match(useRoomSource, /beginAgentSessionStart/);
   assert.match(useRoomSource, /registerAgentSessionDispatch/);
   assert.match(useRoomSource, /requestAgentSessionDispatch/);
   assert.match(useRoomSource, /await dispatchPromise/);
   assert.match(useRoomSource, /isExpectedStartCancellation/);
   assert.match(useRoomSource, /waitForAgentSessionStop/);
-  assert.match(
-    useRoomSource,
-    /requestAgentSessionDispatch\(\s*room\.name,\s*appConfig\.agentName,\s*sessionId,/
-  );
+  assert.match(useRoomSource, /requestAgentSessionDispatch\(\s*appConfig\.agentName,\s*sessionId,/);
+  assert.doesNotMatch(useRoomSource, /requestAgentSessionDispatch\(\s*room\.name,/);
+});
+
+test('connection details request uses the same canonical session id as dispatch', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+
+  assert.match(useRoomSource, /sessionIdRef\.current/);
+  assert.match(useRoomSource, /body: JSON\.stringify\(\{\s*sessionId,/);
+  assert.doesNotMatch(useRoomSource, /room_id: roomId/);
 });
 
 test('start call stops the remote room session when dispatch fails after connect', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
   assert.match(useRoomSource, /requestAgentSessionStop/);
-  assert.match(useRoomSource, /let dispatchSessionId: string \| null = null/);
+  assert.match(useRoomSource, /let dispatchSessionId: string \| null = sessionId/);
   assert.match(
     useRoomSource,
-    /await requestAgentSessionStop\(\s*room\.name,\s*dispatchSessionId,\s*\{\s*waitForRemote:\s*true,\s*\}\s*\)/
+    /await requestAgentSessionStop\([\s\S]*?dispatchSessionId \?\? sessionIdRef\.current \?\? undefined,[\s\S]*?waitForRemote:\s*true,[\s\S]*?\)/
   );
+  assert.doesNotMatch(useRoomSource, /requestAgentSessionStop\(\s*connectedRoomName,/);
+});
+
+test('start call stops the remote room when browser source fails after connect', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+
+  assert.match(useRoomSource, /let connectedRoomName: string \| null = null/);
+  assert.match(useRoomSource, /connectedRoomName = room\.name/);
+  assert.match(
+    useRoomSource,
+    /await requestAgentSessionStop\([\s\S]*?dispatchSessionId \?\? sessionIdRef\.current \?\? undefined,[\s\S]*?waitForRemote:\s*true,[\s\S]*?\)/
+  );
+  assert.doesNotMatch(useRoomSource, /requestAgentSessionStop\(\s*connectedRoomName,/);
 });
 
 test('start call reconnects only after any previous room disconnect has completed', async () => {

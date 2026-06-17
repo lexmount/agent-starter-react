@@ -43,6 +43,26 @@ test('session registry marks an in-flight dispatch cancelled before cleanup', as
   assert.deepEqual(stopping.dispatchIds, ['dispatch-1']);
 });
 
+test('session registry does not let a stale stop for the same room cancel another session', async () => {
+  const registry = await loadRegistryModule();
+  const session = registry.beginRoomSessionDispatch('room-shared', 'session-active', 'agent-a');
+  registry.registerRoomSessionDispatchId(session, 'dispatch-active');
+
+  const staleStopping = registry.markRoomSessionStopping('room-shared', 'session-stale');
+
+  assert.equal(staleStopping.sessionId, 'session-stale');
+  assert.equal(staleStopping.cancelled, true);
+  assert.equal(registry.isRoomSessionCancelled(session), false);
+  assertSnapshotMatches(registry.getRoomSessionSnapshot('room-shared'), {
+    roomName: 'room-shared',
+    sessionId: 'session-active',
+    agentName: 'agent-a',
+    state: 'starting',
+    cancelled: false,
+    dispatchIds: ['dispatch-active'],
+  });
+});
+
 test('session registry stop barrier waits for active dispatch to finish', async () => {
   const registry = await loadRegistryModule();
   const session = registry.beginRoomSessionDispatch('room-a', 'session-1', 'agent-a');

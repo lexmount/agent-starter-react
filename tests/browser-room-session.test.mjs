@@ -58,9 +58,9 @@ test('resetting browser room session rotates the next room id', async () => {
   assert.equal(second, '22222222-3333-4444-8555-666666666666');
 });
 
-test('ending a browser raw-media session clears the reusable room id', async () => {
+test('ending a voice session clears the reusable session id', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
-  assert.match(useRoomSource, /resetBrowserRoomSessionId/);
-  assert.match(useRoomSource, /if \(appConfig\.usesBrowserRawMediaInput\)/);
+  assert.match(useRoomSource, /resetVoiceSessionId/);
+  assert.doesNotMatch(useRoomSource, /if \(appConfig\.usesBrowserRawMediaInput\)/);
 });

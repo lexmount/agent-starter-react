@@ -1,5 +1,6 @@
 export interface RoomInputStopPayload {
   room_name: string;
+  session_id?: string;
 }
 
 export function resolveRoomInputStopUrl(roomInputUrl?: string | null): string | undefined {
@@ -13,8 +14,15 @@ export function resolveRoomInputStopUrl(roomInputUrl?: string | null): string | 
   return `${normalized}/stop`;
 }
 
-export function buildRoomInputStopPayload(roomName: string): RoomInputStopPayload {
-  return { room_name: roomName };
+export function buildRoomInputStopPayload(
+  roomName: string,
+  sessionId?: string | null
+): RoomInputStopPayload {
+  const normalizedSessionId = sessionId?.trim();
+  return {
+    room_name: roomName,
+    ...(normalizedSessionId ? { session_id: normalizedSessionId } : {}),
+  };
 }
 
 export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | undefined {

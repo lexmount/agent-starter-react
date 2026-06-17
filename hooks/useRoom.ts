@@ -3,7 +3,7 @@ import { Room, RoomEvent, TokenSource } from 'livekit-client';
 import { AppConfig } from '@/app-config';
 import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
-import { getBrowserRoomSessionId, resetBrowserRoomSessionId } from '@/lib/browser-room-session';
+import { getVoiceSessionId, resetVoiceSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 import { waitForRoomDisconnected } from '@/lib/room-disconnect';
 import {
@@ -19,6 +19,7 @@ import {
 
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
   const room = useMemo(
     () =>
       new Room({
@@ -74,7 +75,8 @@ export function useRoom(appConfig: AppConfig) {
         );
 
         try {
-          const roomId = appConfig.usesBrowserRawMediaInput ? getBrowserRoomSessionId() : undefined;
+          const sessionId = sessionIdRef.current ?? getVoiceSessionId();
+          sessionIdRef.current = sessionId;
 
           const res = await fetch(url.toString(), {
             method: 'POST',
@@ -83,7 +85,7 @@ export function useRoom(appConfig: AppConfig) {
               'X-Sandbox-Id': appConfig.sandboxId ?? '',
             },
             body: JSON.stringify({
-              room_id: roomId,
+              sessionId,
               room_config: appConfig.agentName
                 ? {
                     agents: [{ agent_name: appConfig.agentName }],
@@ -113,21 +115,26 @@ export function useRoom(appConfig: AppConfig) {
       return;
     }
 
-    let dispatchSessionId: string | null = null;
+    const sessionId = getVoiceSessionId();
+    sessionIdRef.current = sessionId;
+    let dispatchSessionId: string | null = sessionId;
+    let connectedRoomName: string | null = null;
 
     const recoverFromStartError = async (error: unknown) => {
       const startError = error instanceof Error ? error : new Error(String(error));
       browserSourceClient.stop();
       room.disconnect();
-      if (dispatchSessionId) {
+      if (connectedRoomName) {
         try {
-          await requestAgentSessionStop(room.name, dispatchSessionId, {
+          await requestAgentSessionStop(dispatchSessionId ?? sessionIdRef.current ?? undefined, {
             waitForRemote: true,
           });
         } catch (stopError) {
           console.warn('Failed to stop remote agent session after start failure', stopError);
         }
       }
+      resetVoiceSessionId();
+      sessionIdRef.current = null;
       setIsSessionActive(false);
       toastAlert({
         title: 'There was an error connecting to the agent',
@@ -151,15 +158,11 @@ export function useRoom(appConfig: AppConfig) {
     setIsSessionActive(true);
 
     const dispatchAgentSession = async () => {
-      const sessionId = crypto.randomUUID();
       dispatchSessionId = sessionId;
       const signal = beginAgentSessionStart(room.name, sessionId);
-      const dispatchPromise = requestAgentSessionDispatch(
-        room.name,
-        appConfig.agentName,
-        sessionId,
-        { signal }
-      );
+      const dispatchPromise = requestAgentSessionDispatch(appConfig.agentName, sessionId, {
+        signal,
+      });
       registerAgentSessionDispatch(room.name, sessionId, dispatchPromise);
       await dispatchPromise;
     };
@@ -191,15 +194,15 @@ export function useRoom(appConfig: AppConfig) {
       if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
         const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
         await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+        connectedRoomName = room.name;
         await startLocalInput();
       } else {
         await Promise.all([
           startDefaultMicrophone(),
-          tokenSource
-            .fetch({ agentName: appConfig.agentName })
-            .then((connectionDetails) =>
-              room.connect(connectionDetails.serverUrl, connectionDetails.participantToken)
-            ),
+          tokenSource.fetch({ agentName: appConfig.agentName }).then(async (connectionDetails) => {
+            await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+            connectedRoomName = room.name;
+          }),
         ]);
       }
 
@@ -212,11 +215,10 @@ export function useRoom(appConfig: AppConfig) {
   const endSession = useCallback(() => {
     browserSourceClient.stop();
     room.disconnect();
-    if (appConfig.usesBrowserRawMediaInput) {
-      resetBrowserRoomSessionId();
-    }
+    resetVoiceSessionId();
+    sessionIdRef.current = null;
     setIsSessionActive(false);
-  }, [appConfig.usesBrowserRawMediaInput, browserSourceClient, room]);
+  }, [browserSourceClient, room]);
 
   return { room, isSessionActive, startSession, endSession, browserSourceClient };
 }

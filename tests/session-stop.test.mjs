@@ -26,9 +26,10 @@ test('derives room input stop URL from start URL', () => {
   assert.equal(resolveRoomInputStopUrl('http://localhost:8013'), 'http://localhost:8013/stop');
 });
 
-test('builds room input stop payload with current room name', () => {
-  assert.deepEqual(buildRoomInputStopPayload('voice_assistant_room_1'), {
+test('builds room input stop payload with current session identity', () => {
+  assert.deepEqual(buildRoomInputStopPayload('voice_assistant_room_1', 'session-1'), {
     room_name: 'voice_assistant_room_1',
+    session_id: 'session-1',
   });
 });
 
@@ -58,6 +59,14 @@ test('session stop route cancels room session before remote cleanup', async () =
   assert.match(routeSource, /cancelPendingDispatches/);
   assert.match(routeSource, /markRoomSessionStopped/);
   assert.match(routeSource, /sessionId/);
+  assert.match(routeSource, /deriveLiveKitRoomName/);
+  assert.match(routeSource, /deriveSessionIdFromLiveKitRoomName/);
+  assert.match(routeSource, /isValidConnectionRoomId/);
+  assert.match(routeSource, /requestedSessionId && !isValidConnectionRoomId\(requestedSessionId\)/);
+  assert.match(
+    routeSource,
+    /const roomName = sessionId \? deriveLiveKitRoomName\(sessionId\) : requestedRoomName/
+  );
   assert.match(routeSource, /dispatch_ids/);
 });
 
@@ -77,10 +86,8 @@ test('session stop route runs independent remote cleanup after the dispatch barr
   );
 
   assert.match(routeSource, /await waitForPendingDispatches\(roomName, sessionId\)/);
-  assert.match(
-    routeSource,
-    /Promise\.all\(\[\s*stopRoomInput\(roomName\),\s*deleteLiveKitRoom\(roomName\),\s*\]\)/s
-  );
+  assert.match(routeSource, /stopRoomInput\(roomName,\s*sessionId\)/);
+  assert.match(routeSource, /deleteLiveKitRoom\(roomName\)/);
 });
 
 test('session stop route defers remote cleanup for browser input source', async () => {
@@ -109,4 +116,19 @@ test('session stop route closes the registry even when remote cleanup is partial
     cleanupSource,
     /markRoomSessionStopped\(roomName, sessionId\);\s*return \{ results, failures \};/
   );
+});
+
+test('session stop route logs remote cleanup with canonical session identity', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+  const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
+
+  assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
+  assert.match(cleanupSource, /console\.info\('agent session remote cleanup completed'/);
+  assert.match(cleanupSource, /roomName/);
+  assert.match(cleanupSource, /sessionId/);
+  assert.match(cleanupSource, /results/);
+  assert.match(cleanupSource, /failures/);
 });

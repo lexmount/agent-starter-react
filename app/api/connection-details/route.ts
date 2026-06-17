@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { randomUUID } from 'node:crypto';
 import { RoomConfiguration } from '@livekit/protocol';
-import { resolveConnectionRoomId } from '@/lib/connection-room-id';
+import { deriveLiveKitRoomName, resolveConnectionSessionId } from '@/lib/connection-room-id';
 
 type ConnectionDetails = {
   serverUrl: string;
+  sessionId: string;
   roomName: string;
   participantName: string;
   participantToken: string;
@@ -40,9 +41,9 @@ export async function POST(req: Request) {
 
     // Generate participant token
     const participantName = 'user';
-    const roomId = resolveConnectionRoomId(body, randomUUID);
-    const participantIdentity = `voice_assistant_user_${roomId}`;
-    const roomName = `voice_assistant_room_${roomId}`;
+    const sessionId = resolveConnectionSessionId(body, randomUUID);
+    const participantIdentity = `voice_assistant_user_${sessionId}`;
+    const roomName = deriveLiveKitRoomName(sessionId);
 
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
@@ -53,12 +54,18 @@ export async function POST(req: Request) {
     // Return connection details
     const data: ConnectionDetails = {
       serverUrl: LIVEKIT_URL,
+      sessionId,
       roomName,
       participantToken: participantToken,
       participantName,
     };
     const headers = new Headers({
       'Cache-Control': 'no-store',
+    });
+    console.info('agent session connection details issued', {
+      sessionId,
+      roomName,
+      participantIdentity,
     });
     return NextResponse.json(data, { headers });
   } catch (error) {

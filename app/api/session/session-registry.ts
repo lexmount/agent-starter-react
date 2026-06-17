@@ -35,6 +35,35 @@ function normalize(value: string | null | undefined): string {
   return String(value ?? '').trim();
 }
 
+function recordKey(record: Pick<RoomSessionRecord, 'roomName' | 'sessionId'>): string {
+  return sessionKey(record.roomName, record.sessionId);
+}
+
+function sessionKey(roomName: string, sessionId?: string | null): string {
+  return normalize(sessionId) || normalize(roomName);
+}
+
+function findRecordByRoomName(roomName: string): RoomSessionRecord | undefined {
+  const normalizedRoomName = normalize(roomName);
+  for (const record of sessions.values()) {
+    if (record.roomName === normalizedRoomName) {
+      return record;
+    }
+  }
+  return undefined;
+}
+
+function getRecordForSession(
+  roomName: string,
+  sessionId?: string | null
+): RoomSessionRecord | undefined {
+  const normalizedSessionId = normalize(sessionId);
+  if (normalizedSessionId) {
+    return sessions.get(normalizedSessionId);
+  }
+  return findRecordByRoomName(roomName);
+}
+
 function snapshot(record: RoomSessionRecord): RoomSessionSnapshot {
   return {
     roomName: record.roomName,
@@ -48,7 +77,7 @@ function snapshot(record: RoomSessionRecord): RoomSessionSnapshot {
 }
 
 function getMatchingRecord(token: RoomSessionToken): RoomSessionRecord | undefined {
-  const record = sessions.get(token.roomName);
+  const record = sessions.get(sessionKey(token.roomName, token.sessionId));
   if (!record) {
     return undefined;
   }
@@ -66,7 +95,8 @@ export function beginRoomSessionDispatch(
   const normalizedRoomName = normalize(roomName);
   const normalizedSessionId = normalize(sessionId);
   const normalizedAgentName = normalize(agentName);
-  const existing = sessions.get(normalizedRoomName);
+  const key = sessionKey(normalizedRoomName, normalizedSessionId);
+  const existing = sessions.get(key);
 
   if (existing && existing.sessionId === normalizedSessionId) {
     existing.agentName = normalizedAgentName;
@@ -90,7 +120,7 @@ export function beginRoomSessionDispatch(
     activeDispatches: 1,
     dispatchWaiters: new Set(),
   };
-  sessions.set(normalizedRoomName, record);
+  sessions.set(key, record);
 
   return {
     roomName: record.roomName,
@@ -136,7 +166,7 @@ export function markRoomSessionStopping(
 ): RoomSessionSnapshot {
   const normalizedRoomName = normalize(roomName);
   const normalizedSessionId = normalize(sessionId);
-  let record = sessions.get(normalizedRoomName);
+  let record = getRecordForSession(normalizedRoomName, normalizedSessionId);
 
   if (!record) {
     record = {
@@ -150,14 +180,8 @@ export function markRoomSessionStopping(
       activeDispatches: 0,
       dispatchWaiters: new Set(),
     };
-    sessions.set(normalizedRoomName, record);
+    sessions.set(recordKey(record), record);
     return snapshot(record);
-  }
-
-  if (normalizedSessionId && record.sessionId !== normalizedSessionId) {
-    record.sessionId = normalizedSessionId;
-    record.generation = nextGeneration++;
-    record.dispatchIds.clear();
   }
 
   record.state = 'stopping';
@@ -166,9 +190,8 @@ export function markRoomSessionStopping(
 }
 
 export function markRoomSessionStopped(roomName: string, sessionId?: string | null): void {
-  const normalizedRoomName = normalize(roomName);
   const normalizedSessionId = normalize(sessionId);
-  const record = sessions.get(normalizedRoomName);
+  const record = getRecordForSession(roomName, normalizedSessionId);
   if (!record) {
     return;
   }
@@ -182,7 +205,7 @@ export function markRoomSessionStopped(roomName: string, sessionId?: string | nu
   record.activeDispatches = 0;
   record.dispatchWaiters.forEach((resolve) => resolve());
   record.dispatchWaiters.clear();
-  sessions.delete(normalizedRoomName);
+  sessions.delete(recordKey(record));
 }
 
 export function finishRoomSessionDispatch(token: RoomSessionToken): void {
@@ -201,7 +224,7 @@ export function finishRoomSessionDispatch(token: RoomSessionToken): void {
 }
 
 export function getRoomSessionSnapshot(roomName: string): RoomSessionSnapshot | undefined {
-  const record = sessions.get(normalize(roomName));
+  const record = findRecordByRoomName(roomName);
   return record ? snapshot(record) : undefined;
 }
 
@@ -210,9 +233,8 @@ export async function waitForRoomSessionDispatchesToFinish(
   sessionId?: string | null,
   timeoutMs = 1_500
 ): Promise<void> {
-  const normalizedRoomName = normalize(roomName);
   const normalizedSessionId = normalize(sessionId);
-  const record = sessions.get(normalizedRoomName);
+  const record = getRecordForSession(roomName, normalizedSessionId);
   if (!record) {
     return;
   }

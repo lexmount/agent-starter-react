@@ -1,5 +1,6 @@
 export type ConnectionDetails = {
   serverUrl: string;
+  sessionId: string;
   roomName: string;
   participantName: string;
   participantToken: string;
@@ -35,6 +36,7 @@ function isConnectionDetails(value: unknown): value is ConnectionDetails {
   const details = value as Record<string, unknown>;
   return (
     isNonEmptyString(details.serverUrl) &&
+    isNonEmptyString(details.sessionId) &&
     isNonEmptyString(details.roomName) &&
     isNonEmptyString(details.participantName) &&
     isNonEmptyString(details.participantToken)

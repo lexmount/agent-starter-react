@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import {
+  deriveLiveKitRoomName,
+  deriveSessionIdFromLiveKitRoomName,
+  isValidConnectionRoomId,
+} from '@/lib/connection-room-id';
+import {
   buildRoomInputStopPayload,
   resolveLiveKitHttpUrl,
   resolveRoomInputStopUrl,
@@ -34,7 +39,7 @@ type StopRequestBody = {
   wait?: boolean | string | number;
 };
 
-async function stopRoomInput(roomName: string): Promise<StopResult> {
+async function stopRoomInput(roomName: string, sessionId: string): Promise<StopResult> {
   const stopUrl = resolveRoomInputStopUrl(process.env.ROOM_INPUT_URL);
   if (!stopUrl) {
     return { target: 'room_input', ok: true, skipped: true };
@@ -44,7 +49,7 @@ async function stopRoomInput(roomName: string): Promise<StopResult> {
     const response = await fetch(stopUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildRoomInputStopPayload(roomName)),
+      body: JSON.stringify(buildRoomInputStopPayload(roomName, sessionId)),
       signal: AbortSignal.timeout(ROOM_INPUT_STOP_TIMEOUT_MS),
     });
     return {
@@ -172,7 +177,7 @@ async function runRemoteSessionCleanup(
 ): Promise<{ results: StopResult[]; failures: StopResult[] }> {
   const dispatchBarrierResult = await waitForPendingDispatches(roomName, sessionId);
   const [roomInputResult, liveKitRoomResult] = await Promise.all([
-    stopRoomInput(roomName),
+    stopRoomInput(roomName, sessionId),
     deleteLiveKitRoom(roomName),
   ]);
   const cleanupResults = [dispatchBarrierResult, roomInputResult, liveKitRoomResult];
@@ -186,6 +191,12 @@ async function runRemoteSessionCleanup(
     ...cleanupResults,
   ];
   const failures = results.filter((result) => !result.ok && !result.skipped);
+  console.info('agent session remote cleanup completed', {
+    roomName,
+    sessionId,
+    results,
+    failures,
+  });
   markRoomSessionStopped(roomName, sessionId);
   return { results, failures };
 }
@@ -198,8 +209,17 @@ export async function POST(req: Request) {
     body = {};
   }
 
-  const roomName = (body.roomName || body.room_name || '').trim();
-  const sessionId = (body.sessionId || body.session_id || '').trim();
+  const requestedRoomName = (body.roomName || body.room_name || '').trim();
+  const requestedSessionId = (body.sessionId || body.session_id || '').trim();
+  if (requestedSessionId && !isValidConnectionRoomId(requestedSessionId)) {
+    return NextResponse.json(
+      { status: 'error', error: 'valid sessionId is required' },
+      { status: 400 }
+    );
+  }
+
+  const sessionId = requestedSessionId || deriveSessionIdFromLiveKitRoomName(requestedRoomName);
+  const roomName = sessionId ? deriveLiveKitRoomName(sessionId) : requestedRoomName;
   if (!roomName) {
     return NextResponse.json({ status: 'error', error: 'roomName is required' }, { status: 400 });
   }

@@ -2,7 +2,7 @@
 
 import { type HTMLAttributes, useCallback, useMemo, useState } from 'react';
 import { Track } from 'livekit-client';
-import { useChat, useRemoteParticipants, useRoomContext } from '@livekit/components-react';
+import { useChat, useRemoteParticipants } from '@livekit/components-react';
 import { ChatTextIcon, PhoneDisconnectIcon } from '@phosphor-icons/react/dist/ssr';
 import { useSession } from '@/components/app/session-provider';
 import { TrackToggle } from '@/components/livekit/agent-control-bar/track-toggle';
@@ -55,7 +55,6 @@ export function AgentControlBar({
   ...props
 }: AgentControlBarProps & HTMLAttributes<HTMLDivElement>) {
   const { send } = useChat();
-  const room = useRoomContext();
   const participants = useRemoteParticipants();
   const [uncontrolledChatOpen, setUncontrolledChatOpen] = useState(defaultChatOpen);
   const publishPermissions = usePublishPermissions();
@@ -128,10 +127,10 @@ export function AgentControlBar({
       onDisconnect?.();
     });
     registerAgentSessionLocalCleanup(localDisconnectPromise);
-    void requestAgentSessionStop(room.name, activeSession?.sessionId, {
+    void requestAgentSessionStop(activeSession?.sessionId, {
       waitForRemote: !usesFastBrowserStop,
     });
-  }, [endSession, onDisconnect, room.name, usesFastBrowserStop]);
+  }, [endSession, onDisconnect, usesFastBrowserStop]);
 
   const handleRawMicrophoneToggle = useCallback(
     (enabled: boolean) => {

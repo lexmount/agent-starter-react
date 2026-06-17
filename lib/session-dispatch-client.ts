@@ -10,15 +10,13 @@ export class AgentSessionDispatchCancelledError extends Error {
 }
 
 export async function requestAgentSessionDispatch(
-  roomName?: string | null,
   agentName?: string | null,
   sessionId?: string | null,
   options: DispatchOptions = {}
 ): Promise<void> {
-  const normalizedRoomName = roomName?.trim();
   const normalizedAgentName = agentName?.trim();
   const normalizedSessionId = sessionId?.trim();
-  if (!normalizedRoomName || !normalizedAgentName || !normalizedSessionId) {
+  if (!normalizedAgentName || !normalizedSessionId) {
     return;
   }
 
@@ -26,7 +24,6 @@ export async function requestAgentSessionDispatch(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      roomName: normalizedRoomName,
       agentName: normalizedAgentName,
       sessionId: normalizedSessionId,
     }),

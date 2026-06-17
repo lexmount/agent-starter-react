@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import { type ParticipantInfo } from '@livekit/protocol';
+import {
+  deriveLiveKitRoomName,
+  deriveSessionIdFromLiveKitRoomName,
+  isValidConnectionRoomId,
+} from '@/lib/connection-room-id';
 import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
   type RoomSessionToken,
@@ -19,8 +24,10 @@ export const runtime = 'nodejs';
 export const revalidate = 0;
 
 class RoomSessionCancelledError extends Error {
-  constructor(roomName: string) {
-    super(`room session was cancelled for ${roomName}`);
+  constructor(session: RoomSessionToken) {
+    super(
+      `room session was cancelled for sessionId=${session.sessionId} roomName=${session.roomName}`
+    );
     this.name = 'RoomSessionCancelledError';
   }
 }
@@ -40,9 +47,18 @@ export async function POST(req: Request) {
     body = {};
   }
 
-  const roomName = (body.roomName || body.room_name || '').trim();
+  const requestedRoomName = (body.roomName || body.room_name || '').trim();
   const agentName = (body.agentName || body.agent_name || '').trim();
-  const sessionId = (body.sessionId || body.session_id || '').trim();
+  const requestedSessionId = (body.sessionId || body.session_id || '').trim();
+  if (requestedSessionId && !isValidConnectionRoomId(requestedSessionId)) {
+    return NextResponse.json(
+      { status: 'error', error: 'valid sessionId is required' },
+      { status: 400 }
+    );
+  }
+
+  const sessionId = requestedSessionId || deriveSessionIdFromLiveKitRoomName(requestedRoomName);
+  const roomName = sessionId ? deriveLiveKitRoomName(sessionId) : requestedRoomName;
   if (!roomName) {
     return NextResponse.json({ status: 'error', error: 'roomName is required' }, { status: 400 });
   }
@@ -75,6 +91,12 @@ export async function POST(req: Request) {
         agentName,
         session
       );
+      console.info('agent session dispatch completed', {
+        roomName,
+        sessionId,
+        agentName,
+        dispatch,
+      });
       return NextResponse.json({ status: 'dispatched', roomName, agentName, sessionId, dispatch });
     } finally {
       finishRoomSessionDispatch(session);
@@ -145,7 +167,7 @@ async function createAgentDispatchWithRetry(
       if (isRoomSessionCancelled(session)) {
         await deleteDispatchQuietly(dispatchClient, dispatch.id, roomName);
         await deleteLiveKitRoomQuietly(roomClient, roomName);
-        throw new RoomSessionCancelledError(roomName);
+        throw new RoomSessionCancelledError(session);
       }
 
       if (
@@ -159,7 +181,7 @@ async function createAgentDispatchWithRetry(
       ) {
         if (isRoomSessionCancelled(session)) {
           await deleteLiveKitRoomQuietly(roomClient, roomName);
-          throw new RoomSessionCancelledError(roomName);
+          throw new RoomSessionCancelledError(session);
         }
         markRoomSessionRunning(session);
         return { attempts, dispatchId: dispatch.id };
@@ -257,7 +279,7 @@ async function deleteLiveKitRoomQuietly(roomClient: RoomServiceClient, roomName:
 
 function throwIfSessionCancelled(session: RoomSessionToken): void {
   if (isRoomSessionCancelled(session)) {
-    throw new RoomSessionCancelledError(session.roomName);
+    throw new RoomSessionCancelledError(session);
   }
 }
 

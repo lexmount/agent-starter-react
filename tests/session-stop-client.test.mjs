@@ -31,7 +31,7 @@ test('waits for an in-flight agent session stop before continuing', async () => 
     const { requestAgentSessionStop, waitForAgentSessionStop } =
       await loadSessionStopClientModule();
 
-    const stopPromise = requestAgentSessionStop('voice_assistant_room_1');
+    const stopPromise = requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
     let waitResolved = false;
     const waitPromise = waitForAgentSessionStop().then(() => {
       waitResolved = true;
@@ -45,6 +45,27 @@ test('waits for an in-flight agent session stop before continuing', async () => 
     await stopPromise;
     await waitPromise;
     assert.equal(waitResolved, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('agent session stop sends only canonical session id to Next API', async () => {
+  const originalFetch = globalThis.fetch;
+  let postedBody;
+  globalThis.fetch = async (_url, init) => {
+    postedBody = JSON.parse(String(init.body));
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.deepEqual(postedBody, {
+      sessionId: '11111111-2222-4333-8444-555555555555',
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -66,7 +87,7 @@ test('clears visible stop pending while keeping start gated during worker settle
       await loadSessionStopClientModule({ stopSettleMs: 1000 });
 
     let stopResolved = false;
-    const stopPromise = requestAgentSessionStop('voice_assistant_room_1').then(() => {
+    const stopPromise = requestAgentSessionStop('11111111-2222-4333-8444-555555555555').then(() => {
       stopResolved = true;
     });
     let gateResolved = false;
@@ -105,7 +126,7 @@ test('browser stop does not gate the next start on remote cleanup', async () => 
     const { requestAgentSessionStop, waitForAgentSessionStop } =
       await loadSessionStopClientModule();
 
-    void requestAgentSessionStop('voice_assistant_room_1', undefined, {
+    void requestAgentSessionStop('11111111-2222-4333-8444-555555555555', {
       waitForRemote: false,
     });
     await waitForAgentSessionStop();
@@ -158,7 +179,8 @@ test('disconnect control exits the local session before remote stop finishes', a
   assert.match(controlBarSource, /registerAgentSessionLocalCleanup/);
   assert.match(
     controlBarSource,
-    /requestAgentSessionStop\(room\.name,\s*activeSession\?\.sessionId,\s*\{\s*waitForRemote:\s*!usesFastBrowserStop,\s*\}\)/
+    /requestAgentSessionStop\(activeSession\?\.sessionId,\s*\{\s*waitForRemote:\s*!usesFastBrowserStop,\s*\}\)/
   );
   assert.doesNotMatch(controlBarSource, /await requestAgentSessionStop\(room\.name\)/);
+  assert.doesNotMatch(controlBarSource, /requestAgentSessionStop\(room\.name,/);
 });
