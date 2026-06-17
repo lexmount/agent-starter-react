@@ -39,7 +39,7 @@ export function ViewController() {
     getAgentSessionStopPending,
     getAgentSessionStopPending
   );
-  const isStartDisabled = stopPending || startPending;
+  const isStartDisabled = isSessionActive || stopPending || startPending;
 
   // animation handler holds a reference to stale isSessionActive value
   isSessionActiveRef.current = isSessionActive;

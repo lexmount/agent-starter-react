@@ -186,6 +186,19 @@ test('welcome start button shows disabled pending cleanup state', async () => {
   assert.match(source, /startPending \? startPendingLabel : startButtonText/);
 });
 
+test('view controller disables start while a session is active', async () => {
+  const source = await readFile(
+    new URL('../components/app/view-controller.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(
+    source,
+    /const isStartDisabled = isSessionActive \|\| stopPending \|\| startPending/
+  );
+  assert.match(source, /startDisabled=\{isStartDisabled\}/);
+});
+
 test('session lifecycle cancels in-flight dispatch before stop releases next start', async () => {
   const source = await readFile(new URL('../lib/session-stop-client.ts', import.meta.url), 'utf8');
 
