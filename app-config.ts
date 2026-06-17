@@ -133,7 +133,7 @@ export function resolveInputDeviceConfig({
     ? normalizeRoleInputDevice(visionInputDevice, baseInputDevice)
     : baseInputDevice;
   const resolvedOutputDevice = isMixedInputSource
-    ? (outputDevice || baseInputDevice).trim().toLowerCase() || baseInputDevice
+    ? normalizeRoleInputDevice(outputDevice, baseInputDevice)
     : baseInputDevice;
   const usesBrowserRawAudioInput = resolvedAudioInputDevice === 'browser';
   const usesBrowserRawVideoInput = resolvedVisionInputDevice === 'browser';

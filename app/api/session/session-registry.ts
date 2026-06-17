@@ -28,6 +28,7 @@ type RoomSessionRecord = {
   dispatchWaiters: Set<() => void>;
 };
 
+// This coordination is process-local; deploy /api/session/* on one instance or use sticky routing.
 const sessions = new Map<string, RoomSessionRecord>();
 let nextGeneration = 1;
 

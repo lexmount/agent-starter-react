@@ -23,6 +23,10 @@ const AGENT_DISPATCH_POLL_MS = readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200)
 export const runtime = 'nodejs';
 export const revalidate = 0;
 
+type AgentParticipantMatchOptions = {
+  allowAnonymousLiveKitAgentFallback?: boolean;
+};
+
 class RoomSessionCancelledError extends Error {
   constructor(session: RoomSessionToken) {
     super(
@@ -231,7 +235,11 @@ async function waitForAgentParticipant(
 
   do {
     throwIfSessionCancelled(session);
-    if (await roomHasAgentParticipant(roomClient, roomName, agentName)) {
+    if (
+      await roomHasAgentParticipant(roomClient, roomName, agentName, {
+        allowAnonymousLiveKitAgentFallback: true,
+      })
+    ) {
       throwIfSessionCancelled(session);
       return true;
     }
@@ -243,26 +251,41 @@ async function waitForAgentParticipant(
   } while (Date.now() < deadline);
 
   throwIfSessionCancelled(session);
-  return roomHasAgentParticipant(roomClient, roomName, agentName);
+  return roomHasAgentParticipant(roomClient, roomName, agentName, {
+    allowAnonymousLiveKitAgentFallback: true,
+  });
 }
 
 async function roomHasAgentParticipant(
   roomClient: RoomServiceClient,
   roomName: string,
-  agentName: string
+  agentName: string,
+  options: AgentParticipantMatchOptions = {}
 ) {
   const participants = await roomClient.listParticipants(roomName);
-  return participants.some((participant) => isExpectedAgentParticipant(participant, agentName));
+  if (participants.some((participant) => isExpectedAgentParticipant(participant, agentName))) {
+    return true;
+  }
+  if (!options.allowAnonymousLiveKitAgentFallback) {
+    return false;
+  }
+
+  const anonymousLiveKitAgents = participants.filter(isAnonymousLiveKitAgentParticipant);
+  return anonymousLiveKitAgents.length === 1;
 }
 
 function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: string) {
   const attributes = participant.attributes ?? {};
-  if (attributes['lk.agent.name'] === agentName || attributes['lk.agent_name'] === agentName) {
-    return true;
-  }
+  return attributes['lk.agent.name'] === agentName || attributes['lk.agent_name'] === agentName;
+}
 
+function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {
+  const attributes = participant.attributes ?? {};
   return (
-    participant.kind === ParticipantInfo_Kind.AGENT && participant.identity.startsWith('agent-')
+    participant.kind === ParticipantInfo_Kind.AGENT &&
+    participant.identity.startsWith('agent-') &&
+    !attributes['lk.agent.name'] &&
+    !attributes['lk.agent_name']
   );
 }
 

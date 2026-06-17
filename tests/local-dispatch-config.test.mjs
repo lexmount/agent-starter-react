@@ -89,6 +89,19 @@ test('frontend resolves mixed xunfei audio with browser vision role devices', as
   assert.equal(config.showDefaultCameraPreview, false);
 });
 
+test('frontend normalizes invalid mixed output devices to the base role input device', async () => {
+  const { resolveInputDeviceConfig } = await loadAppConfigModule();
+
+  const config = resolveInputDeviceConfig({
+    inputSource: 'mixed',
+    audioInputDevice: 'browser',
+    visionInputDevice: 'generic',
+    outputDevice: 'not-a-role-device',
+  });
+
+  assert.equal(config.outputDevice, 'xunfei');
+});
+
 test('frontend ignores role devices unless INPUT_SOURCE is mixed', async () => {
   const { resolveInputDeviceConfig } = await loadAppConfigModule();
 

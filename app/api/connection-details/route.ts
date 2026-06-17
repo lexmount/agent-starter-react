@@ -106,6 +106,7 @@ function buildTokenRoomConfig(roomConfig: RoomConfiguration) {
     return roomConfig;
   }
 
+  // Explicit dispatch is handled by /api/session/dispatch; token agents would create duplicate jobs.
   return new RoomConfiguration({
     ...roomConfig,
     agents: [],

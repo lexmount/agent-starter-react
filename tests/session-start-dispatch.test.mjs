@@ -24,6 +24,7 @@ test('connection details route strips room-config agents from the participant to
   assert.match(routeSource, /function buildTokenRoomConfig/);
   assert.match(routeSource, /RoomConfiguration\.fromJson/);
   assert.match(routeSource, /agents: \[\]/);
+  assert.match(routeSource, /Explicit dispatch is handled by \/api\/session\/dispatch/);
   assert.match(routeSource, /resolveConnectionSessionId/);
   assert.match(routeSource, /deriveLiveKitRoomName/);
 });
@@ -110,7 +111,7 @@ test('session dispatch route logs successful dispatch with canonical session ide
   assert.match(routeSource, /roomName/);
 });
 
-test('session dispatch route accepts LiveKit agent participants when attributes are unavailable', async () => {
+test('session dispatch route keeps pre-dispatch agent matching tied to the configured agent name', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/dispatch/route.ts', import.meta.url),
     'utf8'
@@ -121,8 +122,31 @@ test('session dispatch route accepts LiveKit agent participants when attributes 
   const participantMatcherSource = participantMatcher[0];
   assert.match(participantMatcherSource, /attributes\['lk\.agent\.name'\] === agentName/);
   assert.match(participantMatcherSource, /attributes\['lk\.agent_name'\] === agentName/);
-  assert.match(participantMatcherSource, /ParticipantInfo_Kind\.AGENT/);
-  assert.match(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
+  assert.doesNotMatch(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
+});
+
+test('session dispatch route only accepts anonymous LiveKit agent fallback after explicit dispatch', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(
+    routeSource,
+    /const alreadyJoined = await roomHasAgentParticipant\(roomClient, roomName, agentName\);/
+  );
+  assert.match(routeSource, /type AgentParticipantMatchOptions/);
+  assert.match(routeSource, /allowAnonymousLiveKitAgentFallback/);
+  assert.match(
+    routeSource,
+    /roomHasAgentParticipant\(\s*roomClient,\s*roomName,\s*agentName,\s*\{\s*allowAnonymousLiveKitAgentFallback: true,?\s*\}\s*\)/
+  );
+  assert.match(routeSource, /function isAnonymousLiveKitAgentParticipant/);
+  assert.match(routeSource, /ParticipantInfo_Kind\.AGENT/);
+  assert.match(routeSource, /identity\.startsWith\(['"]agent-['"]\)/);
+  assert.match(routeSource, /!attributes\['lk\.agent\.name'\]/);
+  assert.match(routeSource, /!attributes\['lk\.agent_name'\]/);
+  assert.match(routeSource, /anonymousLiveKitAgents\.length === 1/);
 });
 
 test('start call dispatches the agent with a cancellable room session id', async () => {

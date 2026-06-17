@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 async function loadRegistryModule() {
@@ -101,4 +102,14 @@ test('session registry removes stopped session records after cleanup', async () 
 
   assert.equal(registry.isRoomSessionCancelled(restartedSession), false);
   assert.equal(registry.getRoomSessionSnapshot('room-stopped').sessionId, 'session-1');
+});
+
+test('session registry documents its process-local deployment constraint', async () => {
+  const source = await readFile(
+    new URL('../app/api/session/session-registry.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /process-local/);
+  assert.match(source, /sticky routing/);
 });

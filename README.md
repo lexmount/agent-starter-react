@@ -64,6 +64,9 @@ into this Next.js process.
 
 The session lifecycle API keeps start/stop state in memory, so integrated
 deployments should route `/api/session/*` to a single Next.js instance or sticky routing.
+If you replace the custom connection details endpoint, it must echo the requested
+`sessionId` and derive the same room name so dispatch and stop calls coordinate
+with the connected room.
 
 For standalone frontend development, install dependencies and run the dev
 server directly:
