@@ -180,7 +180,7 @@ export function ConfigurableVideoSelector({
 
           await localParticipant.publishTrack(trackOrTrackRef, {
             source: Track.Source.Camera,
-            name: trackId,
+            name: option.config.publishTrackName || trackId,
           });
 
           // 设置预览轨道

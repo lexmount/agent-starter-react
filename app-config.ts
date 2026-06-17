@@ -3,6 +3,7 @@ export interface VideoTrackConfig {
   label: string;
   type: 'system' | 'livekit';
   livekitTrackName?: string; // LiveKit轨道名称（仅当type为'livekit'时使用）
+  publishTrackName?: string; // 发布给 LiveKit 的轨道名称（仅当需要覆盖默认发布名时使用）
   enabled: boolean;
   icon?: 'camera' | 'broadcast';
   description?: string;
@@ -106,61 +107,70 @@ export function buildDefaultVideoTracks(
   ];
 }
 
-export function getDefaultVideoTrack(): string {
-  return ROOM_INPUT_VIDEO_TRACK_NAME;
+export function getDefaultVideoTrack(isBrowserInput = false): string {
+  return isBrowserInput ? BROWSER_VIDEO_TRACK_NAME : ROOM_INPUT_VIDEO_TRACK_NAME;
 }
 
-export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Lexmount',
-  pageTitle: 'Lexmount Voice Agent',
-  pageDescription: 'A voice agent built with Lexmount Agent Studio',
+export function buildAppConfigDefaults(
+  device = process.env.NEXT_PUBLIC_FRONTDESK_DEVICE
+): AppConfig {
+  const normalizedDevice = (device || '').trim().toLowerCase();
+  const isBrowserDevice = normalizedDevice === 'browser';
 
-  supportsChatInput: true,
-  supportsVideoInput: true,
-  supportsScreenShare: true,
-  isPreConnectBufferEnabled: true,
-  usesBrowserRawMediaInput: false,
-  usesServerRoomInput: false,
-  browserMediaStreamName: 'browser_input',
-  browserVideoWidth: 640,
-  browserVideoHeight: 480,
-  browserVideoFps: 25,
-  browserVideoMaxBitrate: 1700000,
-  browserVideoStats: false,
-  remoteVideoWidth: 640,
-  remoteVideoHeight: 480,
-  remoteVideoFps: 25,
+  return {
+    companyName: 'Lexmount',
+    pageTitle: 'Lexmount Voice Agent',
+    pageDescription: 'A voice agent built with Lexmount Agent Studio',
 
-  logo: '/lk-logo.png',
-  accent: '#002cf2',
-  logoDark: '/lk-logo-dark.png',
-  accentDark: '#1fd5f9',
-  startButtonText: 'Start call',
+    supportsChatInput: true,
+    supportsVideoInput: true,
+    supportsScreenShare: true,
+    isPreConnectBufferEnabled: true,
+    usesBrowserRawMediaInput: isBrowserDevice,
+    usesServerRoomInput: false,
+    browserMediaStreamName: 'browser_input',
+    browserVideoWidth: 640,
+    browserVideoHeight: 480,
+    browserVideoFps: 25,
+    browserVideoMaxBitrate: 1700000,
+    browserVideoStats: false,
+    remoteVideoWidth: 640,
+    remoteVideoHeight: 480,
+    remoteVideoFps: 25,
 
-  // for LiveKit Cloud Sandbox
-  sandboxId: undefined,
-  agentName: undefined,
+    logo: '/lk-logo.png',
+    accent: '#002cf2',
+    logoDark: '/lk-logo-dark.png',
+    accentDark: '#1fd5f9',
+    startButtonText: 'Start call',
 
-  // 音频过滤配置
-  excludeAudioTracks: [XUNFEI_AUDIO_TRACK_NAME, ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
+    // for LiveKit Cloud Sandbox
+    sandboxId: undefined,
+    agentName: undefined,
 
-  // 调试配置
-  showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
-  debugAudio: false,
-  debugVideo: false,
+    // 音频过滤配置
+    excludeAudioTracks: [XUNFEI_AUDIO_TRACK_NAME, ROOM_INPUT_AUDIO_TRACK_NAME], // 要排除的音频轨道名称列表
 
-  // 全局调试配置
-  enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
+    // 调试配置
+    showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
+    debugAudio: false,
+    debugVideo: false,
 
-  // 字幕和转录配置
-  enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
-  enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
-  showTranscriptByDefault: true, // 默认显示字幕；文本输入栏由用户点击 text 按钮后展开
-  userTranscriptionIdentities: ['xunfei_service_agent', 'room_input', 'room_audio_input'], // 用户转录身份标识（自定义音频track）
-  showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
+    // 全局调试配置
+    enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
 
-  // 视频轨道配置
-  showDefaultCameraPreview: true,
-  availableVideoTracks: buildDefaultVideoTracks(false),
-  defaultVideoTrack: getDefaultVideoTrack(), // 默认选择统一输入视频轨道
-};
+    // 字幕和转录配置
+    enableSmartParticipantMatching: true, // 启用智能参与者匹配，解决自定义音频track的字幕显示问题
+    enableTranscriptionDebug: process.env.NEXT_PUBLIC_SHOW_TRANSCRIPTION_DEBUG === 'true' || false, // 转录调试日志
+    showTranscriptByDefault: true, // 默认显示字幕；文本输入栏由用户点击 text 按钮后展开
+    userTranscriptionIdentities: ['xunfei_service_agent', 'room_input', 'room_audio_input'], // 用户转录身份标识（自定义音频track）
+    showParticipantNames: false, // 默认不显示参与者名称（user、agent-xxx等）
+
+    // 视频轨道配置
+    showDefaultCameraPreview: true,
+    availableVideoTracks: buildDefaultVideoTracks(isBrowserDevice),
+    defaultVideoTrack: getDefaultVideoTrack(isBrowserDevice), // 默认选择当前输入模式的视频轨道
+  };
+}
+
+export const APP_CONFIG_DEFAULTS: AppConfig = buildAppConfigDefaults();

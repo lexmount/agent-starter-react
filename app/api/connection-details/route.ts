@@ -4,11 +4,21 @@ import { randomUUID } from 'node:crypto';
 import { RoomConfiguration } from '@livekit/protocol';
 import { resolveConnectionRoomId } from '@/lib/connection-room-id';
 
+import { readOptionalJsonBody } from '@/lib/connection-details';
+
 type ConnectionDetails = {
   serverUrl: string;
   roomName: string;
   participantName: string;
   participantToken: string;
+};
+
+type ConnectionDetailsRequestBody = {
+  room_config?: {
+    agents?: Array<{
+      agent_name?: string;
+    }>;
+  };
 };
 
 // NOTE: you are expected to define the following environment variables in `.env.local`:
@@ -32,8 +42,8 @@ export async function POST(req: Request) {
     }
 
     // Parse agent configuration from request body
-    const body = await req.json();
-    const agentName: string = body?.room_config?.agents?.[0]?.agent_name;
+    const body = await readOptionalJsonBody<ConnectionDetailsRequestBody>(req);
+    const agentName = body?.room_config?.agents?.[0]?.agent_name;
 
     // Generate participant token
     const participantName = 'user';
