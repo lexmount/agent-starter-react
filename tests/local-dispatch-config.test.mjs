@@ -1,8 +1,23 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 async function loadAppConfigModule() {
   return import('../app-config.ts');
+}
+
+async function loadUtilsModule() {
+  return import('../lib/utils.ts');
+}
+
+function restoreEnv(previousEnv) {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) {
+      delete process.env[key];
+    }
+  }
+
+  Object.assign(process.env, previousEnv);
 }
 
 test('frontend derives dispatch agent name from INPUT_SOURCE when AGENT_NAME is unset', async () => {
@@ -106,4 +121,63 @@ test('frontend keeps primebot on the non-server room input path', async () => {
   assert.equal(config.usesBrowserRawMediaInput, false);
   assert.equal(config.usesServerRoomInput, false);
   assert.ok(tracks.some((track) => track.id === 'system_camera_default'));
+});
+
+test('frontend reads vision env names for browser and remote vision settings', async () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    Object.assign(process.env, {
+      BROWSER_VISION_WIDTH: '801',
+      NEXT_PUBLIC_BROWSER_VISION_HEIGHT: '601',
+      NEXT_PUBLIC_LEXVOICE_BROWSER_VISION_FPS: '17',
+      BROWSER_VISION_MAX_BITRATE: '123456',
+      BROWSER_VISION_STATS: '1',
+      REMOTE_VISION_WIDTH: '1024',
+      NEXT_PUBLIC_REMOTE_VISION_HEIGHT: '768',
+      NEXT_PUBLIC_LEXVOICE_REMOTE_VISION_FPS: '20',
+      DEBUG_VISION: 'true',
+    });
+
+    const { getClientConfigFromEnv } = await loadUtilsModule();
+    const config = getClientConfigFromEnv();
+
+    assert.equal(config.browserVideoWidth, 801);
+    assert.equal(config.browserVideoHeight, 601);
+    assert.equal(config.browserVideoFps, 17);
+    assert.equal(config.browserVideoMaxBitrate, 123456);
+    assert.equal(config.browserVideoStats, true);
+    assert.equal(config.remoteVideoWidth, 1024);
+    assert.equal(config.remoteVideoHeight, 768);
+    assert.equal(config.remoteVideoFps, 20);
+    assert.equal(config.debugVideo, true);
+  } finally {
+    restoreEnv(previousEnv);
+  }
+});
+
+test('frontend source exposes vision env keys instead of video env keys', async () => {
+  const utilsSource = await readFile('lib/utils.ts', 'utf8');
+  const appConfigSource = await readFile('app-config.ts', 'utf8');
+
+  for (const oldName of [
+    'BROWSER_VIDEO_WIDTH',
+    'BROWSER_VIDEO_HEIGHT',
+    'BROWSER_VIDEO_FPS',
+    'BROWSER_VIDEO_MAX_BITRATE',
+    'BROWSER_VIDEO_STATS',
+    'REMOTE_VIDEO_WIDTH',
+    'REMOTE_VIDEO_HEIGHT',
+    'REMOTE_VIDEO_FPS',
+    'DEBUG_VIDEO',
+    'NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME',
+  ]) {
+    assert.doesNotMatch(utilsSource, new RegExp(`['"]${oldName}['"]`));
+    assert.doesNotMatch(appConfigSource, new RegExp(`['"]${oldName}['"]`));
+  }
+
+  assert.match(utilsSource, /BROWSER_VISION_WIDTH/);
+  assert.match(utilsSource, /REMOTE_VISION_WIDTH/);
+  assert.match(utilsSource, /DEBUG_VISION/);
+  assert.match(appConfigSource, /NEXT_PUBLIC_ROOM_VISION_TRACK_NAME/);
 });
