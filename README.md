@@ -131,6 +131,28 @@ source is provided. Configure `INPUT_SOURCE` only in `../lex-voice/.env` for
 integrated backend runs. The LiveKit variables above are required for
 standalone voice agent functionality to work with your LiveKit project.
 
+When `AGENT_NAME` is unset, the frontend derives the dispatch target from the
+input source as `lexvoice-${INPUT_SOURCE}-agent`; an explicit `AGENT_NAME`
+always wins. Standalone deployments that do not run a matching agent worker
+should set `AGENT_NAME` to the worker name they expect to dispatch.
+
+Vision-related frontend variables use the `*_VISION_*` names. The older
+`*_VIDEO_*` names are still accepted as migration fallbacks, but new
+configuration should use the current names:
+
+| Current name                         | Legacy fallback                     |
+| ------------------------------------ | ----------------------------------- |
+| `BROWSER_VISION_WIDTH`               | `BROWSER_VIDEO_WIDTH`               |
+| `BROWSER_VISION_HEIGHT`              | `BROWSER_VIDEO_HEIGHT`              |
+| `BROWSER_VISION_FPS`                 | `BROWSER_VIDEO_FPS`                 |
+| `BROWSER_VISION_MAX_BITRATE`         | `BROWSER_VIDEO_MAX_BITRATE`         |
+| `BROWSER_VISION_STATS`               | `BROWSER_VIDEO_STATS`               |
+| `REMOTE_VISION_WIDTH`                | `REMOTE_VIDEO_WIDTH`                |
+| `REMOTE_VISION_HEIGHT`               | `REMOTE_VIDEO_HEIGHT`               |
+| `REMOTE_VISION_FPS`                  | `REMOTE_VIDEO_FPS`                  |
+| `DEBUG_VISION`                       | `DEBUG_VIDEO`                       |
+| `NEXT_PUBLIC_ROOM_VISION_TRACK_NAME` | `NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME` |
+
 ## Contributing
 
 This template is open source and we welcome contributions! Please open a PR or issue through GitHub, and don't forget to join us in the [LiveKit Community Slack](https://livekit.io/join-slack)!

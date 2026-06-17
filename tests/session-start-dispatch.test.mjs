@@ -229,3 +229,23 @@ test('browser video input shows the camera control as enabled by default', async
     /mediaEnabled=\{usesBrowserRawVideoInput \? browserSourceClient\.videoEnabled : undefined\}/
   );
 });
+
+test('configurable video selector only changes externally controlled media from user toggle', async () => {
+  const selectorSource = await readFile(
+    new URL(
+      '../components/livekit/agent-control-bar/configurable-video-selector.tsx',
+      import.meta.url
+    ),
+    'utf8'
+  );
+  const disablePreviewSource =
+    selectorSource.match(/const disableTrackPreview = useCallback\([\s\S]*?\n  \);/)?.[0] ?? '';
+  const handleToggleSource =
+    selectorSource.match(/const handleToggleVideo = useCallback\([\s\S]*?\n  \);/)?.[0] ?? '';
+
+  assert.ok(disablePreviewSource, 'disableTrackPreview should be defined');
+  assert.ok(handleToggleSource, 'handleToggleVideo should be defined');
+  assert.doesNotMatch(disablePreviewSource, /onMediaEnabledChange/);
+  assert.doesNotMatch(disablePreviewSource, /setExternalMediaEnabledFromUserToggle/);
+  assert.match(handleToggleSource, /setExternalMediaEnabledFromUserToggle\(shouldEnable\)/);
+});

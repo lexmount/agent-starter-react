@@ -68,7 +68,10 @@ export interface AppConfig {
 
 const XUNFEI_AUDIO_TRACK_NAME = 'xunfei_audio_track';
 const ROOM_INPUT_AUDIO_TRACK_NAME = 'room_audio';
-const ROOM_INPUT_VIDEO_TRACK_NAME = process.env.NEXT_PUBLIC_ROOM_VISION_TRACK_NAME || 'room_video';
+const ROOM_INPUT_VIDEO_TRACK_NAME =
+  process.env['NEXT_PUBLIC_ROOM_VISION_TRACK_NAME'] ||
+  process.env['NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME'] ||
+  'room_video';
 const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 
 const DEFAULT_ROLE_INPUT_DEVICE = 'xunfei';

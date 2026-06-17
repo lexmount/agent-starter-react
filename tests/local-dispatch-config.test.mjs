@@ -156,7 +156,48 @@ test('frontend reads vision env names for browser and remote vision settings', a
   }
 });
 
-test('frontend source exposes vision env keys instead of video env keys', async () => {
+test('frontend accepts legacy video env names as migration fallbacks', async () => {
+  const previousEnv = { ...process.env };
+  const originalWarn = console.warn;
+  const warnings = [];
+
+  try {
+    console.warn = (message) => {
+      warnings.push(String(message));
+    };
+    Object.assign(process.env, {
+      BROWSER_VIDEO_WIDTH: '802',
+      NEXT_PUBLIC_BROWSER_VIDEO_HEIGHT: '602',
+      NEXT_PUBLIC_LEXVOICE_BROWSER_VIDEO_FPS: '18',
+      BROWSER_VIDEO_MAX_BITRATE: '234567',
+      BROWSER_VIDEO_STATS: 'yes',
+      REMOTE_VIDEO_WIDTH: '1280',
+      NEXT_PUBLIC_REMOTE_VIDEO_HEIGHT: '720',
+      NEXT_PUBLIC_LEXVOICE_REMOTE_VIDEO_FPS: '21',
+      DEBUG_VIDEO: 'on',
+    });
+
+    const { getClientConfigFromEnv } = await loadUtilsModule();
+    const config = getClientConfigFromEnv();
+
+    assert.equal(config.browserVideoWidth, 802);
+    assert.equal(config.browserVideoHeight, 602);
+    assert.equal(config.browserVideoFps, 18);
+    assert.equal(config.browserVideoMaxBitrate, 234567);
+    assert.equal(config.browserVideoStats, true);
+    assert.equal(config.remoteVideoWidth, 1280);
+    assert.equal(config.remoteVideoHeight, 720);
+    assert.equal(config.remoteVideoFps, 21);
+    assert.equal(config.debugVideo, true);
+    assert.ok(warnings.some((message) => message.includes('BROWSER_VIDEO_WIDTH is deprecated')));
+    assert.ok(warnings.some((message) => message.includes('DEBUG_VIDEO is deprecated')));
+  } finally {
+    console.warn = originalWarn;
+    restoreEnv(previousEnv);
+  }
+});
+
+test('frontend source exposes vision env keys with legacy video fallbacks', async () => {
   const utilsSource = await readFile('lib/utils.ts', 'utf8');
   const appConfigSource = await readFile('app-config.ts', 'utf8');
 
@@ -172,8 +213,7 @@ test('frontend source exposes vision env keys instead of video env keys', async 
     'DEBUG_VIDEO',
     'NEXT_PUBLIC_ROOM_VIDEO_TRACK_NAME',
   ]) {
-    assert.doesNotMatch(utilsSource, new RegExp(`['"]${oldName}['"]`));
-    assert.doesNotMatch(appConfigSource, new RegExp(`['"]${oldName}['"]`));
+    assert.match(`${utilsSource}\n${appConfigSource}`, new RegExp(`['"]${oldName}['"]`));
   }
 
   assert.match(utilsSource, /BROWSER_VISION_WIDTH/);

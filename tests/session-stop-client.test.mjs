@@ -137,6 +137,42 @@ test('browser stop does not gate the next start on remote cleanup', async () => 
   }
 });
 
+test('wait-for-remote stop clears active start before remote cleanup settles', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  const releaseFetches = [];
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Promise((resolve) => {
+      releaseFetches.push(() => resolve({ ok: true, status: 200 }));
+    });
+  };
+
+  try {
+    const { beginAgentSessionStart, getActiveAgentSession, requestAgentSessionStop } =
+      await loadSessionStopClientModule();
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+
+    beginAgentSessionStart('room-a', sessionId);
+    const stopPromise = requestAgentSessionStop(sessionId, { waitForRemote: true });
+    for (let i = 0; i < 8 && releaseFetches.length === 0; i++) {
+      await Promise.resolve();
+    }
+
+    assert.equal(getActiveAgentSession(), null);
+    void requestAgentSessionStop(null, { waitForRemote: false });
+    for (let i = 0; i < 8; i++) {
+      await Promise.resolve();
+    }
+
+    assert.equal(fetchCount, 1);
+    releaseFetches.forEach((releaseFetch) => releaseFetch());
+    await stopPromise;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('welcome start button shows disabled pending cleanup state', async () => {
   const source = await readFile(
     new URL('../components/app/welcome-view.tsx', import.meta.url),

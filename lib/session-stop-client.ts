@@ -220,6 +220,7 @@ export async function requestAgentSessionStop(
   }
 
   cancelAgentSessionStart(normalizedSessionId);
+  clearActiveAgentSession(normalizedSessionId);
   if (options.waitForRemote === false) {
     sendAgentSessionStopInBackground(normalizedSessionId, options);
     return waitForAgentSessionStop();
