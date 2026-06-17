@@ -25,12 +25,14 @@ const SessionContext = createContext<{
   isSessionActive: boolean;
   startSession: () => Promise<void>;
   endSession: () => void;
+  getCurrentSessionId: () => string | null;
   browserSourceClient: BrowserSourceClient;
 }>({
   appConfig: APP_CONFIG_DEFAULTS,
   isSessionActive: false,
   startSession: async () => {},
   endSession: () => {},
+  getCurrentSessionId: () => null,
   browserSourceClient: DEFAULT_BROWSER_SOURCE_CLIENT,
 });
 
@@ -40,11 +42,24 @@ interface SessionProviderProps {
 }
 
 export const SessionProvider = ({ appConfig, children }: SessionProviderProps) => {
-  const { room, isSessionActive, startSession, endSession, browserSourceClient } =
-    useRoom(appConfig);
+  const {
+    room,
+    isSessionActive,
+    startSession,
+    endSession,
+    getCurrentSessionId,
+    browserSourceClient,
+  } = useRoom(appConfig);
   const contextValue = useMemo(
-    () => ({ appConfig, isSessionActive, startSession, endSession, browserSourceClient }),
-    [appConfig, isSessionActive, startSession, endSession, browserSourceClient]
+    () => ({
+      appConfig,
+      isSessionActive,
+      startSession,
+      endSession,
+      getCurrentSessionId,
+      browserSourceClient,
+    }),
+    [appConfig, isSessionActive, startSession, endSession, getCurrentSessionId, browserSourceClient]
   );
 
   return (

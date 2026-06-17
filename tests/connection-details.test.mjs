@@ -45,6 +45,23 @@ test('connection details parse a valid response body', async () => {
   assert.deepEqual(result, payload);
 });
 
+test('connection details fill legacy responses with the requested session id', async () => {
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  const payload = {
+    serverUrl: 'wss://example.livekit.cloud',
+    roomName: 'voice_assistant_room_11111111-2222-4333-8444-555555555555',
+    participantName: 'user',
+    participantToken: 'token',
+  };
+
+  const result = await readConnectionDetailsResponse(
+    new Response(JSON.stringify(payload), { status: 200 }),
+    { sessionId }
+  );
+
+  assert.deepEqual(result, { ...payload, sessionId });
+});
+
 test('connection details surface non-OK response text', async () => {
   await assert.rejects(
     readConnectionDetailsResponse(new Response('LIVEKIT_API_KEY is not defined', { status: 500 })),

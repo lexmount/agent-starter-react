@@ -270,6 +270,7 @@ async function roomHasAgentParticipant(
     return false;
   }
 
+  // Local LiveKit may omit agent attributes; fresh per-session rooms keep this fallback bounded.
   const anonymousLiveKitAgents = participants.filter(isAnonymousLiveKitAgentParticipant);
   return anonymousLiveKitAgents.length === 1;
 }

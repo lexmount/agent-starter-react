@@ -58,7 +58,8 @@ export function AgentControlBar({
   const participants = useRemoteParticipants();
   const [uncontrolledChatOpen, setUncontrolledChatOpen] = useState(defaultChatOpen);
   const publishPermissions = usePublishPermissions();
-  const { appConfig, isSessionActive, endSession, browserSourceClient } = useSession();
+  const { appConfig, isSessionActive, endSession, getCurrentSessionId, browserSourceClient } =
+    useSession();
   const isChatControlled = controlledChatOpen !== undefined;
   const chatOpen = controlledChatOpen ?? uncontrolledChatOpen;
   const usesBrowserRawAudioInput =
@@ -67,12 +68,6 @@ export function AgentControlBar({
   const usesBrowserRawVideoInput =
     !!(appConfig.usesBrowserRawVideoInput ?? appConfig.usesBrowserRawMediaInput) &&
     browserSourceClient.enabled;
-  const usesFastBrowserStop =
-    appConfig.inputSource === 'browser' ||
-    (appConfig.inputSource === 'mixed' &&
-      appConfig.audioInputDevice === 'browser' &&
-      appConfig.visionInputDevice === 'browser' &&
-      appConfig.outputDevice === 'browser');
   const browserRawVideoTracks = useMemo(() => {
     if (!usesBrowserRawVideoInput || !browserSourceClient.videoTrack) {
       return undefined;
@@ -121,16 +116,14 @@ export function AgentControlBar({
   );
 
   const handleDisconnect = useCallback(async () => {
-    const activeSession = getActiveAgentSession();
+    const sessionId = getCurrentSessionId() ?? getActiveAgentSession()?.sessionId;
     const localDisconnectPromise = Promise.resolve().then(() => {
       endSession();
       onDisconnect?.();
     });
     registerAgentSessionLocalCleanup(localDisconnectPromise);
-    void requestAgentSessionStop(activeSession?.sessionId, {
-      waitForRemote: !usesFastBrowserStop,
-    });
-  }, [endSession, onDisconnect, usesFastBrowserStop]);
+    void requestAgentSessionStop(sessionId);
+  }, [endSession, getCurrentSessionId, onDisconnect]);
 
   const handleRawMicrophoneToggle = useCallback(
     (enabled: boolean) => {

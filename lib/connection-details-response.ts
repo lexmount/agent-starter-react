@@ -6,8 +6,13 @@ export type ConnectionDetails = {
   participantToken: string;
 };
 
+type ConnectionDetailsResponseOptions = {
+  sessionId?: string;
+};
+
 export async function readConnectionDetailsResponse(
-  response: Response
+  response: Response,
+  options: ConnectionDetailsResponseOptions = {}
 ): Promise<ConnectionDetails> {
   if (!response.ok) {
     const message = (await response.text()).trim();
@@ -21,26 +26,41 @@ export async function readConnectionDetailsResponse(
     throw new Error('Connection details response was not valid JSON');
   }
 
-  if (!isConnectionDetails(payload)) {
+  const details = normalizeConnectionDetails(payload, options.sessionId);
+  if (!details) {
     throw new Error('Connection details response is missing required fields');
   }
 
-  return payload;
+  return details;
 }
 
-function isConnectionDetails(value: unknown): value is ConnectionDetails {
+function normalizeConnectionDetails(
+  value: unknown,
+  fallbackSessionId?: string
+): ConnectionDetails | null {
   if (!value || typeof value !== 'object') {
-    return false;
+    return null;
   }
 
   const details = value as Record<string, unknown>;
-  return (
-    isNonEmptyString(details.serverUrl) &&
-    isNonEmptyString(details.sessionId) &&
-    isNonEmptyString(details.roomName) &&
-    isNonEmptyString(details.participantName) &&
-    isNonEmptyString(details.participantToken)
-  );
+  const sessionId = isNonEmptyString(details.sessionId) ? details.sessionId : fallbackSessionId;
+  if (
+    !isNonEmptyString(details.serverUrl) ||
+    !isNonEmptyString(sessionId) ||
+    !isNonEmptyString(details.roomName) ||
+    !isNonEmptyString(details.participantName) ||
+    !isNonEmptyString(details.participantToken)
+  ) {
+    return null;
+  }
+
+  return {
+    serverUrl: details.serverUrl,
+    sessionId,
+    roomName: details.roomName,
+    participantName: details.participantName,
+    participantToken: details.participantToken,
+  };
 }
 
 function isNonEmptyString(value: unknown): value is string {

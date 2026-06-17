@@ -212,11 +212,11 @@ test('disconnect control exits the local session before remote stop finishes', a
   );
 
   assert.match(controlBarSource, /getActiveAgentSession/);
+  assert.match(controlBarSource, /getCurrentSessionId/);
   assert.match(controlBarSource, /registerAgentSessionLocalCleanup/);
-  assert.match(
-    controlBarSource,
-    /requestAgentSessionStop\(activeSession\?\.sessionId,\s*\{\s*waitForRemote:\s*!usesFastBrowserStop,\s*\}\)/
-  );
+  assert.match(controlBarSource, /requestAgentSessionStop\(sessionId\)/);
+  assert.doesNotMatch(controlBarSource, /usesFastBrowserStop/);
+  assert.doesNotMatch(controlBarSource, /waitForRemote:\s*!/);
   assert.doesNotMatch(controlBarSource, /await requestAgentSessionStop\(room\.name\)/);
   assert.doesNotMatch(controlBarSource, /requestAgentSessionStop\(room\.name,/);
 });

@@ -91,7 +91,7 @@ export function useRoom(appConfig: AppConfig) {
               sessionId,
             }),
           });
-          return await readConnectionDetailsResponse(res);
+          return await readConnectionDetailsResponse(res, { sessionId });
         } catch (error) {
           console.error('Error fetching connection details:', error);
           if (error instanceof Error) {
@@ -217,8 +217,16 @@ export function useRoom(appConfig: AppConfig) {
     sessionIdRef.current = null;
     setIsSessionActive(false);
   }, [browserSourceClient, room]);
+  const getCurrentSessionId = useCallback(() => sessionIdRef.current, []);
 
-  return { room, isSessionActive, startSession, endSession, browserSourceClient };
+  return {
+    room,
+    isSessionActive,
+    startSession,
+    endSession,
+    getCurrentSessionId,
+    browserSourceClient,
+  };
 }
 
 function isBrowserMediaAvailable() {

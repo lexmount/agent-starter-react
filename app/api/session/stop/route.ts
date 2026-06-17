@@ -230,6 +230,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         status: 'stopping',
+        deferred: true,
         roomName,
         sessionId,
         results: [
@@ -255,6 +256,7 @@ export async function POST(req: Request) {
   return NextResponse.json(
     {
       status: failures.length === 0 ? 'stopped' : 'partial',
+      deferred: false,
       roomName,
       sessionId,
       results,

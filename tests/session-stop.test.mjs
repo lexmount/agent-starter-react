@@ -87,6 +87,7 @@ test('session stop route defers remote cleanup for browser input source', async 
   assert.match(routeSource, /function usesBrowserOnlyMixedInput/);
   assert.match(routeSource, /void runRemoteSessionCleanup/);
   assert.match(routeSource, /status: 'stopping'/);
+  assert.match(routeSource, /deferred: true/);
   assert.match(routeSource, /\{ status: 202 \}/);
 });
 

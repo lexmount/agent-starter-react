@@ -146,6 +146,7 @@ test('session dispatch route only accepts anonymous LiveKit agent fallback after
   assert.match(routeSource, /identity\.startsWith\(['"]agent-['"]\)/);
   assert.match(routeSource, /!attributes\['lk\.agent\.name'\]/);
   assert.match(routeSource, /!attributes\['lk\.agent_name'\]/);
+  assert.match(routeSource, /fresh per-session rooms/);
   assert.match(routeSource, /anonymousLiveKitAgents\.length === 1/);
 });
 
@@ -173,6 +174,7 @@ test('connection details request uses the same canonical session id as dispatch'
 
   assert.match(useRoomSource, /sessionIdRef\.current/);
   assert.match(useRoomSource, /body: JSON\.stringify\(\{\s*sessionId,\s*\}\)/);
+  assert.match(useRoomSource, /readConnectionDetailsResponse\(res,\s*\{\s*sessionId\s*\}\)/);
   assert.doesNotMatch(useRoomSource, /room_config/);
   assert.doesNotMatch(useRoomSource, /agents: \[\{ agent_name: appConfig\.agentName \}\]/);
   assert.doesNotMatch(useRoomSource, /room_id: roomId/);
@@ -236,6 +238,33 @@ test('unmount cleanup requests remote session stop before disconnecting the room
     /requestAgentSessionStop\(sessionIdRef\.current,\s*\{\s*waitForRemote:\s*false/
   );
   assert.match(cleanupSource, /requestAgentSessionStop[\s\S]*room\.disconnect\(\)/);
+});
+
+test('disconnect control stops the current room session id from the session context', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  const sessionProviderSource = await readFile(
+    new URL('../components/app/session-provider.tsx', import.meta.url),
+    'utf8'
+  );
+  const controlBarSource = await readFile(
+    new URL('../components/livekit/agent-control-bar/agent-control-bar.tsx', import.meta.url),
+    'utf8'
+  );
+  const disconnectSource =
+    controlBarSource.match(
+      /const handleDisconnect = useCallback\(async \(\) => \{[\s\S]*?\n  \);/
+    )?.[0] ?? '';
+
+  assert.match(useRoomSource, /getCurrentSessionId/);
+  assert.match(sessionProviderSource, /getCurrentSessionId/);
+  assert.match(controlBarSource, /getCurrentSessionId/);
+  assert.match(disconnectSource, /const sessionId = getCurrentSessionId\(\)/);
+  assert.match(
+    disconnectSource,
+    /getCurrentSessionId\(\) \?\? getActiveAgentSession\(\)\?\.sessionId/
+  );
+  assert.match(disconnectSource, /requestAgentSessionStop\(sessionId/);
+  assert.doesNotMatch(controlBarSource, /usesFastBrowserStop/);
 });
 
 test('browser video input shows the camera control as enabled by default', async () => {
