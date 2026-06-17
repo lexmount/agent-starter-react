@@ -62,6 +62,9 @@ export function useRoom(appConfig: AppConfig) {
   useEffect(() => {
     return () => {
       aborted.current = true;
+      void requestAgentSessionStop(sessionIdRef.current, {
+        waitForRemote: false,
+      });
       room.disconnect();
     };
   }, [room]);
@@ -86,11 +89,6 @@ export function useRoom(appConfig: AppConfig) {
             },
             body: JSON.stringify({
               sessionId,
-              room_config: appConfig.agentName
-                ? {
-                    agents: [{ agent_name: appConfig.agentName }],
-                  }
-                : undefined,
             }),
           });
           return await readConnectionDetailsResponse(res);

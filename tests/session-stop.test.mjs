@@ -97,10 +97,25 @@ test('session stop route defers remote cleanup for browser input source', async 
   );
 
   assert.match(routeSource, /function shouldDeferRemoteSessionCleanup/);
-  assert.match(routeSource, /readStopInputSource\(\) === 'browser'/);
+  assert.match(routeSource, /const inputSource = readStopInputSource\(\)/);
+  assert.match(routeSource, /inputSource === 'browser'/);
+  assert.match(routeSource, /function usesBrowserOnlyMixedInput/);
   assert.match(routeSource, /void runRemoteSessionCleanup/);
   assert.match(routeSource, /status: 'stopping'/);
   assert.match(routeSource, /\{ status: 202 \}/);
+});
+
+test('session stop route defers remote cleanup for mixed all-browser role devices', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+  const deferSource =
+    routeSource.match(/function shouldDeferRemoteSessionCleanup[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.match(routeSource, /function readStopRoleDevice/);
+  assert.match(routeSource, /function usesBrowserOnlyMixedInput/);
+  assert.match(deferSource, /inputSource === 'mixed' && usesBrowserOnlyMixedInput\(\)/);
 });
 
 test('session stop route closes the registry even when remote cleanup is partial', async () => {

@@ -194,7 +194,9 @@ async function createAgentDispatchWithRetry(
         throw error;
       }
       lastError = error;
-      await sleep(Math.min(AGENT_DISPATCH_RETRY_MS, remainingDispatchTime(startedAt)));
+      await sleep(
+        Math.min(calculateDispatchRetryDelay(attempts), remainingDispatchTime(startedAt))
+      );
     }
 
     if (Date.now() - startedAt >= AGENT_DISPATCH_TIMEOUT_MS) {
@@ -211,6 +213,11 @@ async function createAgentDispatchWithRetry(
 
 function remainingDispatchTime(startedAt: number) {
   return Math.max(0, AGENT_DISPATCH_TIMEOUT_MS - (Date.now() - startedAt));
+}
+
+function calculateDispatchRetryDelay(attempts: number) {
+  const multiplier = 2 ** Math.max(0, attempts - 1);
+  return Math.min(AGENT_DISPATCH_RETRY_MS * multiplier, AGENT_DISPATCH_TIMEOUT_MS);
 }
 
 async function waitForAgentParticipant(

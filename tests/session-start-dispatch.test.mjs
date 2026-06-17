@@ -38,6 +38,7 @@ test('session dispatch route retries explicit agent dispatch after the browser j
   assert.match(routeSource, /RoomServiceClient/);
   assert.match(routeSource, /AGENT_DISPATCH_TIMEOUT_MS/);
   assert.match(routeSource, /AGENT_DISPATCH_RETRY_MS/);
+  assert.match(routeSource, /calculateDispatchRetryDelay/);
   assert.match(routeSource, /roomHasAgentParticipant/);
   assert.match(routeSource, /deleteDispatchQuietly/);
   assert.match(routeSource, /dispatchClient\.createDispatch/);
@@ -57,6 +58,18 @@ test('session dispatch route retries explicit agent dispatch after the browser j
     routeSource,
     /const roomName = sessionId \? deriveLiveKitRoomName\(sessionId\) : requestedRoomName/
   );
+});
+
+test('session dispatch retry backs off between repeated attempts', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(routeSource, /function calculateDispatchRetryDelay/);
+  assert.match(routeSource, /2 \*\* Math\.max\(0, attempts - 1\)/);
+  assert.match(routeSource, /Math\.min\(AGENT_DISPATCH_RETRY_MS \* multiplier/);
+  assert.match(routeSource, /calculateDispatchRetryDelay\(attempts/);
 });
 
 test('session dispatch route pins the Next.js runtime to nodejs', async () => {
@@ -134,7 +147,9 @@ test('connection details request uses the same canonical session id as dispatch'
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
   assert.match(useRoomSource, /sessionIdRef\.current/);
-  assert.match(useRoomSource, /body: JSON\.stringify\(\{\s*sessionId,/);
+  assert.match(useRoomSource, /body: JSON\.stringify\(\{\s*sessionId,\s*\}\)/);
+  assert.doesNotMatch(useRoomSource, /room_config/);
+  assert.doesNotMatch(useRoomSource, /agents: \[\{ agent_name: appConfig\.agentName \}\]/);
   assert.doesNotMatch(useRoomSource, /room_id: roomId/);
 });
 
@@ -170,6 +185,32 @@ test('start call reconnects only after any previous room disconnect has complete
     useRoomSource,
     /await waitForAgentSessionStop\(\);\s*await waitForRoomDisconnected\(room\);/
   );
+});
+
+test('room disconnect wait has a timeout fallback', async () => {
+  const roomDisconnectSource = await readFile(
+    new URL('../lib/room-disconnect.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(roomDisconnectSource, /ROOM_DISCONNECT_TIMEOUT_MS/);
+  assert.match(roomDisconnectSource, /setTimeout/);
+  assert.match(roomDisconnectSource, /clearTimeout/);
+  assert.match(roomDisconnectSource, /room disconnect timed out/);
+});
+
+test('unmount cleanup requests remote session stop before disconnecting the room', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  const cleanupSource =
+    useRoomSource.match(
+      /useEffect\(\(\) => \{\s*return \(\) => \{[\s\S]*?\n    \};\s*\}, \[room/
+    )?.[0] ?? '';
+
+  assert.match(
+    cleanupSource,
+    /requestAgentSessionStop\(sessionIdRef\.current,\s*\{\s*waitForRemote:\s*false/
+  );
+  assert.match(cleanupSource, /requestAgentSessionStop[\s\S]*room\.disconnect\(\)/);
 });
 
 test('browser video input shows the camera control as enabled by default', async () => {

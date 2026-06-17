@@ -78,14 +78,31 @@ function readPositiveIntEnv(name: string, fallback: number) {
 }
 
 function readStopInputSource(): string {
+  return readStopRoleDevice(
+    'INPUT_SOURCE',
+    'NEXT_PUBLIC_INPUT_SOURCE',
+    'NEXT_PUBLIC_LEXVOICE_DEVICE'
+  );
+}
+
+function readStopRoleDevice(...names: string[]): string {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) {
+      return value.trim().toLowerCase();
+    }
+  }
+  return '';
+}
+
+function usesBrowserOnlyMixedInput(): boolean {
   return (
-    process.env.INPUT_SOURCE ||
-    process.env.NEXT_PUBLIC_INPUT_SOURCE ||
-    process.env.NEXT_PUBLIC_LEXVOICE_DEVICE ||
-    ''
-  )
-    .trim()
-    .toLowerCase();
+    readStopRoleDevice('ROOM_AUDIO_INPUT_DEVICE', 'NEXT_PUBLIC_ROOM_AUDIO_INPUT_DEVICE') ===
+      'browser' &&
+    readStopRoleDevice('ROOM_VISION_INPUT_DEVICE', 'NEXT_PUBLIC_ROOM_VISION_INPUT_DEVICE') ===
+      'browser' &&
+    readStopRoleDevice('ROOM_OUTPUT_DEVICE', 'NEXT_PUBLIC_ROOM_OUTPUT_DEVICE') === 'browser'
+  );
 }
 
 function requestWaitsForRemoteCleanup(body: StopRequestBody): boolean {
@@ -106,7 +123,8 @@ function shouldDeferRemoteSessionCleanup(body: StopRequestBody): boolean {
   if (requestWaitsForRemoteCleanup(body)) {
     return false;
   }
-  return readStopInputSource() === 'browser';
+  const inputSource = readStopInputSource();
+  return inputSource === 'browser' || (inputSource === 'mixed' && usesBrowserOnlyMixedInput());
 }
 
 async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {
