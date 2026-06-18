@@ -68,6 +68,58 @@ If you replace the custom connection details endpoint, it must echo the requeste
 `sessionId` and derive the same room name so dispatch and stop calls coordinate
 with the connected room.
 
+### Sandbox Gateway Mode
+
+![LiveAvatar Sandbox Gateway Flow](docs/liveavatar-sandbox-gateway-flow.svg)
+
+For deployments that should allocate an isolated sandbox per browser session, run
+the server-only gateway entry from this frontend repository:
+
+```bash
+pnpm sandbox-gateway
+```
+
+The gateway listens on `LIVEAVATAR_GATEWAY_PORT` (default `18090`). A request to
+`/` creates a sandbox session and redirects to `/{slug}?token=...`. The gateway
+validates that URL token for session-prefixed requests. For browser requests to
+absolute app paths such as `/_next/*` or `/api/*`, the gateway recovers the
+session from the same-origin `Referer` URL; it does not write a cookie.
+
+Gateway secrets stay in server environment variables, for example
+`.env.sandbox-gateway`; do not prefix them with `NEXT_PUBLIC_`. Values prefixed
+with `SANDBOX_ENV_` are forwarded to the sandbox runtime when it is created.
+
+Gateway logs are JSON lines written by the process stdout/stderr. The internal
+ADP test launch redirects them to `logs/sandbox-gateway.log`. Sandbox lifecycle
+events include `session.acquire.*`, `broker.create.*`, `broker.ready.*`,
+`warm_pool.*`, `proxy.request.done`, and release events; timing fields use
+milliseconds.
+
+Set `LIVEAVATAR_WARM_POOL_SIZE` to keep ready idle sandboxes. A request will
+checkout a warm sandbox first and fall back to cold Broker creation when the pool
+is empty. The pool is bounded by `LIVEAVATAR_MAX_ACTIVE_SESSIONS`, and pooled
+sandboxes use `SANDBOX_TTL_SECONDS + LIVEAVATAR_WARM_POOL_MAX_IDLE_SECONDS` so
+short idle time does not reduce the user session lifetime. When
+`LIVEAVATAR_WARM_POOL_WARMUP_FULL_BODY=1`, pool creation also reads the full
+homepage response body. This records full startup timing and can warm app caches
+when the sandbox runtime supports it; it does not remove per-request server
+rendering latency from the sandbox app.
+
+When `LIVEAVATAR_GATEWAY_AUTH=signature`, sandbox creation must use a signed request:
+
+```text
+POST /__gateway/sessions
+X-Client-Id: client_001
+X-Timestamp: <unix seconds>
+X-Nonce: <unique nonce>
+X-Signature: <base64 Ed25519 signature>
+```
+
+The caller signs the canonical request payload with its Ed25519 private key. The
+gateway verifies it with the raw Ed25519 public key configured in
+`LIVEAVATAR_SIGNATURE_CLIENTS`, then returns `{"url":"/{slug}?token=..."}` for
+the browser to open.
+
 For standalone frontend development, install dependencies and run the dev
 server directly:
 

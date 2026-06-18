@@ -6,6 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "start:liveavatar": "node scripts/start-liveavatar.mjs",
+    "sandbox-gateway": "bash scripts/start-sandbox-gateway.sh",
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.mjs",
     "format": "prettier --write .",

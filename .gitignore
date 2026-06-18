@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/logs/
+/.sandbox-gateway/
 
 # next.js
 /.next/
