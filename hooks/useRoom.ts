@@ -5,6 +5,7 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getVoiceSessionId, resetVoiceSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
+import { FRONTEND_EVENTS, publishFrontendObservabilityEvent } from '@/lib/observability';
 import { waitForRoomDisconnected } from '@/lib/room-disconnect';
 import {
   AgentSessionDispatchCancelledError,
@@ -37,6 +38,19 @@ export function useRoom(appConfig: AppConfig) {
   const browserSourceClient = useBrowserSourceClient(room, appConfig, {
     onVideoError: handleBrowserVideoError,
   });
+  const recordFrontendObservability = useCallback(
+    (name: string, attributes?: Record<string, string | number | boolean | null>) => {
+      void publishFrontendObservabilityEvent({
+        enabled: !!appConfig.observabilityEnabled,
+        room,
+        name,
+        attributes,
+      }).catch((error) => {
+        console.warn('[frontend-observability] failed to publish event', error);
+      });
+    },
+    [appConfig.observabilityEnabled, room]
+  );
 
   useEffect(() => {
     function onDisconnected() {
@@ -120,7 +134,7 @@ export function useRoom(appConfig: AppConfig) {
 
     const recoverFromStartError = async (error: unknown) => {
       const startError = error instanceof Error ? error : new Error(String(error));
-      browserSourceClient.stop();
+      await browserSourceClient.stop();
       room.disconnect();
       if (connectedRoomName) {
         try {
@@ -192,6 +206,7 @@ export function useRoom(appConfig: AppConfig) {
       if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
         const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
         await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+        recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
         connectedRoomName = room.name;
         await startLocalInput();
       } else {
@@ -199,6 +214,7 @@ export function useRoom(appConfig: AppConfig) {
           startDefaultMicrophone(),
           tokenSource.fetch({ agentName: appConfig.agentName }).then(async (connectionDetails) => {
             await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+            recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
             connectedRoomName = room.name;
           }),
         ]);
@@ -208,10 +224,10 @@ export function useRoom(appConfig: AppConfig) {
     } catch (error) {
       await handleStartError(error);
     }
-  }, [room, appConfig, tokenSource, browserSourceClient]);
+  }, [room, appConfig, tokenSource, browserSourceClient, recordFrontendObservability]);
 
-  const endSession = useCallback(() => {
-    browserSourceClient.stop();
+  const endSession = useCallback(async () => {
+    await browserSourceClient.stop();
     room.disconnect();
     resetVoiceSessionId();
     sessionIdRef.current = null;

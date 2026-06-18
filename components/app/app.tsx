@@ -6,6 +6,7 @@ import { SessionProvider } from '@/components/app/session-provider';
 import { ViewController } from '@/components/app/view-controller';
 import { AudioFilterDebug } from '@/components/livekit/audio-filter-debug';
 import { FilteredAudioRenderer } from '@/components/livekit/filtered-audio-renderer';
+import { RemoteAudioPlaybackObserver } from '@/components/livekit/remote-audio-playback-observer';
 import { Toaster } from '@/components/livekit/toaster';
 
 interface AppProps {
@@ -22,6 +23,10 @@ export function App({ appConfig }: AppProps) {
       <FilteredAudioRenderer
         excludeTrackNames={appConfig.excludeAudioTracks}
         debugAudio={appConfig.debugAudio}
+      />
+      <RemoteAudioPlaybackObserver
+        excludeTrackNames={appConfig.excludeAudioTracks}
+        observabilityEnabled={appConfig.observabilityEnabled}
       />
       <AudioFilterDebug
         excludeTrackNames={appConfig.excludeAudioTracks}

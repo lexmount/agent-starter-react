@@ -49,6 +49,7 @@ export interface AppConfig {
   showAudioFilterDebug?: boolean;
   debugAudio?: boolean;
   debugVideo?: boolean;
+  observabilityEnabled?: boolean;
 
   // 全局调试配置
   enableGlobalDebug?: boolean; // 全局调试开关，控制所有调试信息的显示
@@ -259,6 +260,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   showAudioFilterDebug: process.env.NEXT_PUBLIC_SHOW_AUDIO_DEBUG === 'true' || false, // 是否显示音频过滤调试组件
   debugAudio: false,
   debugVideo: false,
+  observabilityEnabled: false,
 
   // 全局调试配置
   enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关
