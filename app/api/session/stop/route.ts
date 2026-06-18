@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
-import { access, readFile } from 'node:fs/promises';
+import { access, open } from 'node:fs/promises';
 import path from 'node:path';
+import { type AgentWorkerState, readAgentWorkerStateFromLog } from '@/lib/agent-worker-readiness';
 import {
   deriveLiveKitRoomName,
   deriveSessionIdFromLiveKitRoomName,
@@ -16,8 +17,11 @@ import {
 
 const AGENT_DISPATCH_STOP_BARRIER_MS = readPositiveIntEnv('AGENT_DISPATCH_STOP_BARRIER_MS', 2_000);
 const AGENT_WORKER_READINESS_POLL_MS = 500;
-
-type AgentWorkerState = 'available' | 'unavailable' | 'unknown';
+const AGENT_WORKER_READINESS_TIMEOUT_MS = readPositiveIntEnv(
+  'AGENT_WORKER_READINESS_TIMEOUT_MS',
+  10_000
+);
+const AGENT_WORKER_LOG_TAIL_BYTES = readPositiveIntEnv('AGENT_WORKER_LOG_TAIL_BYTES', 256 * 1024);
 
 type StopResult = {
   target: string;
@@ -90,10 +94,6 @@ function readStopRoleDevice(...names: string[]): string {
   return '';
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function usesBrowserOnlyMixedInput(): boolean {
   return (
     readStopRoleDevice('ROOM_AUDIO_INPUT_DEVICE', 'NEXT_PUBLIC_ROOM_AUDIO_INPUT_DEVICE') ===
@@ -154,30 +154,26 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-function readAgentWorkerStateFromLog(source: string, agentName: string): AgentWorkerState {
-  let state: AgentWorkerState = 'unknown';
-  const agentNamePattern = new RegExp(`"agentName"\\s*:\\s*"${escapeRegExp(agentName)}"`);
-
-  for (const line of source.split(/\r?\n/)) {
-    if (!agentNamePattern.test(line)) {
-      continue;
-    }
-    if (line.includes('"status": "WS_AVAILABLE"')) {
-      state = 'available';
-    } else if (line.includes('"status": "WS_FULL"')) {
-      state = 'unavailable';
-    }
-  }
-
-  return state;
-}
-
 async function readAgentWorkerStateFromServerLog(
   logPath: string,
   agentName: string
 ): Promise<AgentWorkerState> {
-  const source = await readFile(logPath, 'utf8');
+  const source = await readFileTail(logPath, AGENT_WORKER_LOG_TAIL_BYTES);
   return readAgentWorkerStateFromLog(source, agentName);
+}
+
+async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
+  const file = await open(filePath, 'r');
+  try {
+    const stat = await file.stat();
+    const byteLength = Math.min(stat.size, maxBytes);
+    const start = Math.max(0, stat.size - byteLength);
+    const buffer = Buffer.alloc(byteLength);
+    const { bytesRead } = await file.read(buffer, 0, byteLength, start);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await file.close();
+  }
 }
 
 async function waitForLocalAgentWorkerReadiness(): Promise<StopResult> {
@@ -191,7 +187,8 @@ async function waitForLocalAgentWorkerReadiness(): Promise<StopResult> {
     return { target: 'agent_worker_readiness', ok: true, skipped: true };
   }
 
-  while (true) {
+  const deadline = Date.now() + AGENT_WORKER_READINESS_TIMEOUT_MS;
+  while (Date.now() <= deadline) {
     const state = await readAgentWorkerStateFromServerLog(logPath, agentName);
     if (state === 'available') {
       return { target: 'agent_worker_readiness', ok: true };
@@ -200,8 +197,19 @@ async function waitForLocalAgentWorkerReadiness(): Promise<StopResult> {
       return { target: 'agent_worker_readiness', ok: true, skipped: true };
     }
 
-    await sleep(AGENT_WORKER_READINESS_POLL_MS);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await sleep(Math.min(AGENT_WORKER_READINESS_POLL_MS, remainingMs));
   }
+
+  return {
+    target: 'agent_worker_readiness',
+    ok: true,
+    skipped: true,
+    error: 'timeout',
+  };
 }
 
 async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {

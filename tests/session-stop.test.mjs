@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { readAgentWorkerStateFromLog } from '../lib/agent-worker-readiness.ts';
 
 async function loadSessionStopModule() {
   const source = await readFile(new URL('../lib/session-stop.ts', import.meta.url), 'utf8');
@@ -16,6 +17,17 @@ async function loadSessionStopModule() {
 }
 
 const { resolveLiveKitHttpUrl } = await loadSessionStopModule();
+
+test('parses the latest target agent worker state from LiveKit server logs', () => {
+  const source = [
+    '{"agentName":"other-agent","status":"WS_AVAILABLE"}',
+    '{"agentName":"lexvoice-xunfei-agent","status":"WS_FULL"}',
+    '{"status"  :  "WS_AVAILABLE", "agentName"  :  "lexvoice-xunfei-agent"}',
+  ].join('\n');
+
+  assert.equal(readAgentWorkerStateFromLog(source, 'lexvoice-xunfei-agent'), 'available');
+  assert.equal(readAgentWorkerStateFromLog(source, 'missing-agent'), 'unknown');
+});
 
 test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('ws://localhost:7818'), 'http://localhost:7818');
@@ -86,8 +98,9 @@ test('session stop route waits for local agent worker readiness before finishing
   assert.match(routeSource, /function waitForLocalAgentWorkerReadiness/);
   assert.match(routeSource, /process\.env\.LEXVOICE_RUN_LOG_DIR/);
   assert.match(routeSource, /server\.log/);
-  assert.match(routeSource, /"WS_AVAILABLE"/);
-  assert.match(routeSource, /"WS_FULL"/);
+  assert.match(routeSource, /AGENT_WORKER_READINESS_TIMEOUT_MS/);
+  assert.match(routeSource, /readFileTail\(logPath/);
+  assert.doesNotMatch(routeSource, /readFile\(logPath,\s*'utf8'\)/);
   assert.match(cleanupSource, /deleteLiveKitRoom\(roomName\)/);
   assert.match(cleanupSource, /await waitForLocalAgentWorkerReadiness\(\)/);
   assert.match(
