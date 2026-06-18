@@ -75,6 +75,27 @@ test('session stop route deletes the LiveKit room after the dispatch barrier', a
   assert.match(routeSource, /deleteLiveKitRoom\(roomName\)/);
 });
 
+test('session stop route waits for local agent worker readiness before finishing server cleanup', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+  const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
+
+  assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
+  assert.match(routeSource, /function waitForLocalAgentWorkerReadiness/);
+  assert.match(routeSource, /process\.env\.LEXVOICE_RUN_LOG_DIR/);
+  assert.match(routeSource, /server\.log/);
+  assert.match(routeSource, /"WS_AVAILABLE"/);
+  assert.match(routeSource, /"WS_FULL"/);
+  assert.match(cleanupSource, /deleteLiveKitRoom\(roomName\)/);
+  assert.match(cleanupSource, /await waitForLocalAgentWorkerReadiness\(\)/);
+  assert.match(
+    cleanupSource,
+    /const cleanupResults = \[dispatchBarrierResult, liveKitRoomResult, agentWorkerReadinessResult\]/
+  );
+});
+
 test('session stop route defers remote cleanup for browser input source', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
