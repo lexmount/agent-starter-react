@@ -32,6 +32,7 @@ export function readSandboxGatewayConfig(env = process.env) {
     localProxyBaseUrl: readString(env.LIVEAVATAR_LOCAL_PROXY_BASE_URL, 'http://127.0.0.1:4003/'),
     localReadyTimeoutMs: readInt(env.LIVEAVATAR_LOCAL_READY_TIMEOUT_SECONDS, 10) * 1000,
     localReadyPollMs: readInt(env.LIVEAVATAR_LOCAL_READY_POLL_MS, 500),
+    appConfigAgentName: readString(env.LIVEAVATAR_AGENT_NAME),
   };
 }
 

@@ -86,10 +86,66 @@ test('sandbox app config enables browser raw media while keeping browser microph
       type: 'boolean',
       value: false,
     },
-    agentName: {
-      type: 'string',
-      value: 'lexvoice-browser-agent',
-    },
+  });
+});
+
+test('sandbox app config only overrides agent name when explicitly configured', () => {
+  assert.deepEqual(sandboxAppConfigOverrides({ agentName: 'frontdesk-agent' }).agentName, {
+    type: 'string',
+    value: 'frontdesk-agent',
+  });
+});
+
+test('sandbox gateway preserves proxied app agent name by default', () => {
+  const body =
+    '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"$undefined\\",\\"agentName\\":\\"frontdesk-agent\\"}"])</script>';
+
+  assert.equal(
+    rewriteSandboxAppConfig(body, { sandboxId: 'sbx_123' }),
+    '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"sbx_123\\",\\"agentName\\":\\"frontdesk-agent\\"}"])</script>'
+  );
+});
+
+test('sandbox gateway can explicitly override proxied app agent name', () => {
+  const body =
+    '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"$undefined\\",\\"agentName\\":\\"frontdesk-agent\\"}"])</script>';
+
+  assert.equal(
+    rewriteSandboxAppConfig(
+      body,
+      { sandboxId: 'sbx_123' },
+      { agentName: 'lexvoice-browser-agent' }
+    ),
+    '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"sbx_123\\",\\"agentName\\":\\"lexvoice-browser-agent\\"}"])</script>'
+  );
+});
+
+test('sandbox gateway preserves unescaped agent name by default', () => {
+  const body = '<script>{"sandboxId":null,"agentName":"frontdesk-agent"}</script>';
+
+  assert.equal(
+    rewriteSandboxAppConfig(body, { sandboxId: 'sbx_123' }),
+    '<script>{"sandboxId":"sbx_123","agentName":"frontdesk-agent"}</script>'
+  );
+});
+
+test('sandbox gateway can explicitly override unescaped agent name', () => {
+  const body = '<script>{"sandboxId":null,"agentName":"frontdesk-agent"}</script>';
+
+  assert.equal(
+    rewriteSandboxAppConfig(
+      body,
+      { sandboxId: 'sbx_123' },
+      { agentName: 'lexvoice-browser-agent' }
+    ),
+    '<script>{"sandboxId":"sbx_123","agentName":"lexvoice-browser-agent"}</script>'
+  );
+});
+
+test('sandbox app config can explicitly override agent name', () => {
+  assert.deepEqual(sandboxAppConfigOverrides({ agentName: 'lexvoice-browser-agent' }).agentName, {
+    type: 'string',
+    value: 'lexvoice-browser-agent',
   });
 });
 
@@ -98,7 +154,11 @@ test('sandbox gateway rewrites proxied app config for broker sandboxes', () => {
     '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"$undefined\\",\\"agentName\\":\\"lexvoice-xunfei-agent\\"}"])</script>';
 
   assert.equal(
-    rewriteSandboxAppConfig(body, { sandboxId: 'sbx_123' }),
+    rewriteSandboxAppConfig(
+      body,
+      { sandboxId: 'sbx_123' },
+      { agentName: 'lexvoice-browser-agent' }
+    ),
     '<script>self.__next_f.push([1,"{\\"usesServerRoomInput\\":false,\\"sandboxId\\":\\"sbx_123\\",\\"agentName\\":\\"lexvoice-browser-agent\\"}"])</script>'
   );
 });
@@ -107,7 +167,11 @@ test('sandbox gateway rewrites unescaped agent name from proxied app config', ()
   const body = '<script>{"sandboxId":null,"agentName":"lexvoice-xunfei-agent"}</script>';
 
   assert.equal(
-    rewriteSandboxAppConfig(body, { sandboxId: 'sbx_123' }),
+    rewriteSandboxAppConfig(
+      body,
+      { sandboxId: 'sbx_123' },
+      { agentName: 'lexvoice-browser-agent' }
+    ),
     '<script>{"sandboxId":"sbx_123","agentName":"lexvoice-browser-agent"}</script>'
   );
 });

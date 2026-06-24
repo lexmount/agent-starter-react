@@ -19,7 +19,6 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 const FETCH_BODY_METADATA_HEADERS = new Set(['content-encoding', 'content-length', 'etag']);
 const BROWSER_INPUT_SOURCE = 'browser';
-const BROWSER_AGENT_NAME = 'lexvoice-browser-agent';
 
 export function createServer({ config, store, signatureAuth = null, refillWarmPool = () => {} }) {
   return http.createServer(async (req, res) => {
@@ -72,7 +71,7 @@ export async function routeRequest({
     if (req.method !== 'GET') {
       throw new GatewayError('method not allowed', 405);
     }
-    sendJson(res, 200, sandboxAppConfigOverrides());
+    sendJson(res, 200, sandboxAppConfigOverrides({ agentName: config.appConfigAgentName }));
     return;
   }
 
@@ -144,10 +143,10 @@ export async function routeRequest({
   }
 
   const active = resolveRequestSession({ req, url, store, ip });
-  await proxyToSandbox({ req, res, url, session: active });
+  await proxyToSandbox({ req, res, url, session: active, config });
 }
 
-async function proxyToSandbox({ req, res, url, session }) {
+async function proxyToSandbox({ req, res, url, session, config }) {
   const startedAt = Date.now();
   const target = buildProxyTarget({
     pathname: url.pathname,
@@ -178,7 +177,11 @@ async function proxyToSandbox({ req, res, url, session }) {
   if (shouldRewriteSandboxAppConfig(response)) {
     const body = await response.text();
     writeResponseHeaders(res, response, { fetchedBody: true });
-    res.end(rewriteSandboxAppConfig(body, session));
+    res.end(
+      rewriteSandboxAppConfig(body, session, {
+        agentName: config.appConfigAgentName,
+      })
+    );
     logGateway('info', 'proxy.request.done', {
       method: req.method || 'GET',
       path: url.pathname,
@@ -245,16 +248,23 @@ function shouldRewriteSandboxAppConfig(response) {
   return contentType.includes('text/html') || contentType.includes('text/x-component');
 }
 
-export function rewriteSandboxAppConfig(body, session) {
+export function rewriteSandboxAppConfig(body, session, { agentName = '' } = {}) {
   const sandboxId = escapeJsonString(session.sandboxId);
-  const agentName = escapeJsonString(BROWSER_AGENT_NAME);
-  return String(body)
+  let rewritten = String(body)
     .replaceAll('\\"sandboxId\\":\\"$undefined\\"', `\\"sandboxId\\":\\"${sandboxId}\\"`)
     .replaceAll('"sandboxId":"$undefined"', `"sandboxId":"${sandboxId}"`)
     .replaceAll('\\"sandboxId\\":null', `\\"sandboxId\\":\\"${sandboxId}\\"`)
-    .replaceAll('"sandboxId":null', `"sandboxId":"${sandboxId}"`)
-    .replace(/\\"agentName\\":\\"[^"\\]*\\"/g, `\\"agentName\\":\\"${agentName}\\"`)
-    .replace(/"agentName":"[^"]*"/g, `"agentName":"${agentName}"`);
+    .replaceAll('"sandboxId":null', `"sandboxId":"${sandboxId}"`);
+  const normalizedAgentName = String(agentName || '').trim();
+  if (!normalizedAgentName) {
+    return rewritten;
+  }
+
+  const escapedAgentName = escapeJsonString(normalizedAgentName);
+  rewritten = rewritten
+    .replace(/\\"agentName\\":\\"[^"\\]*\\"/g, `\\"agentName\\":\\"${escapedAgentName}\\"`)
+    .replace(/"agentName":"[^"]*"/g, `"agentName":"${escapedAgentName}"`);
+  return rewritten;
 }
 
 export function buildProxyTarget({ pathname, search, slug, proxyBaseUrl }) {
@@ -263,8 +273,8 @@ export function buildProxyTarget({ pathname, search, slug, proxyBaseUrl }) {
   return new URL(`${relativePath}${gatewaySearchRemoved(search)}`, proxyBaseUrl).toString();
 }
 
-export function sandboxAppConfigOverrides() {
-  return {
+export function sandboxAppConfigOverrides({ agentName = '' } = {}) {
+  const overrides = {
     inputSource: {
       type: 'string',
       value: BROWSER_INPUT_SOURCE,
@@ -305,11 +315,15 @@ export function sandboxAppConfigOverrides() {
       type: 'boolean',
       value: false,
     },
-    agentName: {
-      type: 'string',
-      value: BROWSER_AGENT_NAME,
-    },
   };
+  const normalizedAgentName = String(agentName || '').trim();
+  if (normalizedAgentName) {
+    overrides.agentName = {
+      type: 'string',
+      value: normalizedAgentName,
+    };
+  }
+  return overrides;
 }
 
 export function startSandboxGateway(config = readSandboxGatewayConfig()) {
