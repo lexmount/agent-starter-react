@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import {
   buildProxyTarget,
   rewriteSandboxAppConfig,
   sandboxAppConfigOverrides,
   shouldDropProxyResponseHeader,
+  writeProxyResponseBody,
 } from '../server/sandbox-gateway/server.mjs';
 
 test('sandbox gateway strips the session slug when proxying session-prefixed paths', () => {
@@ -174,4 +176,48 @@ test('sandbox gateway rewrites unescaped agent name from proxied app config', ()
     ),
     '<script>{"sandboxId":"sbx_123","agentName":"lexvoice-browser-agent"}</script>'
   );
+});
+
+test('sandbox gateway escapes script-closing JSON sequences in rewritten app config', () => {
+  const body = '<script>{"sandboxId":null,"agentName":"frontdesk-agent"}</script>';
+
+  assert.equal(
+    rewriteSandboxAppConfig(
+      body,
+      { sandboxId: 'sbx_</script>' },
+      { agentName: 'agent_</SCRIPT>' }
+    ),
+    '<script>{"sandboxId":"sbx_\\u003c/script>","agentName":"agent_\\u003c/SCRIPT>"}</script>'
+  );
+});
+
+test('sandbox gateway waits for drain when proxy streaming backpressure is signaled', async () => {
+  const res = new (class extends EventEmitter {
+    chunks = [];
+    ended = false;
+    writeCalls = 0;
+
+    write(chunk) {
+      this.writeCalls += 1;
+      this.chunks.push(Buffer.from(chunk).toString('utf8'));
+      if (this.writeCalls === 1) {
+        setImmediate(() => this.emit('drain'));
+        return false;
+      }
+      return true;
+    }
+
+    end() {
+      this.ended = true;
+    }
+  })();
+  async function* body() {
+    yield Buffer.from('a');
+    yield Buffer.from('b');
+  }
+
+  await writeProxyResponseBody(res, body());
+
+  assert.deepEqual(res.chunks, ['a', 'b']);
+  assert.equal(res.ended, true);
 });

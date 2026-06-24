@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -98,6 +98,64 @@ test('sandbox gateway keeps active sessions releasable when broker release fails
       type: 'release',
       sandboxId: 'sbx-lv_abc123',
     });
+  } finally {
+    cleanup();
+  }
+});
+
+test('sandbox gateway starts with empty state when the session file is corrupt', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'lv-sandbox-gateway-'));
+  const events = [];
+  try {
+    const stateFile = path.join(dir, 'sessions.json');
+    writeFileSync(stateFile, '{not-json', { mode: 0o600 });
+
+    const store = new SessionStore({
+      broker: createBroker(),
+      stateFile,
+      logger: (level, event, details) => events.push({ level, event, details }),
+    });
+
+    assert.deepEqual(store.sessions, []);
+    assert.equal(events[0].level, 'warn');
+    assert.equal(events[0].event, 'session.store.load.failed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('sandbox gateway only releases a session once across concurrent requests', async () => {
+  let releaseCalls = 0;
+  let releaseSandbox;
+  const releaseStarted = new Promise((resolve) => {
+    releaseSandbox = resolve;
+  });
+  const { broker, store, cleanup } = createStore();
+  broker.releaseSandbox = async (sandboxId) => {
+    releaseCalls += 1;
+    broker.calls.push({ type: 'release', sandboxId });
+    await releaseStarted;
+  };
+
+  try {
+    const session = await store.acquire({ ip: '10.0.0.1' });
+    const firstRelease = store.release({
+      slug: session.slug,
+      token: session.token,
+      ip: '10.0.0.1',
+    });
+    const secondRelease = store.release({
+      slug: session.slug,
+      token: session.token,
+      ip: '10.0.0.1',
+    });
+
+    await assert.rejects(secondRelease, /session not found/);
+    releaseSandbox();
+    await firstRelease;
+
+    assert.equal(releaseCalls, 1);
+    assert.equal(store.sessions[0].status, 'released');
   } finally {
     cleanup();
   }

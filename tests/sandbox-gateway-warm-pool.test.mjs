@@ -147,3 +147,33 @@ test('warm pool refreshes before idle expiry and releases the older ready sandbo
   const sandbox = await pool.checkout();
   assert.equal(sandbox.sandboxId, 'sbx-lv_pool_new');
 });
+
+test('warm pool stops refilling after repeated create failures', async () => {
+  const calls = [];
+  const events = [];
+  const pool = new WarmSandboxPool({
+    broker: {
+      calls,
+      async createSandbox({ sessionId }) {
+        calls.push({ type: 'create', sessionId });
+        throw new Error('broker unavailable');
+      },
+      async releaseSandbox() {},
+    },
+    targetSize: 1,
+    maxActiveSessions: 5,
+    maxMaintainCreateFailures: 3,
+    now: () => 1_000,
+    randomId: () => `fail-${calls.length}`,
+    logger: (level, event, details) => events.push({ level, event, details }),
+  });
+
+  await pool.maintain({ activeCount: 0, trigger: 'test' });
+
+  assert.equal(calls.length, 3);
+  assert.equal(pool.items.length, 0);
+  assert.equal(
+    events.some((event) => event.event === 'warm_pool.maintain.create_limit_reached'),
+    true
+  );
+});

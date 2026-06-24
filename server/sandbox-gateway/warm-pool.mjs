@@ -8,6 +8,7 @@ export class WarmSandboxPool {
     sandboxTtlSeconds = 3600,
     maxIdleSeconds = 300,
     warmupFullBody = true,
+    maxMaintainCreateFailures = 3,
     now = () => Date.now(),
     randomId = () => crypto.randomBytes(8).toString('base64url'),
     logger = () => undefined,
@@ -19,6 +20,7 @@ export class WarmSandboxPool {
     this.maxIdleMs = Math.max(1, Number(maxIdleSeconds) || 300) * 1000;
     this.refreshLeadMs = Math.min(60_000, Math.floor(this.maxIdleMs / 2));
     this.warmupFullBody = Boolean(warmupFullBody);
+    this.maxMaintainCreateFailures = Math.max(1, Number(maxMaintainCreateFailures) || 3);
     this.now = now;
     this.randomId = randomId;
     this.logger = logger;
@@ -64,8 +66,24 @@ export class WarmSandboxPool {
     const target = this.targetFor({ activeCount });
     await this.releaseExtraReadyItems({ target });
 
+    let createFailures = 0;
     while (!this.stopped && this.poolFootprint() < target) {
-      await this.createWarmSandbox({ trigger });
+      const created = await this.createWarmSandbox({ trigger });
+      if (created) {
+        createFailures = 0;
+        continue;
+      }
+
+      createFailures += 1;
+      if (createFailures >= this.maxMaintainCreateFailures) {
+        this.log('error', 'warm_pool.maintain.create_limit_reached', {
+          trigger,
+          failures: createFailures,
+          target,
+          footprint: this.poolFootprint(),
+        });
+        break;
+      }
     }
     await this.releaseExtraReadyItems({ target });
 
@@ -179,6 +197,7 @@ export class WarmSandboxPool {
         durationMs: this.now() - startedAt,
         expiresAt: new Date(item.expiresAt).toISOString(),
       });
+      return true;
     } catch (error) {
       this.items = this.items.filter((candidate) => candidate !== item);
       this.log('error', 'warm_pool.create.failed', {
@@ -187,6 +206,7 @@ export class WarmSandboxPool {
         durationMs: this.now() - startedAt,
         message: error instanceof Error ? error.message : String(error),
       });
+      return false;
     }
   }
 

@@ -22,6 +22,7 @@ export class SessionStore {
     sandboxTtlSeconds = 3_600,
     stateFile = '',
     warmPool = null,
+    logger = () => undefined,
   }) {
     this.broker = broker;
     this.warmPool = warmPool;
@@ -33,6 +34,7 @@ export class SessionStore {
     this.tokenTtlMs = tokenTtlMs;
     this.sandboxTtlSeconds = sandboxTtlSeconds;
     this.stateFile = stateFile;
+    this.logger = logger;
     this.sessions = [];
     this.acquireQueue = Promise.resolve();
     this.load();
@@ -43,8 +45,16 @@ export class SessionStore {
       return;
     }
 
-    const parsed = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
-    this.sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
+      this.sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    } catch (error) {
+      this.sessions = [];
+      this.log('warn', 'session.store.load.failed', {
+        stateFile: this.stateFile,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   save() {
@@ -174,11 +184,20 @@ export class SessionStore {
   async release({ slug, token = '' }) {
     const session = this.requireSession({ slug, token });
     const stored = this.sessions.find((candidate) => candidate.slug === slug);
-    await this.broker.releaseSandbox(session.sandboxId);
-    stored.status = 'released';
-    stored.releasedAt = this.now();
+    stored.status = 'releasing';
     this.save();
-    return { ...stored };
+    try {
+      await this.broker.releaseSandbox(session.sandboxId);
+      stored.status = 'released';
+      stored.releasedAt = this.now();
+      this.save();
+      return { ...stored };
+    } catch (error) {
+      stored.status = 'active';
+      stored.releasedAt = null;
+      this.save();
+      throw error;
+    }
   }
 
   async releaseExpired() {
@@ -227,6 +246,14 @@ export class SessionStore {
       }
     }
     throw new GatewayError('failed to allocate unique session slug', 500);
+  }
+
+  log(level, event, details = {}) {
+    try {
+      this.logger(level, event, details);
+    } catch {
+      // Logging must never affect session lifecycle operations.
+    }
   }
 }
 

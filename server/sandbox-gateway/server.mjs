@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { once } from 'node:events';
 import { URL } from 'node:url';
 import { BrokerClient } from './broker-client.mjs';
 import { readSandboxGatewayConfig } from './config.mjs';
@@ -210,10 +211,7 @@ async function proxyToSandbox({ req, res, url, session, config }) {
     return;
   }
   writeResponseHeaders(res, response, { fetchedBody: true });
-  for await (const chunk of response.body) {
-    res.write(chunk);
-  }
-  res.end();
+  await writeProxyResponseBody(res, response.body);
   logGateway('info', 'proxy.request.done', {
     method: req.method || 'GET',
     path: url.pathname,
@@ -223,6 +221,16 @@ async function proxyToSandbox({ req, res, url, session, config }) {
     durationMs: Date.now() - startedAt,
     rewritten: false,
   });
+}
+
+export async function writeProxyResponseBody(res, body) {
+  for await (const chunk of body) {
+    if (res.write(chunk)) {
+      continue;
+    }
+    await once(res, 'drain');
+  }
+  res.end();
 }
 
 function writeResponseHeaders(res, response, { fetchedBody = false } = {}) {
@@ -349,6 +357,7 @@ export function startSandboxGateway(config = readSandboxGatewayConfig()) {
     tokenTtlMs: config.tokenTtlMs,
     sandboxTtlSeconds: config.sandboxTtlSeconds,
     stateFile: config.stateFile,
+    logger: logGateway,
   });
   const releaseInterval = setInterval(() => {
     store.releaseExpired().catch((error) => {
@@ -692,7 +701,7 @@ function escapeHtml(value) {
 }
 
 function escapeJsonString(value) {
-  return JSON.stringify(String(value)).slice(1, -1);
+  return JSON.stringify(String(value)).slice(1, -1).replaceAll('<', '\\u003c');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
