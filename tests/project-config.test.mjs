@@ -18,6 +18,8 @@ test('README matches the documented LexVoice environment source', async () => {
   assert.match(readme, /LexVoice repository `\.env`/);
   assert.doesNotMatch(readme, /\.\.\/lex-voice/);
   assert.doesNotMatch(readme, /lex-voice\//);
+  assert.doesNotMatch(readme, /\blex-voice\b/);
+  assert.doesNotMatch(envExample, /\blex-voice\b/);
   assert.doesNotMatch(envExample, /lex-voice\//);
   assert.match(readme, /single Next\.js instance or sticky routing/);
   assert.match(readme, /custom connection details endpoint/);
