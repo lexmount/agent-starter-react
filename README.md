@@ -72,8 +72,8 @@ with the connected room.
 
 Sandbox-backed public deployments are owned by the LexVoice repository. Set
 `LIVEAVATAR_USE_SANDBOX=1` in the LexVoice repository `.env` and configure
-broker, template, warm pool, and `SANDBOX_ENV_*` values in the LexVoice
-repository's `deploy/liveavatar_gateway/.env`.
+broker, template, warm pool, and `SANDBOX_ENV_*` values in the LexVoice repository's
+`deploy/liveavatar_gateway/.env`.
 
 This frontend repository only runs the Next.js UI. It does not create, release,
 or warm sandbox sessions.
