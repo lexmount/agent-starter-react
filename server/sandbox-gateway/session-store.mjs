@@ -113,7 +113,7 @@ export class SessionStore {
     return this.warmPool.stats({ activeCount: this.activeSessions().length });
   }
 
-  requireSession({ slug, token = '', ip = '' }) {
+  requireSession({ slug, token = '' }) {
     this.expireOldSessions();
     const session = this.sessions.find((candidate) => candidate.slug === slug);
     if (!session || session.status !== 'active') {
@@ -145,8 +145,8 @@ export class SessionStore {
     return session ? { ...session } : null;
   }
 
-  async release({ slug, token = '', ip = '' }) {
-    const session = this.requireSession({ slug, token, ip });
+  async release({ slug, token = '' }) {
+    const session = this.requireSession({ slug, token });
     const stored = this.sessions.find((candidate) => candidate.slug === slug);
     await this.broker.releaseSandbox(session.sandboxId);
     stored.status = 'released';
