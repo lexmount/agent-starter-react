@@ -17,6 +17,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
+const FETCH_BODY_METADATA_HEADERS = new Set(['content-encoding', 'content-length', 'etag']);
 const BROWSER_INPUT_SOURCE = 'browser';
 const BROWSER_AGENT_NAME = 'lexvoice-browser-agent';
 
@@ -176,7 +177,7 @@ async function proxyToSandbox({ req, res, url, session }) {
   const response = await fetch(target, init);
   if (shouldRewriteSandboxAppConfig(response)) {
     const body = await response.text();
-    writeResponseHeaders(res, response, { rewritten: true });
+    writeResponseHeaders(res, response, { fetchedBody: true });
     res.end(rewriteSandboxAppConfig(body, session));
     logGateway('info', 'proxy.request.done', {
       method: req.method || 'GET',
@@ -191,8 +192,8 @@ async function proxyToSandbox({ req, res, url, session }) {
   }
 
   res.statusCode = response.status;
-  writeResponseHeaders(res, response);
   if (!response.body) {
+    writeResponseHeaders(res, response);
     res.end();
     logGateway('info', 'proxy.request.done', {
       method: req.method || 'GET',
@@ -205,6 +206,7 @@ async function proxyToSandbox({ req, res, url, session }) {
     });
     return;
   }
+  writeResponseHeaders(res, response, { fetchedBody: true });
   for await (const chunk of response.body) {
     res.write(chunk);
   }
@@ -220,18 +222,22 @@ async function proxyToSandbox({ req, res, url, session }) {
   });
 }
 
-function writeResponseHeaders(res, response, { rewritten = false } = {}) {
+function writeResponseHeaders(res, response, { fetchedBody = false } = {}) {
   res.statusCode = response.status;
   response.headers.forEach((value, key) => {
-    const normalized = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(normalized)) {
-      return;
-    }
-    if (rewritten && ['content-encoding', 'content-length', 'etag'].includes(normalized)) {
+    if (shouldDropProxyResponseHeader(key, { fetchedBody })) {
       return;
     }
     res.setHeader(key, value);
   });
+}
+
+export function shouldDropProxyResponseHeader(headerName, { fetchedBody = false } = {}) {
+  const normalized = String(headerName || '').toLowerCase();
+  if (HOP_BY_HOP_HEADERS.has(normalized)) {
+    return true;
+  }
+  return fetchedBody && FETCH_BODY_METADATA_HEADERS.has(normalized);
 }
 
 function shouldRewriteSandboxAppConfig(response) {

@@ -4,6 +4,7 @@ import {
   buildProxyTarget,
   rewriteSandboxAppConfig,
   sandboxAppConfigOverrides,
+  shouldDropProxyResponseHeader,
 } from '../server/sandbox-gateway/server.mjs';
 
 test('sandbox gateway strips the session slug when proxying session-prefixed paths', () => {
@@ -32,6 +33,15 @@ test('sandbox gateway preserves absolute app paths', () => {
     target,
     'https://sandbox.local/api/v1/sandboxes/sbx/proxy/4003/_next/static/chunk.js'
   );
+});
+
+test('sandbox gateway drops response headers that are invalid after fetch body decoding', () => {
+  assert.equal(shouldDropProxyResponseHeader('connection'), true);
+  assert.equal(shouldDropProxyResponseHeader('content-encoding'), false);
+  assert.equal(shouldDropProxyResponseHeader('content-encoding', { fetchedBody: true }), true);
+  assert.equal(shouldDropProxyResponseHeader('content-length', { fetchedBody: true }), true);
+  assert.equal(shouldDropProxyResponseHeader('etag', { fetchedBody: true }), true);
+  assert.equal(shouldDropProxyResponseHeader('content-type', { fetchedBody: true }), false);
 });
 
 test('sandbox app config enables browser raw media while keeping browser microphone controls', () => {
