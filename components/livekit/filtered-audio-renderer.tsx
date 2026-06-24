@@ -165,12 +165,12 @@ export function FilteredAudioRenderer({
       debugAudioLog(debugAudio, '[FilteredAudioRenderer] 收到音频轨道订阅', diagnostics);
 
       // 检查是否应该排除此轨道
-      const shouldExclude = excludeTrackNames.some(
-        (excludeName) =>
-          trackName.includes(excludeName) ||
-          trackName === excludeName ||
-          publication.trackSid === excludeName
-      );
+      const shouldExclude = excludeTrackNames.some((excludeName) => {
+        if (!excludeName) {
+          return false;
+        }
+        return trackName.includes(excludeName) || publication.trackSid === excludeName;
+      });
 
       if (shouldExclude) {
         debugAudioLog(

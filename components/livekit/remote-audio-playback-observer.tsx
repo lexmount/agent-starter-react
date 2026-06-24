@@ -35,12 +35,12 @@ function participantSegmentKey(participantIdentity: string) {
 
 function shouldExcludeTrack(publication: RemoteTrackPublication, excludeTrackNames: string[]) {
   const trackName = publication.trackName || publication.trackSid;
-  return excludeTrackNames.some(
-    (excludeName) =>
-      trackName.includes(excludeName) ||
-      trackName === excludeName ||
-      publication.trackSid === excludeName
-  );
+  return excludeTrackNames.some((excludeName) => {
+    if (!excludeName) {
+      return false;
+    }
+    return trackName.includes(excludeName) || publication.trackSid === excludeName;
+  });
 }
 
 export function RemoteAudioPlaybackObserver({
@@ -133,7 +133,7 @@ export function RemoteAudioPlaybackObserver({
           sharedAudioContext: getSharedAudioContext(),
           attributes: () => ({
             [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'output',
-            'livekit.participant_identity': participantIdentity,
+            [OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY]: participantIdentity,
             'livekit.track_name': trackName,
             'livekit.track_sid': publication.trackSid,
             'livekit.track_source': String(publication.source),
@@ -212,8 +212,10 @@ export function RemoteAudioPlaybackObserver({
         return;
       }
       const attributes = outputSegmentAttributesFromMarker(marker);
+      // Prefer the canonical backend marker field, then accept the legacy field,
+      // then fall back to the LiveKit sender identity.
       const markerParticipant = String(
-        marker.attributes['livekit.participant_identity'] ||
+        marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY] ||
           marker.attributes['livekit.participant'] ||
           participant?.identity ||
           ''

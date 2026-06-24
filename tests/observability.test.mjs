@@ -47,6 +47,7 @@ test('frontend observability exports shared event protocol constants', () => {
     BACKEND_MARKERS.OUTPUT_AUDIO_SEGMENT_STARTED,
     'backend.output_audio.segment_started'
   );
+  assert.equal(OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY, 'livekit.participant_identity');
   assert.equal(OBSERVABILITY_ATTRS.OUTPUT_SEGMENT_ID, 'observability.output_segment_id');
 });
 
@@ -169,6 +170,29 @@ test('app mounts remote audio playback observability when enabled', async () => 
 
   assert.match(source, /RemoteAudioPlaybackObserver/);
   assert.match(source, /observabilityEnabled=\{appConfig\.observabilityEnabled\}/);
+});
+
+test('track exclusion helpers ignore empty exclude names', async () => {
+  const sources = await Promise.all(
+    [
+      'components/livekit/remote-audio-playback-observer.tsx',
+      'components/livekit/filtered-audio-renderer.tsx',
+      'hooks/useAudioTrackFilter.ts',
+      'hooks/useExcludedVideoTracks.ts',
+    ].map(async (path) => [path, await readFile(path, 'utf8')])
+  );
+
+  for (const [path, source] of sources) {
+    assert.match(source, /if \(!excludeName\) \{\s*return false;\s*\}/, path);
+    assert.doesNotMatch(source, /trackName === excludeName/, path);
+  }
+});
+
+test('remote audio observer uses protocol identity field with documented fallback', async () => {
+  const source = await readFile('components/livekit/remote-audio-playback-observer.tsx', 'utf8');
+
+  assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
+  assert.match(source, /legacy field/);
 });
 
 test('browser source client publishes frontend audio observability events', async () => {
