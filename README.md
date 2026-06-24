@@ -58,9 +58,9 @@ lk app create --template agent-starter-react
 ```
 
 For integrated LexVoice runs, configure the LexVoice repository `.env` and start
-the frontend through the LexVoice runtime scripts. `lex-voice/run.sh` injects
-LiveKit, room-input, input-source, role-device, agent, media, and debug settings
-into this Next.js process.
+the frontend through the LexVoice runtime scripts. The LexVoice repository's
+`run.sh` injects LiveKit, room-input, input-source, role-device, agent, media,
+and debug settings into this Next.js process.
 
 The session lifecycle API keeps start/stop state in memory, so integrated
 deployments should route `/api/session/*` to a single Next.js instance or sticky routing.
@@ -71,9 +71,9 @@ with the connected room.
 ### LiveAvatar Gateway Deployments
 
 Sandbox-backed public deployments are owned by the LexVoice repository. Set
-`LIVEAVATAR_USE_SANDBOX=1` in `lex-voice/.env` and configure broker, template,
-warm pool, and `SANDBOX_ENV_*` values in
-`lex-voice/deploy/liveavatar_gateway/.env`.
+`LIVEAVATAR_USE_SANDBOX=1` in the LexVoice repository `.env` and configure
+broker, template, warm pool, and `SANDBOX_ENV_*` values in the LexVoice
+repository's `deploy/liveavatar_gateway/.env`.
 
 This frontend repository only runs the Next.js UI. It does not create, release,
 or warm sandbox sessions.
