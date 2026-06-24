@@ -96,6 +96,28 @@ test('warm pool releases expired idle sandboxes instead of assigning them', asyn
   });
 });
 
+test('warm pool stats does not drop expired idle sandboxes', async () => {
+  let now = 1_000;
+  const broker = createBroker();
+  const pool = new WarmSandboxPool({
+    broker,
+    targetSize: 1,
+    maxActiveSessions: 5,
+    maxIdleSeconds: 1,
+    now: () => now,
+    randomId: () => 'pool-stats',
+  });
+
+  await pool.maintain({ activeCount: 0, trigger: 'test' });
+  now += 1_001;
+
+  const stats = pool.stats({ activeCount: 0 });
+
+  assert.equal(stats.ready, 0);
+  assert.equal(broker.calls.filter((call) => call.type === 'release').length, 0);
+  assert.equal(pool.items.length, 1);
+});
+
 test('warm pool refreshes before idle expiry and releases the older ready sandbox', async () => {
   let now = 1_000;
   const ids = ['old', 'new'];

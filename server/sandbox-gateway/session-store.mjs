@@ -34,6 +34,7 @@ export class SessionStore {
     this.sandboxTtlSeconds = sandboxTtlSeconds;
     this.stateFile = stateFile;
     this.sessions = [];
+    this.acquireQueue = Promise.resolve();
     this.load();
   }
 
@@ -60,6 +61,12 @@ export class SessionStore {
   }
 
   async acquire({ ip, invite = '' }) {
+    const next = this.acquireQueue.then(() => this.acquireLocked({ ip, invite }));
+    this.acquireQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  async acquireLocked({ ip, invite = '' }) {
     this.assertInvite(invite);
     this.expireOldSessions();
 
@@ -96,8 +103,27 @@ export class SessionStore {
       releasedAt: null,
     };
     this.sessions.push(session);
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.sessions = this.sessions.filter((candidate) => candidate !== session);
+      try {
+        await this.releaseAllocatedSandbox(sandbox);
+      } catch (releaseError) {
+        if (error instanceof Error) {
+          error.releaseError = releaseError;
+        }
+      }
+      throw error;
+    }
     return { ...session, reused: false };
+  }
+
+  async releaseAllocatedSandbox(sandbox) {
+    if (!sandbox?.sandboxId) {
+      return;
+    }
+    await this.broker.releaseSandbox(sandbox.sandboxId);
   }
 
   warmPoolStats() {

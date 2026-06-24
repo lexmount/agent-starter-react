@@ -135,3 +135,40 @@ test('sandbox gateway checks out a warm sandbox before cold creation', async () 
     cleanup();
   }
 });
+
+test('sandbox gateway enforces active-session limit across concurrent acquires', async () => {
+  const { broker, store, cleanup } = createStore({ maxActiveSessions: 1 });
+  try {
+    const results = await Promise.allSettled([
+      store.acquire({ ip: '10.0.0.1' }),
+      store.acquire({ ip: '10.0.0.2' }),
+    ]);
+
+    assert.equal(results[0].status, 'fulfilled');
+    assert.equal(results[1].status, 'rejected');
+    assert.match(results[1].reason.message, /active session limit reached/);
+    assert.equal(broker.calls.filter((call) => call.type === 'create').length, 1);
+    assert.equal(store.activeSessions().length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('sandbox gateway releases a sandbox when session persistence fails', async () => {
+  const { broker, store, cleanup } = createStore();
+  store.save = () => {
+    throw new Error('save failed');
+  };
+
+  try {
+    await assert.rejects(store.acquire({ ip: '10.0.0.1' }), /save failed/);
+
+    assert.deepEqual(broker.calls, [
+      { type: 'create', sessionId: 'lv_abc123', ttlSeconds: 3600 },
+      { type: 'release', sandboxId: 'sbx-lv_abc123' },
+    ]);
+    assert.equal(store.sessions.length, 0);
+  } finally {
+    cleanup();
+  }
+});

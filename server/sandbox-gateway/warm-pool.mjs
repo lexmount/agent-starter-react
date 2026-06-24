@@ -28,14 +28,15 @@ export class WarmSandboxPool {
   }
 
   stats({ activeCount = 0 } = {}) {
-    this.dropExpiredItems({ release: false });
+    const now = this.now();
     const target = this.targetFor({ activeCount });
     return {
       enabled: this.targetSize > 0,
       target_size: target,
       configured_size: this.targetSize,
       ready: this.readyItems().length,
-      warming: this.items.filter((item) => item.status === 'warming').length,
+      warming: this.items.filter((item) => item.status === 'warming' && item.expiresAt > now)
+        .length,
       max_idle_seconds: Math.round(this.maxIdleMs / 1000),
       refresh_lead_seconds: Math.round(this.refreshLeadMs / 1000),
       warmup_full_body: this.warmupFullBody,
