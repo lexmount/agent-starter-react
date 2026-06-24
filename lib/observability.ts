@@ -1,8 +1,3 @@
-export const OBSERVABILITY_TOPICS = {
-  FRONTEND_EVENT: 'observability.frontend_event',
-  BACKEND_MARKER: 'observability.backend_marker',
-} as const;
-
 export const OBSERVABILITY_EVENT_TYPES = {
   FRONTEND_EVENT: 'observability.frontend_event',
   BACKEND_MARKER: 'observability.backend_marker',
@@ -40,8 +35,8 @@ export const OBSERVABILITY_ATTRS = {
   FRONTEND_AUDIO_ERROR: 'observability.frontend_audio.error',
 } as const;
 
-export const FRONTEND_OBSERVABILITY_TOPIC = OBSERVABILITY_TOPICS.FRONTEND_EVENT;
-export const BACKEND_OBSERVABILITY_MARKER_TOPIC = OBSERVABILITY_TOPICS.BACKEND_MARKER;
+export const FRONTEND_OBSERVABILITY_TOPIC = OBSERVABILITY_EVENT_TYPES.FRONTEND_EVENT;
+export const BACKEND_OBSERVABILITY_MARKER_TOPIC = OBSERVABILITY_EVENT_TYPES.BACKEND_MARKER;
 
 export type ObservabilityAttribute = string | number | boolean | null;
 type ObservabilityAttributes = Record<string, ObservabilityAttribute>;
@@ -84,8 +79,7 @@ export async function publishFrontendObservabilityEvent({
   if (!enabled) {
     return false;
   }
-  const publishData = room.localParticipant?.publishData;
-  if (typeof publishData !== 'function') {
+  if (typeof room.localParticipant?.publishData !== 'function') {
     return false;
   }
 
@@ -99,7 +93,7 @@ export async function publishFrontendObservabilityEvent({
     participant_identity: room.localParticipant?.identity || undefined,
     attributes: attributes ?? {},
   };
-  await publishData.call(room.localParticipant, new TextEncoder().encode(JSON.stringify(payload)), {
+  await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(payload)), {
     reliable: true,
     topic: FRONTEND_OBSERVABILITY_TOPIC,
   });

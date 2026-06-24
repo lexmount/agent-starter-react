@@ -66,6 +66,7 @@ interface MediaTrackAudioObserverOptions {
   startEventName: string;
   endEventName: string;
   emit: (name: string, attributes?: ObservabilityAttributes) => void;
+  sharedAudioContext?: AudioContext;
   attributes?: MediaTrackAudioObserverAttributes;
   sampleIntervalMs?: number;
   startThreshold?: number;
@@ -77,6 +78,7 @@ interface MediaTrackAudioObserverOptions {
 interface MediaTrackTailObserverOptions {
   mediaStreamTrack: MediaStreamTrack;
   onTailFrame: (event: LastActiveAudioFrameEvent) => void;
+  sharedAudioContext?: AudioContext;
   sampleIntervalMs?: number;
   startThreshold?: number;
   endThreshold?: number;
@@ -232,6 +234,7 @@ export function startMediaTrackAudioObserver({
   startEventName,
   endEventName,
   emit,
+  sharedAudioContext,
   attributes = {},
   sampleIntervalMs = 50,
   startThreshold,
@@ -239,13 +242,16 @@ export function startMediaTrackAudioObserver({
   startDurationMs,
   endSilenceMs,
 }: MediaTrackAudioObserverOptions): { stop: () => void } {
-  const AudioContextClass =
-    typeof window === 'undefined' ? undefined : window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) {
+  if (typeof window === 'undefined') {
+    return { stop: () => {} };
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!sharedAudioContext && !AudioContextClass) {
     return { stop: () => {} };
   }
 
-  const audioContext = new AudioContextClass();
+  const ownsAudioContext = !sharedAudioContext;
+  const audioContext = sharedAudioContext ?? new AudioContextClass();
   const analyser = audioContext.createAnalyser();
   analyser.fftSize = 1024;
 
@@ -266,7 +272,9 @@ export function startMediaTrackAudioObserver({
   });
 
   const intervalId = window.setInterval(() => detector.sample(), sampleIntervalMs);
-  void audioContext.resume?.().catch(() => undefined);
+  void audioContext.resume?.().catch((error) => {
+    console.warn('[frontend-observability] audio observer could not resume AudioContext', error);
+  });
 
   let stopped = false;
   const stop = () => {
@@ -276,7 +284,9 @@ export function startMediaTrackAudioObserver({
     mediaStreamTrack.removeEventListener('ended', stop);
     detector.stop({ emitEnd: true });
     source.disconnect();
-    void audioContext.close?.().catch(() => undefined);
+    if (ownsAudioContext) {
+      void audioContext.close?.().catch(() => undefined);
+    }
   };
 
   mediaStreamTrack.addEventListener('ended', stop, { once: true });
@@ -287,19 +297,23 @@ export function startMediaTrackAudioObserver({
 export function startMediaTrackTailObserver({
   mediaStreamTrack,
   onTailFrame,
+  sharedAudioContext,
   sampleIntervalMs = 20,
   startThreshold,
   endThreshold,
   startDurationMs,
   endSilenceMs,
 }: MediaTrackTailObserverOptions): { stop: () => void } {
-  const AudioContextClass =
-    typeof window === 'undefined' ? undefined : window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) {
+  if (typeof window === 'undefined') {
+    return { stop: () => {} };
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!sharedAudioContext && !AudioContextClass) {
     return { stop: () => {} };
   }
 
-  const audioContext = new AudioContextClass();
+  const ownsAudioContext = !sharedAudioContext;
+  const audioContext = sharedAudioContext ?? new AudioContextClass();
   const analyser = audioContext.createAnalyser();
   analyser.fftSize = 1024;
 
@@ -324,7 +338,9 @@ export function startMediaTrackTailObserver({
   };
 
   const intervalId = window.setInterval(sample, sampleIntervalMs);
-  void audioContext.resume?.().catch(() => undefined);
+  void audioContext.resume?.().catch((error) => {
+    console.warn('[frontend-observability] tail observer could not resume AudioContext', error);
+  });
 
   let stopped = false;
   const stop = () => {
@@ -337,7 +353,9 @@ export function startMediaTrackTailObserver({
       timestampMs: Date.now(),
     });
     source.disconnect();
-    void audioContext.close?.().catch(() => undefined);
+    if (ownsAudioContext) {
+      void audioContext.close?.().catch(() => undefined);
+    }
   };
 
   mediaStreamTrack.addEventListener('ended', stop, { once: true });

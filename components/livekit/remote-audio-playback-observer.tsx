@@ -50,6 +50,10 @@ export function RemoteAudioPlaybackObserver({
   const room = useRoomContext();
   const observersRef = useRef<Map<string, () => void>>(new Map());
   const outputSegmentsRef = useRef<Map<string, Record<string, ObservabilityAttribute>>>(new Map());
+  const sharedAudioContextRef = useRef<AudioContext | null>(null);
+  const excludeTrackNamesRef = useRef(excludeTrackNames);
+  const excludeTrackNamesKey = excludeTrackNames.join('\0');
+  excludeTrackNamesRef.current = excludeTrackNames;
 
   const recordFrontendObservability = useCallback(
     (name: string, attributes?: Record<string, ObservabilityAttribute>) => {
@@ -75,12 +79,29 @@ export function RemoteAudioPlaybackObserver({
     const stopAllObservers = () => {
       observers.forEach((stop) => stop());
       observers.clear();
+      void sharedAudioContextRef.current?.close?.().catch(() => undefined);
+      sharedAudioContextRef.current = null;
+    };
+    const getSharedAudioContext = () => {
+      if (sharedAudioContextRef.current && sharedAudioContextRef.current.state !== 'closed') {
+        return sharedAudioContextRef.current;
+      }
+      const AudioContextClass =
+        typeof window === 'undefined'
+          ? undefined
+          : window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        return undefined;
+      }
+      sharedAudioContextRef.current = new AudioContextClass();
+      return sharedAudioContextRef.current;
     };
     const activeSegmentAttributes = (participantIdentity: string) =>
       outputSegments.get(participantSegmentKey(participantIdentity)) ?? {};
 
     if (!room || !observabilityEnabled) {
       stopAllObservers();
+      outputSegments.clear();
       return;
     }
 
@@ -93,7 +114,7 @@ export function RemoteAudioPlaybackObserver({
       }
 
       const key = buildObserverKey(participantIdentity, publication);
-      if (shouldExcludeTrack(publication, excludeTrackNames)) {
+      if (shouldExcludeTrack(publication, excludeTrackNamesRef.current)) {
         stopObserver(key);
         return;
       }
@@ -109,6 +130,7 @@ export function RemoteAudioPlaybackObserver({
           startEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_STARTED,
           endEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ENDED,
           emit: recordFrontendObservability,
+          sharedAudioContext: getSharedAudioContext(),
           attributes: () => ({
             [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'output',
             'livekit.participant_identity': participantIdentity,
@@ -212,8 +234,9 @@ export function RemoteAudioPlaybackObserver({
       room.off(RoomEvent.DataReceived, onDataReceived);
       participantListenerCleanups.forEach((cleanup) => cleanup());
       stopAllObservers();
+      outputSegments.clear();
     };
-  }, [room, observabilityEnabled, excludeTrackNames, recordFrontendObservability]);
+  }, [room, observabilityEnabled, excludeTrackNamesKey, recordFrontendObservability]);
 
   return null;
 }

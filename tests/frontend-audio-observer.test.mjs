@@ -152,6 +152,72 @@ test('media track audio observer stop is idempotent', () => {
   }
 });
 
+test('media track audio observer leaves caller-owned AudioContext open', () => {
+  const originalWindow = globalThis.window;
+  const originalMediaStream = globalThis.MediaStream;
+  let closeCount = 0;
+  const track = {
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  class FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 0,
+        getFloatTimeDomainData(samples) {
+          samples.fill(0);
+        },
+      };
+    }
+
+    createMediaStreamSource() {
+      return {
+        connect() {},
+        disconnect() {},
+      };
+    }
+
+    resume() {
+      return Promise.resolve();
+    }
+
+    close() {
+      closeCount += 1;
+      return Promise.resolve();
+    }
+  }
+
+  globalThis.MediaStream = class FakeMediaStream {
+    constructor(tracks) {
+      this.tracks = tracks;
+    }
+  };
+  globalThis.window = {
+    AudioContext: FakeAudioContext,
+    setInterval,
+    clearInterval,
+  };
+
+  try {
+    const sharedAudioContext = new FakeAudioContext();
+    const observer = startMediaTrackAudioObserver({
+      mediaStreamTrack: track,
+      startEventName: 'start',
+      endEventName: 'end',
+      emit() {},
+      sharedAudioContext,
+    });
+
+    observer.stop();
+
+    assert.equal(closeCount, 0);
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.MediaStream = originalMediaStream;
+  }
+});
+
 test('media track tail observer stop does not stop the source media track', () => {
   const originalWindow = globalThis.window;
   const originalMediaStream = globalThis.MediaStream;
