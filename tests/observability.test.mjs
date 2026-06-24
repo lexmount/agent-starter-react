@@ -48,6 +48,7 @@ test('frontend observability exports shared event protocol constants', () => {
     'backend.output_audio.segment_started'
   );
   assert.equal(OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY, 'livekit.participant_identity');
+  assert.equal(OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY_LEGACY, 'livekit.participant');
   assert.equal(OBSERVABILITY_ATTRS.OUTPUT_SEGMENT_ID, 'observability.output_segment_id');
 });
 
@@ -192,7 +193,9 @@ test('remote audio observer uses protocol identity field with documented fallbac
   const source = await readFile('components/livekit/remote-audio-playback-observer.tsx', 'utf8');
 
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
-  assert.match(source, /legacy field/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
+  assert.doesNotMatch(source, /marker\.attributes\['livekit\.participant'\]/);
+  assert.match(source, /canonical backend marker field -> legacy field -> LiveKit sender/);
 });
 
 test('browser source client publishes frontend audio observability events', async () => {

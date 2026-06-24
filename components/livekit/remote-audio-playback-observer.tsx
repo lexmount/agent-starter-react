@@ -212,11 +212,10 @@ export function RemoteAudioPlaybackObserver({
         return;
       }
       const attributes = outputSegmentAttributesFromMarker(marker);
-      // Prefer the canonical backend marker field, then accept the legacy field,
-      // then fall back to the LiveKit sender identity.
+      // Fallback order: canonical backend marker field -> legacy field -> LiveKit sender.
       const markerParticipant = String(
         marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY] ||
-          marker.attributes['livekit.participant'] ||
+          marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY_LEGACY] ||
           participant?.identity ||
           ''
       ).trim();

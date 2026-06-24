@@ -27,6 +27,7 @@ export const OBSERVABILITY_ATTRS = {
   OUTPUT_SEGMENT_INDEX: 'observability.output_segment_index',
   OUTPUT_SEGMENT_KIND: 'observability.output_segment_kind',
   PARTICIPANT_IDENTITY: 'livekit.participant_identity',
+  PARTICIPANT_IDENTITY_LEGACY: 'livekit.participant',
   FRONTEND_AUDIO_DIRECTION: 'observability.frontend_audio.direction',
   FRONTEND_AUDIO_PROBE: 'observability.frontend_audio.probe',
   FRONTEND_AUDIO_LEVEL: 'observability.frontend_audio.level',
