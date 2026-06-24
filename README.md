@@ -57,8 +57,8 @@ Run the following command to automatically clone this template.
 lk app create --template agent-starter-react
 ```
 
-For integrated LexVoice runs, configure `../lex-voice/.env` and start the
-frontend through the LexVoice runtime scripts. `../lex-voice/run.sh` injects
+For integrated LexVoice runs, configure the LexVoice repository `.env` and start
+the frontend through the LexVoice runtime scripts. `lex-voice/run.sh` injects
 LiveKit, room-input, input-source, role-device, agent, media, and debug settings
 into this Next.js process.
 
@@ -70,10 +70,10 @@ with the connected room.
 
 ### LiveAvatar Gateway Deployments
 
-Sandbox-backed public deployments are owned by the sibling `../lex-voice`
-repository. Set `LIVEAVATAR_USE_SANDBOX=1` in `../lex-voice/.env` and configure
-broker, template, warm pool, and `SANDBOX_ENV_*` values in
-`../lex-voice/deploy/liveavatar_gateway/.env`.
+Sandbox-backed public deployments are owned by the LexVoice repository. Set
+`LIVEAVATAR_USE_SANDBOX=1` in `lex-voice/.env` and configure broker, template,
+warm pool, and `SANDBOX_ENV_*` values in
+`lex-voice/deploy/liveavatar_gateway/.env`.
 
 This frontend repository only runs the Next.js UI. It does not create, release,
 or warm sandbox sessions.
@@ -88,8 +88,8 @@ pnpm dev
 
 And open http://localhost:3000 in your browser.
 
-You'll also need a LiveKit server and an agent worker. In this workspace, those
-are normally provided by the sibling `../lex-voice` project.
+You'll also need a LiveKit server and an agent worker. In integrated workspaces,
+those are normally provided by the LexVoice project.
 
 ## Configuration
 
@@ -128,7 +128,7 @@ You can update these values in [`app-config.ts`](./app-config.ts) to customize b
 
 #### Environment Variables
 
-Integrated runs should keep runtime variables in `../lex-voice/.env`; this
+Integrated runs should keep runtime variables in the LexVoice repository `.env`; this
 repository's `.env.example` is documentation-only. Only create
 `agent-starter-react/.env.local` for standalone frontend development launched
 directly with `pnpm dev`.
@@ -140,7 +140,7 @@ LIVEKIT_URL=https://your-livekit-server-url
 ```
 
 The frontend defaults to the browser camera/microphone input when no input
-source is provided. Configure `INPUT_SOURCE` only in `../lex-voice/.env` for
+source is provided. Configure `INPUT_SOURCE` only in the LexVoice repository `.env` for
 integrated backend runs. The LiveKit variables above are required for
 standalone voice agent functionality to work with your LiveKit project.
 
