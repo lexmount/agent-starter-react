@@ -150,8 +150,8 @@ export function useBrowserSourceClient(
               { wallTimeUnixMs: event.timestampMs }
             );
           },
-          startThreshold: 0.015,
-          endThreshold: 0.006,
+          startThreshold: 0.02,
+          endThreshold: 0.008,
           startDurationMs: 80,
           endSilenceMs: 500,
         }).stop;
