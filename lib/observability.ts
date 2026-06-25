@@ -9,8 +9,9 @@ export const FRONTEND_EVENTS = {
   BROWSER_AUDIO_TRACK_UNPUBLISHED: 'frontend.browser_audio.track_unpublished',
   BROWSER_AUDIO_TRACK_MUTED: 'frontend.browser_audio.track_muted',
   BROWSER_AUDIO_TRACK_UNMUTED: 'frontend.browser_audio.track_unmuted',
-  BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT: 'frontend.browser_audio.last_active_frame_sent',
-  BROWSER_AUDIO_TAIL_PROBE_UNAVAILABLE: 'frontend.browser_audio.tail_probe_unavailable',
+  BROWSER_AUDIO_VAD_SPEECH_STARTED: 'frontend.browser_audio.vad_speech_started',
+  BROWSER_AUDIO_VAD_SPEECH_ENDED: 'frontend.browser_audio.vad_speech_ended',
+  BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE: 'frontend.browser_audio.vad_probe_unavailable',
   REPLY_AUDIO_PLAYBACK_STARTED: 'frontend.reply_audio.playback_started',
   REPLY_AUDIO_PLAYBACK_ENDED: 'frontend.reply_audio.playback_ended',
 } as const;
@@ -35,6 +36,9 @@ export const OBSERVABILITY_ATTRS = {
   FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS:
     'observability.frontend_audio.confirmation_wall_time_unix_ms',
   FRONTEND_AUDIO_ERROR: 'observability.frontend_audio.error',
+  VAD_PROVIDER: 'observability.vad.provider',
+  VAD_MODEL: 'observability.vad.model',
+  VAD_AUDIO_DURATION_MS: 'observability.vad.audio_duration_ms',
 } as const;
 
 export const FRONTEND_OBSERVABILITY_TOPIC = OBSERVABILITY_EVENT_TYPES.FRONTEND_EVENT;

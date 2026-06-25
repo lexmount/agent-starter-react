@@ -1,0 +1,108 @@
+export interface BrowserVadEvent {
+  timestampMs: number;
+  confirmationTimestampMs?: number;
+  provider: 'vad-web';
+  model: 'silero_vad_v5';
+  audioDurationMs?: number;
+}
+
+interface MicVadInstance {
+  start: () => void | Promise<void>;
+  pause?: () => void | Promise<void>;
+  destroy?: () => void | Promise<void>;
+}
+
+interface MicVadOptions {
+  getStream: () => Promise<MediaStream>;
+  pauseStream: (stream: MediaStream) => Promise<void>;
+  resumeStream: (stream: MediaStream) => Promise<MediaStream>;
+  onSpeechStart: () => void;
+  onSpeechEnd: (audio: Float32Array) => void;
+  onFrameProcessed?: (
+    probabilities: { isSpeech: number; notSpeech?: number },
+    frame: Float32Array
+  ) => void;
+  baseAssetPath: string;
+  onnxWASMBasePath: string;
+  model: 'v5';
+  startOnLoad: boolean;
+}
+
+type CreateMicVad = (options: MicVadOptions) => Promise<MicVadInstance>;
+
+interface MediaTrackVadObserverOptions {
+  mediaStreamTrack: MediaStreamTrack;
+  onSpeechStart: (event: BrowserVadEvent) => void;
+  onSpeechEnd: (event: BrowserVadEvent) => void;
+  createMicVad?: CreateMicVad;
+  now?: () => number;
+  baseAssetPath?: string;
+  onnxWASMBasePath?: string;
+}
+
+const VAD_SAMPLE_RATE = 16_000;
+const VAD_MODEL = 'silero_vad_v5';
+const DEFAULT_VAD_ASSET_BASE_PATH = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/';
+const DEFAULT_ONNX_WASM_BASE_PATH = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
+
+export async function startMediaTrackVadObserver({
+  mediaStreamTrack,
+  onSpeechStart,
+  onSpeechEnd,
+  createMicVad = createDefaultMicVad,
+  now = () => Date.now(),
+  baseAssetPath = DEFAULT_VAD_ASSET_BASE_PATH,
+  onnxWASMBasePath = DEFAULT_ONNX_WASM_BASE_PATH,
+}: MediaTrackVadObserverOptions): Promise<{ stop: () => void }> {
+  if (typeof MediaStream === 'undefined') {
+    return { stop: () => {} };
+  }
+
+  const mediaStream = new MediaStream([mediaStreamTrack]);
+  const vad = await createMicVad({
+    getStream: async () => mediaStream,
+    pauseStream: async () => {},
+    resumeStream: async () => mediaStream,
+    baseAssetPath,
+    onnxWASMBasePath,
+    model: 'v5',
+    startOnLoad: false,
+    onSpeechStart: () => {
+      onSpeechStart({
+        timestampMs: now(),
+        provider: 'vad-web',
+        model: VAD_MODEL,
+      });
+    },
+    onSpeechEnd: (audio) => {
+      const confirmationTimestampMs = now();
+      onSpeechEnd({
+        timestampMs: confirmationTimestampMs,
+        confirmationTimestampMs,
+        provider: 'vad-web',
+        model: VAD_MODEL,
+        audioDurationMs: Math.round((audio.length / VAD_SAMPLE_RATE) * 1000),
+      });
+    },
+  });
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    mediaStreamTrack.removeEventListener('ended', stop);
+    void vad.pause?.();
+    void vad.destroy?.();
+  };
+
+  await vad.start();
+  mediaStreamTrack.addEventListener('ended', stop, { once: true });
+
+  return {
+    stop,
+  };
+}
+
+async function createDefaultMicVad(options: MicVadOptions): Promise<MicVadInstance> {
+  const { MicVAD } = await import('@ricky0123/vad-web');
+  return MicVAD.new(options);
+}

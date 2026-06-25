@@ -14,37 +14,11 @@ export type AudioActivityDetector = {
   isActive: () => boolean;
 };
 
-export type LastActiveAudioFrameEvent = {
-  timestampMs: number;
-  confirmationTimestampMs: number;
-  level: number;
-  reason: AudioActivityReason;
-};
-
-export type AudioFrameLevelSample = {
-  timestampMs: number;
-  level: number;
-};
-
-export type LastActiveAudioFrameDetector = {
-  sample: (sample: AudioFrameLevelSample) => void;
-  stop: (options?: { emitEnd?: boolean; timestampMs?: number }) => void;
-  isActive: () => boolean;
-};
-
 interface AudioActivityDetectorOptions {
   readLevel: () => number;
   onStart: (event: AudioActivityEvent) => void;
   onEnd: (event: AudioActivityEvent) => void;
   now?: () => number;
-  startThreshold?: number;
-  endThreshold?: number;
-  startDurationMs?: number;
-  endSilenceMs?: number;
-}
-
-interface LastActiveAudioFrameDetectorOptions {
-  onTailFrame: (event: LastActiveAudioFrameEvent) => void;
   startThreshold?: number;
   endThreshold?: number;
   startDurationMs?: number;
@@ -68,17 +42,6 @@ interface MediaTrackAudioObserverOptions {
   emit: (name: string, attributes?: ObservabilityAttributes) => void;
   sharedAudioContext?: AudioContext;
   attributes?: MediaTrackAudioObserverAttributes;
-  sampleIntervalMs?: number;
-  startThreshold?: number;
-  endThreshold?: number;
-  startDurationMs?: number;
-  endSilenceMs?: number;
-}
-
-interface MediaTrackTailObserverOptions {
-  mediaStreamTrack: MediaStreamTrack;
-  onTailFrame: (event: LastActiveAudioFrameEvent) => void;
-  sharedAudioContext?: AudioContext;
   sampleIntervalMs?: number;
   startThreshold?: number;
   endThreshold?: number;
@@ -152,83 +115,6 @@ export function createAudioActivityDetector({
   };
 }
 
-export function createLastActiveAudioFrameDetector({
-  onTailFrame,
-  startThreshold = 0.015,
-  endThreshold = 0.006,
-  startDurationMs = 80,
-  endSilenceMs = 500,
-}: LastActiveAudioFrameDetectorOptions): LastActiveAudioFrameDetector {
-  let active = false;
-  let stopped = false;
-  let aboveStartedAt: number | null = null;
-  let belowStartedAt: number | null = null;
-  let lastActiveSample: AudioFrameLevelSample | null = null;
-
-  const emitTailFrame = (confirmationTimestampMs: number, reason: AudioActivityReason) => {
-    if (!lastActiveSample) return;
-    onTailFrame({
-      timestampMs: lastActiveSample.timestampMs,
-      confirmationTimestampMs,
-      level: lastActiveSample.level,
-      reason,
-    });
-  };
-
-  const sample = ({ timestampMs, level: rawLevel }: AudioFrameLevelSample) => {
-    if (stopped) return;
-
-    const level = Math.max(0, rawLevel);
-    if (!active) {
-      if (level >= startThreshold) {
-        aboveStartedAt ??= timestampMs;
-        lastActiveSample = { timestampMs, level };
-        if (timestampMs - aboveStartedAt >= startDurationMs) {
-          active = true;
-          belowStartedAt = null;
-        }
-      } else {
-        aboveStartedAt = null;
-        lastActiveSample = null;
-      }
-      return;
-    }
-
-    if (level > endThreshold) {
-      belowStartedAt = null;
-      lastActiveSample = { timestampMs, level };
-      return;
-    }
-
-    belowStartedAt ??= timestampMs;
-    if (timestampMs - belowStartedAt >= endSilenceMs) {
-      emitTailFrame(timestampMs, 'silence');
-      active = false;
-      aboveStartedAt = null;
-      belowStartedAt = null;
-      lastActiveSample = null;
-    }
-  };
-
-  const stop = ({
-    emitEnd = false,
-    timestampMs,
-  }: { emitEnd?: boolean; timestampMs?: number } = {}) => {
-    if (stopped) return;
-    stopped = true;
-    if (emitEnd && active && lastActiveSample) {
-      emitTailFrame(timestampMs ?? lastActiveSample.timestampMs, 'stop');
-    }
-    active = false;
-  };
-
-  return {
-    sample,
-    stop,
-    isActive: () => active,
-  };
-}
-
 export function startMediaTrackAudioObserver({
   mediaStreamTrack,
   startEventName,
@@ -283,75 +169,6 @@ export function startMediaTrackAudioObserver({
     window.clearInterval(intervalId);
     mediaStreamTrack.removeEventListener('ended', stop);
     detector.stop({ emitEnd: true });
-    source.disconnect();
-    if (ownsAudioContext) {
-      void audioContext.close?.().catch(() => undefined);
-    }
-  };
-
-  mediaStreamTrack.addEventListener('ended', stop, { once: true });
-
-  return { stop };
-}
-
-export function startMediaTrackTailObserver({
-  mediaStreamTrack,
-  onTailFrame,
-  sharedAudioContext,
-  sampleIntervalMs = 20,
-  startThreshold,
-  endThreshold,
-  startDurationMs,
-  endSilenceMs,
-}: MediaTrackTailObserverOptions): { stop: () => void } {
-  if (typeof window === 'undefined') {
-    return { stop: () => {} };
-  }
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!sharedAudioContext && !AudioContextClass) {
-    return { stop: () => {} };
-  }
-
-  const ownsAudioContext = !sharedAudioContext;
-  const audioContext = sharedAudioContext ?? new AudioContextClass();
-  const analyser = audioContext.createAnalyser();
-  analyser.fftSize = 1024;
-
-  const mediaStream = new MediaStream([mediaStreamTrack]);
-  const source = audioContext.createMediaStreamSource(mediaStream);
-  source.connect(analyser);
-
-  const samples = new Float32Array(analyser.fftSize);
-  const detector = createLastActiveAudioFrameDetector({
-    onTailFrame,
-    startThreshold,
-    endThreshold,
-    startDurationMs,
-    endSilenceMs,
-  });
-
-  const sample = () => {
-    detector.sample({
-      timestampMs: Date.now(),
-      level: readRmsLevel(analyser, samples),
-    });
-  };
-
-  const intervalId = window.setInterval(sample, sampleIntervalMs);
-  void audioContext.resume?.().catch((error) => {
-    console.warn('[frontend-observability] tail observer could not resume AudioContext', error);
-  });
-
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    window.clearInterval(intervalId);
-    mediaStreamTrack.removeEventListener('ended', stop);
-    detector.stop({
-      emitEnd: true,
-      timestampMs: Date.now(),
-    });
     source.disconnect();
     if (ownsAudioContext) {
       void audioContext.close?.().catch(() => undefined);

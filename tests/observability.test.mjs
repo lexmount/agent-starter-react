@@ -44,12 +44,19 @@ test('frontend observability exports shared event protocol constants', () => {
     'frontend.reply_audio.playback_started'
   );
   assert.equal(
+    FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_ENDED,
+    'frontend.browser_audio.vad_speech_ended'
+  );
+  assert.equal(
     BACKEND_MARKERS.OUTPUT_AUDIO_SEGMENT_STARTED,
     'backend.output_audio.segment_started'
   );
   assert.equal(OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY, 'livekit.participant_identity');
   assert.equal(OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY_LEGACY, 'livekit.participant');
   assert.equal(OBSERVABILITY_ATTRS.OUTPUT_SEGMENT_ID, 'observability.output_segment_id');
+  assert.equal(OBSERVABILITY_ATTRS.VAD_PROVIDER, 'observability.vad.provider');
+  assert.equal(OBSERVABILITY_ATTRS.VAD_MODEL, 'observability.vad.model');
+  assert.equal(OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS, 'observability.vad.audio_duration_ms');
 });
 
 test('frontend observability publishes livekit data packet payload', async () => {
@@ -112,7 +119,7 @@ test('frontend observability can publish an explicit event wall time', async () 
   await publishFrontendObservabilityEvent({
     enabled: true,
     room,
-    name: 'frontend.browser_audio.last_active_frame_sent',
+    name: 'frontend.browser_audio.vad_speech_ended',
     wallTimeUnixMs: 1_779_773_930_777,
     now: () => 1_779_773_931_123,
     performanceNow: () => 456.78,
@@ -201,10 +208,20 @@ test('remote audio observer uses protocol identity field with documented fallbac
 test('browser source client publishes frontend audio observability events', async () => {
   const source = await readFile('hooks/useBrowserSourceClient.ts', 'utf8');
 
-  assert.match(source, /startMediaTrackTailObserver/);
+  assert.match(source, /startMediaTrackVadObserver/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_PUBLISHED/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_UNPUBLISHED/);
-  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT/);
+  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_VAD_SPEECH_STARTED/);
+  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_VAD_SPEECH_ENDED/);
+  assert.doesNotMatch(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_USER_SPEECH_ENDED/);
+  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.VAD_PROVIDER/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.VAD_MODEL/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.VAD_AUDIO_DURATION_MS/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS/);
+  assert.match(source, /'vad-web'/);
+  assert.doesNotMatch(source, /startMediaTrackTailObserver/);
+  assert.doesNotMatch(source, /BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT/);
   assert.match(source, /stop:\s*\(\) => Promise<void>/);
 });
 

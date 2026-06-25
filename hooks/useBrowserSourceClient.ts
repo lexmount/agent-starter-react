@@ -11,7 +11,7 @@ import {
   createLocalVideoTrack,
 } from 'livekit-client';
 import type { AppConfig } from '@/app-config';
-import { startMediaTrackTailObserver } from '@/lib/frontend-audio-observer';
+import { startMediaTrackVadObserver } from '@/lib/frontend-vad-observer';
 import {
   FRONTEND_EVENTS,
   OBSERVABILITY_ATTRS,
@@ -120,9 +120,9 @@ export function useBrowserSourceClient(
       return;
     }
 
-    const tailFrameAttributes: Record<string, string | number | boolean | null> = {
+    const vadAttributes: Record<string, string | number | boolean | null> = {
       [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'input',
-      [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'passive_analyser',
+      [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
       'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
       'livekit.track_sid': null,
       'livekit.stream_name': browserMediaStreamName,
@@ -130,41 +130,6 @@ export function useBrowserSourceClient(
     const { audioTrack, captureTrack } = await createDirectBrowserAudioTrack();
     audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
     captureTrack.enabled = runtime.audioEnabled;
-    let stopObservedAudio: (() => void) | null = null;
-
-    if (appConfig.observabilityEnabled) {
-      try {
-        stopObservedAudio = startMediaTrackTailObserver({
-          mediaStreamTrack: captureTrack,
-          onTailFrame: (event) => {
-            recordFrontendObservability(
-              FRONTEND_EVENTS.BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT,
-              {
-                ...tailFrameAttributes,
-                [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_LEVEL]: Number(event.level.toFixed(6)),
-                [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_REASON]: event.reason,
-                [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS]: Number(
-                  event.confirmationTimestampMs.toFixed(3)
-                ),
-              },
-              { wallTimeUnixMs: event.timestampMs }
-            );
-          },
-          startThreshold: 0.02,
-          endThreshold: 0.008,
-          startDurationMs: 80,
-          endSilenceMs: 500,
-        }).stop;
-      } catch (error) {
-        console.warn('[browser-audio] passive tail observer unavailable', error);
-        recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TAIL_PROBE_UNAVAILABLE, {
-          'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
-          [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'passive_analyser',
-          [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
-            error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
 
     try {
       const publication = await room.localParticipant.publishTrack(audioTrack, {
@@ -175,15 +140,63 @@ export function useBrowserSourceClient(
       runtime.audioTrack = audioTrack;
       runtime.audioCaptureTrack = captureTrack;
       runtime.audioPublication = publication;
-      runtime.audioObserverStop = stopObservedAudio;
-      tailFrameAttributes['livekit.track_sid'] = publication.trackSid || null;
+      runtime.audioObserverStop = null;
+      vadAttributes['livekit.track_sid'] = publication.trackSid || null;
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_PUBLISHED, {
         'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
         'livekit.track_sid': publication.trackSid || null,
         'livekit.stream_name': browserMediaStreamName,
       });
+      if (appConfig.observabilityEnabled) {
+        void startMediaTrackVadObserver({
+          mediaStreamTrack: captureTrack,
+          onSpeechStart: (event) => {
+            recordFrontendObservability(
+              FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_STARTED,
+              {
+                ...vadAttributes,
+                [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
+                [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
+              },
+              { wallTimeUnixMs: event.timestampMs }
+            );
+          },
+          onSpeechEnd: (event) => {
+            recordFrontendObservability(
+              FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_ENDED,
+              {
+                ...vadAttributes,
+                [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
+                [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
+                [OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS]: event.audioDurationMs ?? null,
+                [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS]:
+                  event.confirmationTimestampMs ?? null,
+              },
+              { wallTimeUnixMs: event.timestampMs }
+            );
+          },
+        })
+          .then((observer) => {
+            if (runtime.audioTrack === audioTrack && runtime.audioCaptureTrack === captureTrack) {
+              runtime.audioObserverStop = observer.stop;
+              return;
+            }
+            observer.stop();
+          })
+          .catch((error) => {
+            if (runtime.audioTrack !== audioTrack || runtime.audioCaptureTrack !== captureTrack) {
+              return;
+            }
+            console.warn('[browser-audio] VAD observer unavailable', error);
+            recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE, {
+              'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
+              [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
+              [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
+                error instanceof Error ? error.message : String(error),
+            });
+          });
+      }
     } catch (error) {
-      stopObservedAudio?.();
       audioTrack.stop();
       throw error;
     }
