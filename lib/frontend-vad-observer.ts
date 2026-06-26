@@ -97,8 +97,11 @@ export async function startMediaTrackVadObserver({
     if (stopped) return;
     stopped = true;
     mediaStreamTrack.removeEventListener('ended', handleTrackEnded);
-    await vad.pause?.();
-    await vad.destroy?.();
+    try {
+      await vad.pause?.();
+    } finally {
+      await vad.destroy?.();
+    }
   };
   const handleTrackEnded = () => {
     void stop();

@@ -49,6 +49,7 @@ export function RemoteAudioPlaybackObserver({
 }: RemoteAudioPlaybackObserverProps) {
   const room = useRoomContext();
   const observersRef = useRef<Map<string, () => void>>(new Map());
+  const observerKeysByParticipantRef = useRef<Map<string, Set<string>>>(new Map());
   const outputSegmentsRef = useRef<Map<string, Record<string, ObservabilityAttribute>>>(new Map());
   const sharedAudioContextRef = useRef<AudioContext | null>(null);
   const excludeTrackNamesRef = useRef(excludeTrackNames);
@@ -71,14 +72,30 @@ export function RemoteAudioPlaybackObserver({
 
   useEffect(() => {
     const observers = observersRef.current;
+    const observerKeysByParticipant = observerKeysByParticipantRef.current;
     const outputSegments = outputSegmentsRef.current;
+    const forgetObserverKey = (key: string) => {
+      observerKeysByParticipant.forEach((keys, participantIdentity) => {
+        keys.delete(key);
+        if (keys.size === 0) {
+          observerKeysByParticipant.delete(participantIdentity);
+        }
+      });
+    };
+    const rememberObserverKey = (participantIdentity: string, key: string) => {
+      const keys = observerKeysByParticipant.get(participantIdentity) ?? new Set<string>();
+      keys.add(key);
+      observerKeysByParticipant.set(participantIdentity, keys);
+    };
     const stopObserver = (key: string) => {
       observers.get(key)?.();
       observers.delete(key);
+      forgetObserverKey(key);
     };
     const stopAllObservers = () => {
       observers.forEach((stop) => stop());
       observers.clear();
+      observerKeysByParticipant.clear();
       void sharedAudioContextRef.current?.close?.().catch(() => undefined);
       sharedAudioContextRef.current = null;
     };
@@ -145,6 +162,7 @@ export function RemoteAudioPlaybackObserver({
           endSilenceMs: 350,
         }).stop
       );
+      rememberObserverKey(participantIdentity, key);
     };
 
     const handleTrackUnsubscribed = (
@@ -192,11 +210,12 @@ export function RemoteAudioPlaybackObserver({
     };
 
     const onParticipantDisconnected = (participant: RemoteParticipant) => {
-      const prefix = `${participant.identity}-`;
-      for (const key of observers.keys()) {
-        if (key.startsWith(prefix)) {
+      const keys = observerKeysByParticipant.get(participant.identity);
+      if (keys) {
+        for (const key of Array.from(keys)) {
           stopObserver(key);
         }
+        observerKeysByParticipant.delete(participant.identity);
       }
       outputSegments.delete(participantSegmentKey(participant.identity));
     };

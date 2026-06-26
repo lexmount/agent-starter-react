@@ -203,6 +203,8 @@ test('track exclusion helpers ignore empty exclude names', async () => {
 test('remote audio observer uses protocol identity field with documented fallback', async () => {
   const source = await readFile('components/livekit/remote-audio-playback-observer.tsx', 'utf8');
 
+  assert.match(source, /observerKeysByParticipant/);
+  assert.doesNotMatch(source, /startsWith\(prefix\)/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_NAME/);

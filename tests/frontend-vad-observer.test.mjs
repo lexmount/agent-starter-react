@@ -105,3 +105,47 @@ test('media track vad observer uses the supplied track and emits speech events',
     globalThis.MediaStream = originalMediaStream;
   }
 });
+
+test('media track vad observer destroys vad even when pause fails', async () => {
+  const originalMediaStream = globalThis.MediaStream;
+  let endedListener;
+  const track = {
+    addEventListener(eventName, listener) {
+      if (eventName === 'ended') endedListener = listener;
+    },
+    removeEventListener(eventName, listener) {
+      if (eventName === 'ended' && endedListener === listener) endedListener = undefined;
+    },
+  };
+  let destroyCount = 0;
+
+  globalThis.MediaStream = class FakeMediaStream {
+    constructor(tracks) {
+      this.tracks = tracks;
+    }
+  };
+
+  try {
+    const observer = await startMediaTrackVadObserver({
+      mediaStreamTrack: track,
+      createMicVad: async () => ({
+        start() {},
+        pause() {
+          throw new Error('pause failed');
+        },
+        destroy() {
+          destroyCount += 1;
+        },
+      }),
+      onSpeechStart: () => {},
+      onSpeechEnd: () => {},
+    });
+
+    await assert.rejects(observer.stop(), /pause failed/);
+
+    assert.equal(destroyCount, 1);
+    assert.equal(endedListener, undefined);
+  } finally {
+    globalThis.MediaStream = originalMediaStream;
+  }
+});
