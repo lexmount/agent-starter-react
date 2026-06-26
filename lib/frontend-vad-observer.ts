@@ -1,6 +1,5 @@
 export interface BrowserVadEvent {
   timestampMs: number;
-  confirmationTimestampMs?: number;
   provider: 'vad-web';
   model: 'silero_vad_v5';
   audioDurationMs?: number;
@@ -42,6 +41,7 @@ interface MediaTrackVadObserverOptions {
 
 const VAD_SAMPLE_RATE = 16_000;
 const VAD_MODEL = 'silero_vad_v5';
+const VAD_SPEECH_PROBABILITY_THRESHOLD = 0.5;
 const DEFAULT_VAD_ASSET_BASE_PATH = '/vad-web/';
 const DEFAULT_ONNX_WASM_BASE_PATH = '/onnxruntime-web/';
 
@@ -59,6 +59,7 @@ export async function startMediaTrackVadObserver({
   }
 
   const mediaStream = new MediaStream([mediaStreamTrack]);
+  let lastSpeechFrameTimestampMs: number | null = null;
   const vad = await createMicVad({
     getStream: async () => mediaStream,
     pauseStream: async () => {},
@@ -68,17 +69,23 @@ export async function startMediaTrackVadObserver({
     model: 'v5',
     startOnLoad: false,
     onSpeechStart: () => {
+      lastSpeechFrameTimestampMs = null;
       onSpeechStart({
         timestampMs: now(),
         provider: 'vad-web',
         model: VAD_MODEL,
       });
     },
+    onFrameProcessed: (probabilities) => {
+      if (probabilities.isSpeech >= VAD_SPEECH_PROBABILITY_THRESHOLD) {
+        lastSpeechFrameTimestampMs = now();
+      }
+    },
     onSpeechEnd: (audio) => {
-      const confirmationTimestampMs = now();
+      const timestampMs = lastSpeechFrameTimestampMs ?? now();
+      lastSpeechFrameTimestampMs = null;
       onSpeechEnd({
-        timestampMs: confirmationTimestampMs,
-        confirmationTimestampMs,
+        timestampMs,
         provider: 'vad-web',
         model: VAD_MODEL,
         audioDurationMs: Math.round((audio.length / VAD_SAMPLE_RATE) * 1000),

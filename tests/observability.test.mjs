@@ -228,7 +228,8 @@ test('browser source client publishes frontend audio observability events', asyn
   assert.match(source, /OBSERVABILITY_ATTRS\.VAD_PROVIDER/);
   assert.match(source, /OBSERVABILITY_ATTRS\.VAD_MODEL/);
   assert.match(source, /OBSERVABILITY_ATTRS\.VAD_AUDIO_DURATION_MS/);
-  assert.match(source, /OBSERVABILITY_ATTRS\.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS/);
+  assert.doesNotMatch(source, /OBSERVABILITY_ATTRS\.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS/);
+  assert.doesNotMatch(source, /confirmationTimestampMs/);
   assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_NAME/);
   assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_SID/);
   assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_STREAM_NAME/);

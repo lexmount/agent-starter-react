@@ -67,7 +67,12 @@ test('media track vad observer uses the supplied track and emits speech events',
 
     now = 12_345;
     capturedOptions.onSpeechStart();
+    now = 12_450;
+    capturedOptions.onFrameProcessed({ isSpeech: 0.2 }, new Float32Array(512));
     now = 12_500;
+    capturedOptions.onFrameProcessed({ isSpeech: 0.8 }, new Float32Array(512));
+    now = 12_700;
+    capturedOptions.onFrameProcessed({ isSpeech: 0.1 }, new Float32Array(512));
     now = 12_789;
     capturedOptions.onSpeechEnd(new Float32Array(1600));
 
@@ -83,8 +88,7 @@ test('media track vad observer uses the supplied track and emits speech events',
       [
         'end',
         {
-          timestampMs: 12_789,
-          confirmationTimestampMs: 12_789,
+          timestampMs: 12_500,
           provider: 'vad-web',
           model: 'silero_vad_v5',
           audioDurationMs: 100,

@@ -33,8 +33,6 @@ export const OBSERVABILITY_ATTRS = {
   FRONTEND_AUDIO_PROBE: 'observability.frontend_audio.probe',
   FRONTEND_AUDIO_LEVEL: 'observability.frontend_audio.level',
   FRONTEND_AUDIO_REASON: 'observability.frontend_audio.reason',
-  FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS:
-    'observability.frontend_audio.confirmation_wall_time_unix_ms',
   FRONTEND_AUDIO_ERROR: 'observability.frontend_audio.error',
   VAD_PROVIDER: 'observability.vad.provider',
   VAD_MODEL: 'observability.vad.model',

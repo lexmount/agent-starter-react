@@ -169,8 +169,6 @@ export function useBrowserSourceClient(
                 [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
                 [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
                 [OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS]: event.audioDurationMs ?? null,
-                [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS]:
-                  event.confirmationTimestampMs ?? null,
               },
               { wallTimeUnixMs: event.timestampMs }
             );
