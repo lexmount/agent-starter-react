@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.mjs",
+    "sync:vad-assets": "node scripts/sync-vad-assets.js",
+    "postinstall": "node scripts/sync-vad-assets.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "debug:on": "node scripts/toggle-debug.js on",

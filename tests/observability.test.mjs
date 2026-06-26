@@ -225,6 +225,17 @@ test('browser source client publishes frontend audio observability events', asyn
   assert.match(source, /stop:\s*\(\) => Promise<void>/);
 });
 
+test('frontend vad observer defaults to local bundled assets', async () => {
+  const source = await readFile('lib/frontend-vad-observer.ts', 'utf8');
+
+  assert.match(source, /DEFAULT_VAD_ASSET_BASE_PATH = '\/vad-web\/'/);
+  assert.match(source, /DEFAULT_ONNX_WASM_BASE_PATH = '\/onnxruntime-web\/'/);
+  assert.doesNotMatch(source, /cdn\.jsdelivr/);
+  assert.match(source, /stop:\s*\(\) => Promise<void>/);
+  assert.match(source, /await vad\.pause\?\.\(\)/);
+  assert.match(source, /await vad\.destroy\?\.\(\)/);
+});
+
 test('room hook publishes room connected frontend observability event', async () => {
   const source = await readFile('hooks/useRoom.ts', 'utf8');
 

@@ -42,8 +42,8 @@ interface MediaTrackVadObserverOptions {
 
 const VAD_SAMPLE_RATE = 16_000;
 const VAD_MODEL = 'silero_vad_v5';
-const DEFAULT_VAD_ASSET_BASE_PATH = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/';
-const DEFAULT_ONNX_WASM_BASE_PATH = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
+const DEFAULT_VAD_ASSET_BASE_PATH = '/vad-web/';
+const DEFAULT_ONNX_WASM_BASE_PATH = '/onnxruntime-web/';
 
 export async function startMediaTrackVadObserver({
   mediaStreamTrack,
@@ -53,9 +53,9 @@ export async function startMediaTrackVadObserver({
   now = () => Date.now(),
   baseAssetPath = DEFAULT_VAD_ASSET_BASE_PATH,
   onnxWASMBasePath = DEFAULT_ONNX_WASM_BASE_PATH,
-}: MediaTrackVadObserverOptions): Promise<{ stop: () => void }> {
+}: MediaTrackVadObserverOptions): Promise<{ stop: () => Promise<void> }> {
   if (typeof MediaStream === 'undefined') {
-    return { stop: () => {} };
+    return { stop: async () => {} };
   }
 
   const mediaStream = new MediaStream([mediaStreamTrack]);
@@ -86,16 +86,19 @@ export async function startMediaTrackVadObserver({
     },
   });
   let stopped = false;
-  const stop = () => {
+  const stop = async () => {
     if (stopped) return;
     stopped = true;
-    mediaStreamTrack.removeEventListener('ended', stop);
-    void vad.pause?.();
-    void vad.destroy?.();
+    mediaStreamTrack.removeEventListener('ended', handleTrackEnded);
+    await vad.pause?.();
+    await vad.destroy?.();
+  };
+  const handleTrackEnded = () => {
+    void stop();
   };
 
   await vad.start();
-  mediaStreamTrack.addEventListener('ended', stop, { once: true });
+  mediaStreamTrack.addEventListener('ended', handleTrackEnded, { once: true });
 
   return {
     stop,

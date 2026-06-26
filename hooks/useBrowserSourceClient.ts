@@ -40,7 +40,7 @@ interface BrowserSourceRuntime {
   videoStatsStartedAt: number | null;
   videoStatsTimer: number | null;
   previousVideoStats: BrowserVideoStatsSnapshot | null;
-  audioObserverStop: (() => void) | null;
+  audioObserverStop: (() => Promise<void>) | null;
 }
 
 interface BrowserVideoStatsSnapshot {
@@ -270,7 +270,7 @@ export function useBrowserSourceClient(
       if (!track) return;
 
       await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
-      stopObservedAudio?.();
+      await stopObservedAudio?.();
       track.stop();
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNPUBLISHED, {
         'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,

@@ -58,6 +58,8 @@ test('media track vad observer uses the supplied track and emits speech events',
     assert.deepEqual(stream.tracks, [track]);
     assert.equal(capturedOptions.model, 'v5');
     assert.equal(capturedOptions.startOnLoad, false);
+    assert.equal(capturedOptions.baseAssetPath, '/vad-web/');
+    assert.equal(capturedOptions.onnxWASMBasePath, '/onnxruntime-web/');
     await capturedOptions.pauseStream(stream);
     assert.equal(sourceTrackStopCount, 0);
     assert.equal(await capturedOptions.resumeStream(stream), stream);
@@ -91,8 +93,7 @@ test('media track vad observer uses the supplied track and emits speech events',
     ]);
 
     assert.equal(typeof endedListener, 'function');
-    endedListener();
-    observer.stop();
+    await observer.stop();
     assert.equal(pauseCount, 1);
     assert.equal(destroyCount, 1);
     assert.equal(endedListener, undefined);
