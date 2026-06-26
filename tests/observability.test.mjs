@@ -245,6 +245,14 @@ test('frontend vad observer defaults to local bundled assets', async () => {
   assert.match(source, /await vad\.destroy\?\.\(\)/);
 });
 
+test('package scripts sync local vad assets before install and build', async () => {
+  const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+
+  assert.equal(packageJson.scripts['sync:vad-assets'], 'node scripts/sync-vad-assets.js');
+  assert.equal(packageJson.scripts.postinstall, 'node scripts/sync-vad-assets.js');
+  assert.equal(packageJson.scripts.prebuild, 'node scripts/sync-vad-assets.js');
+});
+
 test('frontend audio observer reuses shared observability attribute types', async () => {
   const source = await readFile('lib/frontend-audio-observer.ts', 'utf8');
 
