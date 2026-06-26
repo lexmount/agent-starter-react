@@ -123,9 +123,9 @@ export function useBrowserSourceClient(
     const vadAttributes: Record<string, string | number | boolean | null> = {
       [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'input',
       [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
-      'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
-      'livekit.track_sid': null,
-      'livekit.stream_name': browserMediaStreamName,
+      [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+      [OBSERVABILITY_ATTRS.TRACK_SID]: null,
+      [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
     };
     const { audioTrack, captureTrack } = await createDirectBrowserAudioTrack();
     audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
@@ -141,11 +141,11 @@ export function useBrowserSourceClient(
       runtime.audioCaptureTrack = captureTrack;
       runtime.audioPublication = publication;
       runtime.audioObserverStop = null;
-      vadAttributes['livekit.track_sid'] = publication.trackSid || null;
+      vadAttributes[OBSERVABILITY_ATTRS.TRACK_SID] = publication.trackSid || null;
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_PUBLISHED, {
-        'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
-        'livekit.track_sid': publication.trackSid || null,
-        'livekit.stream_name': browserMediaStreamName,
+        [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+        [OBSERVABILITY_ATTRS.TRACK_SID]: publication.trackSid || null,
+        [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
       });
       if (appConfig.observabilityEnabled) {
         void startMediaTrackVadObserver({
@@ -189,7 +189,7 @@ export function useBrowserSourceClient(
             }
             console.warn('[browser-audio] VAD observer unavailable', error);
             recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE, {
-              'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
+              [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
               [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
               [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
                 error instanceof Error ? error.message : String(error),
@@ -273,8 +273,8 @@ export function useBrowserSourceClient(
       await stopObservedAudio?.();
       track.stop();
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNPUBLISHED, {
-        'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
-        'livekit.track_sid': publication?.trackSid || null,
+        [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+        [OBSERVABILITY_ATTRS.TRACK_SID]: publication?.trackSid || null,
       });
     },
     [recordFrontendObservability, room]
@@ -368,7 +368,7 @@ export function useBrowserSourceClient(
             syncBrowserAudioEnabled(runtime, true);
             await runtime.audioTrack.unmute();
             recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNMUTED, {
-              'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
+              [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
             });
           } else {
             await ensureAudioPublished();
@@ -377,7 +377,7 @@ export function useBrowserSourceClient(
           syncBrowserAudioEnabled(runtime, false);
           await runtime.audioTrack.mute();
           recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_MUTED, {
-            'livekit.track_name': BROWSER_AUDIO_TRACK_NAME,
+            [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
           });
         }
       } catch (error) {

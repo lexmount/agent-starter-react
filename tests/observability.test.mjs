@@ -60,6 +60,7 @@ test('frontend observability exports shared event protocol constants', () => {
   assert.equal(OBSERVABILITY_ATTRS.TRACK_NAME, 'livekit.track_name');
   assert.equal(OBSERVABILITY_ATTRS.TRACK_SID, 'livekit.track_sid');
   assert.equal(OBSERVABILITY_ATTRS.TRACK_SOURCE, 'livekit.track_source');
+  assert.equal(OBSERVABILITY_ATTRS.TRACK_STREAM_NAME, 'livekit.stream_name');
 });
 
 test('frontend observability publishes livekit data packet payload', async () => {
@@ -228,6 +229,12 @@ test('browser source client publishes frontend audio observability events', asyn
   assert.match(source, /OBSERVABILITY_ATTRS\.VAD_MODEL/);
   assert.match(source, /OBSERVABILITY_ATTRS\.VAD_AUDIO_DURATION_MS/);
   assert.match(source, /OBSERVABILITY_ATTRS\.FRONTEND_AUDIO_CONFIRMATION_WALL_TIME_UNIX_MS/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_NAME/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_SID/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_STREAM_NAME/);
+  assert.doesNotMatch(source, /'livekit\.track_name'/);
+  assert.doesNotMatch(source, /'livekit\.track_sid'/);
+  assert.doesNotMatch(source, /'livekit\.stream_name'/);
   assert.match(source, /'vad-web'/);
   assert.doesNotMatch(source, /startMediaTrackTailObserver/);
   assert.doesNotMatch(source, /BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT/);

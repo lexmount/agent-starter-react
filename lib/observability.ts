@@ -42,6 +42,7 @@ export const OBSERVABILITY_ATTRS = {
   TRACK_NAME: 'livekit.track_name',
   TRACK_SID: 'livekit.track_sid',
   TRACK_SOURCE: 'livekit.track_source',
+  TRACK_STREAM_NAME: 'livekit.stream_name',
 } as const;
 
 export const FRONTEND_OBSERVABILITY_TOPIC = OBSERVABILITY_EVENT_TYPES.FRONTEND_EVENT;
