@@ -57,6 +57,9 @@ test('frontend observability exports shared event protocol constants', () => {
   assert.equal(OBSERVABILITY_ATTRS.VAD_PROVIDER, 'observability.vad.provider');
   assert.equal(OBSERVABILITY_ATTRS.VAD_MODEL, 'observability.vad.model');
   assert.equal(OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS, 'observability.vad.audio_duration_ms');
+  assert.equal(OBSERVABILITY_ATTRS.TRACK_NAME, 'livekit.track_name');
+  assert.equal(OBSERVABILITY_ATTRS.TRACK_SID, 'livekit.track_sid');
+  assert.equal(OBSERVABILITY_ATTRS.TRACK_SOURCE, 'livekit.track_source');
 });
 
 test('frontend observability publishes livekit data packet payload', async () => {
@@ -201,7 +204,13 @@ test('remote audio observer uses protocol identity field with documented fallbac
 
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_NAME/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_SID/);
+  assert.match(source, /OBSERVABILITY_ATTRS\.TRACK_SOURCE/);
   assert.doesNotMatch(source, /marker\.attributes\['livekit\.participant'\]/);
+  assert.doesNotMatch(source, /'livekit\.track_name'/);
+  assert.doesNotMatch(source, /'livekit\.track_sid'/);
+  assert.doesNotMatch(source, /'livekit\.track_source'/);
   assert.match(source, /canonical backend marker field -> legacy field -> LiveKit sender/);
 });
 
@@ -234,6 +243,13 @@ test('frontend vad observer defaults to local bundled assets', async () => {
   assert.match(source, /stop:\s*\(\) => Promise<void>/);
   assert.match(source, /await vad\.pause\?\.\(\)/);
   assert.match(source, /await vad\.destroy\?\.\(\)/);
+});
+
+test('frontend audio observer reuses shared observability attribute types', async () => {
+  const source = await readFile('lib/frontend-audio-observer.ts', 'utf8');
+
+  assert.match(source, /type ObservabilityAttributes/);
+  assert.doesNotMatch(source, /type ObservabilityAttribute =/);
 });
 
 test('room hook publishes room connected frontend observability event', async () => {

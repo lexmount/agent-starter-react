@@ -134,9 +134,9 @@ export function RemoteAudioPlaybackObserver({
           attributes: () => ({
             [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'output',
             [OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY]: participantIdentity,
-            'livekit.track_name': trackName,
-            'livekit.track_sid': publication.trackSid,
-            'livekit.track_source': String(publication.source),
+            [OBSERVABILITY_ATTRS.TRACK_NAME]: trackName,
+            [OBSERVABILITY_ATTRS.TRACK_SID]: publication.trackSid,
+            [OBSERVABILITY_ATTRS.TRACK_SOURCE]: String(publication.source),
             ...activeSegmentAttributes(participantIdentity),
           }),
           startThreshold: 0.012,

@@ -1,4 +1,4 @@
-import { OBSERVABILITY_ATTRS } from '@/lib/observability';
+import { OBSERVABILITY_ATTRS, type ObservabilityAttributes } from '@/lib/observability';
 
 type AudioActivityReason = 'silence' | 'stop';
 
@@ -25,8 +25,6 @@ interface AudioActivityDetectorOptions {
   endSilenceMs?: number;
 }
 
-type ObservabilityAttribute = string | number | boolean | null;
-type ObservabilityAttributes = Record<string, ObservabilityAttribute>;
 type MediaTrackAudioObserverAttributes = ObservabilityAttributes | (() => ObservabilityAttributes);
 
 declare global {

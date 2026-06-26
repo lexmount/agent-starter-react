@@ -39,13 +39,16 @@ export const OBSERVABILITY_ATTRS = {
   VAD_PROVIDER: 'observability.vad.provider',
   VAD_MODEL: 'observability.vad.model',
   VAD_AUDIO_DURATION_MS: 'observability.vad.audio_duration_ms',
+  TRACK_NAME: 'livekit.track_name',
+  TRACK_SID: 'livekit.track_sid',
+  TRACK_SOURCE: 'livekit.track_source',
 } as const;
 
 export const FRONTEND_OBSERVABILITY_TOPIC = OBSERVABILITY_EVENT_TYPES.FRONTEND_EVENT;
 export const BACKEND_OBSERVABILITY_MARKER_TOPIC = OBSERVABILITY_EVENT_TYPES.BACKEND_MARKER;
 
 export type ObservabilityAttribute = string | number | boolean | null;
-type ObservabilityAttributes = Record<string, ObservabilityAttribute>;
+export type ObservabilityAttributes = Record<string, ObservabilityAttribute>;
 
 export interface BackendObservabilityMarker {
   name: string;
