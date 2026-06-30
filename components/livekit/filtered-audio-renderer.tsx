@@ -281,7 +281,6 @@ export function FilteredAudioRenderer({
     const cleanup = () => {
       Array.from(audioElements.keys()).forEach((elementKey) => removeAudioElement(elementKey));
       pendingPlayback.clear();
-      playbackObserverStops.clear();
       activePlaybackSources.clear();
       outputSegments.clear();
       void sharedAudioContextRef.current?.close?.().catch(() => undefined);
@@ -348,9 +347,10 @@ export function FilteredAudioRenderer({
           );
         };
         const handleElementPlaybackError = () => {
+          const playbackSource = activePlaybackSources.get(elementKey);
           stopPlaybackObserver(elementKey);
           recordPlaybackError(
-            diagnostics,
+            playbackSource?.diagnostics ?? diagnostics,
             'audio-element-error',
             createdAudioElement.error ?? new Error('audio element playback failed')
           );

@@ -243,6 +243,11 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(source, /addEventListener\('playing', handleElementPlaybackStarted\)/);
   assert.match(source, /activePlaybackSources\.get\(elementKey\)/);
+  assert.match(
+    source,
+    /const handleElementPlaybackError = \(\) => \{[\s\S]*const playbackSource = activePlaybackSources\.get\(elementKey\);[\s\S]*recordPlaybackError\(\s*playbackSource\?\.diagnostics \?\? diagnostics,/
+  );
+  assert.doesNotMatch(source, /playbackObserverStops\.clear\(\)/);
   assert.match(source, /parseBackendObservabilityMarkerPayload/);
   assert.match(source, /outputSegmentAttributesFromMarker/);
   assert.match(source, /if \(observabilityEnabled\) \{\s*room\.on\(RoomEvent\.DataReceived/);
