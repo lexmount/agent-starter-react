@@ -199,6 +199,9 @@ test('media track audio observer emits resume failure when configured', async ()
   const originalMediaStream = globalThis.MediaStream;
   const originalConsoleWarn = console.warn;
   const events = [];
+  let clearIntervalCount = 0;
+  let closeCount = 0;
+  let disconnectCount = 0;
   const track = {
     addEventListener() {},
     removeEventListener() {},
@@ -217,7 +220,9 @@ test('media track audio observer emits resume failure when configured', async ()
     createMediaStreamSource() {
       return {
         connect() {},
-        disconnect() {},
+        disconnect() {
+          disconnectCount += 1;
+        },
       };
     }
 
@@ -226,6 +231,7 @@ test('media track audio observer emits resume failure when configured', async ()
     }
 
     close() {
+      closeCount += 1;
       return Promise.resolve();
     }
   }
@@ -237,8 +243,10 @@ test('media track audio observer emits resume failure when configured', async ()
   };
   globalThis.window = {
     AudioContext: FakeAudioContext,
-    setInterval,
-    clearInterval,
+    setInterval: () => 123,
+    clearInterval: () => {
+      clearIntervalCount += 1;
+    },
   };
   console.warn = () => {};
 
@@ -263,6 +271,9 @@ test('media track audio observer emits resume failure when configured', async ()
       'audio-context-resume-failed'
     );
     assert.equal(events[0][1]['observability.frontend_audio.error'], 'resume blocked');
+    assert.equal(clearIntervalCount, 1);
+    assert.equal(disconnectCount, 1);
+    assert.equal(closeCount, 1);
   } finally {
     console.warn = originalConsoleWarn;
     globalThis.window = originalWindow;

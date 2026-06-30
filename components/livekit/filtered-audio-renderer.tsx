@@ -170,7 +170,12 @@ export function FilteredAudioRenderer({
   const pendingPlaybackRef = useRef<Map<string, PendingPlayback>>(new Map());
   const playbackObserverStopsRef = useRef<Map<string, () => void>>(new Map());
   const outputSegmentsRef = useRef<Map<string, Record<string, ObservabilityAttribute>>>(new Map());
+  const activePlaybackSourcesRef = useRef<Map<string, PendingPlayback>>(new Map());
   const sharedAudioContextRef = useRef<AudioContext | null>(null);
+  const observabilityEnabledRef = useRef(false);
+  const recordFrontendObservabilityRef = useRef<
+    (name: string, attributes?: Record<string, ObservabilityAttribute>) => void
+  >(() => {});
   const recordFrontendObservability = useCallback(
     (name: string, attributes?: Record<string, ObservabilityAttribute>) => {
       void publishFrontendObservabilityEvent({
@@ -184,6 +189,58 @@ export function FilteredAudioRenderer({
     },
     [observabilityEnabled, room]
   );
+  observabilityEnabledRef.current = !!observabilityEnabled;
+  recordFrontendObservabilityRef.current = recordFrontendObservability;
+
+  useEffect(() => {
+    if (observabilityEnabled) {
+      return;
+    }
+
+    playbackObserverStopsRef.current.forEach((stop) => stop());
+    playbackObserverStopsRef.current.clear();
+    outputSegmentsRef.current.clear();
+    void sharedAudioContextRef.current?.close?.().catch(() => undefined);
+    sharedAudioContextRef.current = null;
+  }, [observabilityEnabled]);
+
+  useEffect(() => {
+    if (!room) return;
+    const outputSegments = outputSegmentsRef.current;
+    if (!observabilityEnabled) {
+      outputSegments.clear();
+      return;
+    }
+
+    const onDataReceived = (
+      payload: Uint8Array,
+      participant?: { identity?: string },
+      _kind?: unknown,
+      topic?: string
+    ) => {
+      const marker = parseBackendObservabilityMarkerPayload(payload, topic);
+      if (!marker) {
+        return;
+      }
+      const attributes = outputSegmentAttributesFromMarker(marker);
+      // Fallback order: canonical backend marker field -> legacy field -> LiveKit sender.
+      const markerParticipant = String(
+        marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY] ||
+          marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY_LEGACY] ||
+          participant?.identity ||
+          ''
+      ).trim();
+      if (!markerParticipant || !attributes[OBSERVABILITY_ATTRS.OUTPUT_SEGMENT_ID]) {
+        return;
+      }
+      outputSegments.set(participantSegmentKey(markerParticipant), attributes);
+    };
+
+    room.on(RoomEvent.DataReceived, onDataReceived);
+    return () => {
+      room.off(RoomEvent.DataReceived, onDataReceived);
+    };
+  }, [room, observabilityEnabled]);
 
   useEffect(() => {
     if (!room) return;
@@ -192,7 +249,7 @@ export function FilteredAudioRenderer({
     const pendingPlayback = pendingPlaybackRef.current;
     const playbackObserverStops = playbackObserverStopsRef.current;
     const outputSegments = outputSegmentsRef.current;
-    const activePlaybackSources = new Map<string, PendingPlayback>();
+    const activePlaybackSources = activePlaybackSourcesRef.current;
     const audioElementListenerCleanups = new Map<string, () => void>();
     const getSharedAudioContext = () => {
       if (sharedAudioContextRef.current && sharedAudioContextRef.current.state !== 'closed') {
@@ -228,7 +285,7 @@ export function FilteredAudioRenderer({
       error: unknown
     ) => {
       const { name, message } = describePlaybackError(error);
-      recordFrontendObservability(FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ERROR, {
+      recordFrontendObservabilityRef.current(FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ERROR, {
         ...playbackAttributes(diagnostics),
         [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_REASON]: trigger,
         [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]: `${name}: ${message}`,
@@ -239,7 +296,7 @@ export function FilteredAudioRenderer({
       diagnostics: AudioTrackDiagnostics,
       mediaStreamTrack: MediaStreamTrack
     ) => {
-      if (!observabilityEnabled) {
+      if (!observabilityEnabledRef.current) {
         return;
       }
       stopPlaybackObserver(elementKey);
@@ -512,35 +569,8 @@ export function FilteredAudioRenderer({
       outputSegments.delete(participantSegmentKey(participant.identity));
     };
 
-    const onDataReceived = (
-      payload: Uint8Array,
-      participant?: { identity?: string },
-      _kind?: unknown,
-      topic?: string
-    ) => {
-      const marker = parseBackendObservabilityMarkerPayload(payload, topic);
-      if (!marker) {
-        return;
-      }
-      const attributes = outputSegmentAttributesFromMarker(marker);
-      // Fallback order: canonical backend marker field -> legacy field -> LiveKit sender.
-      const markerParticipant = String(
-        marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY] ||
-          marker.attributes[OBSERVABILITY_ATTRS.PARTICIPANT_IDENTITY_LEGACY] ||
-          participant?.identity ||
-          ''
-      ).trim();
-      if (!markerParticipant || !attributes[OBSERVABILITY_ATTRS.OUTPUT_SEGMENT_ID]) {
-        return;
-      }
-      outputSegments.set(participantSegmentKey(markerParticipant), attributes);
-    };
-
     room.on(RoomEvent.ParticipantConnected, onParticipantConnected);
     room.on(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
-    if (observabilityEnabled) {
-      room.on(RoomEvent.DataReceived, onDataReceived);
-    }
 
     return () => {
       cleanup();
@@ -550,20 +580,9 @@ export function FilteredAudioRenderer({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       room.off(RoomEvent.ParticipantConnected, onParticipantConnected);
       room.off(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
-      if (observabilityEnabled) {
-        room.off(RoomEvent.DataReceived, onDataReceived);
-      }
       participantListenerCleanups.forEach((cleanupListener) => cleanupListener());
     };
-  }, [
-    room,
-    participants,
-    excludeTrackNames,
-    volume,
-    debugAudio,
-    observabilityEnabled,
-    recordFrontendObservability,
-  ]);
+  }, [room, participants, excludeTrackNames, volume, debugAudio]);
 
   // 更新音量
   useEffect(() => {

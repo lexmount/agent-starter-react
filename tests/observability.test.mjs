@@ -243,8 +243,9 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(
     source,
-    /const startPlaybackObserver = \([\s\S]*if \(!observabilityEnabled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startMediaTrackAudioObserver/
+    /const startPlaybackObserver = \([\s\S]*if \(!observabilityEnabledRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startMediaTrackAudioObserver/
   );
+  assert.match(source, /recordFrontendObservabilityRef\.current/);
   assert.match(source, /addEventListener\('playing', handleElementPlaybackStarted\)/);
   assert.match(source, /activePlaybackSources\.get\(elementKey\)/);
   assert.match(
@@ -254,7 +255,14 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.doesNotMatch(source, /playbackObserverStops\.clear\(\)/);
   assert.match(source, /parseBackendObservabilityMarkerPayload/);
   assert.match(source, /outputSegmentAttributesFromMarker/);
-  assert.match(source, /if \(observabilityEnabled\) \{\s*room\.on\(RoomEvent\.DataReceived/);
+  assert.match(
+    source,
+    /if \(!observabilityEnabled\) \{[\s\S]*outputSegments\.clear\(\);[\s\S]*return;[\s\S]*\}[\s\S]*room\.on\(RoomEvent\.DataReceived/
+  );
+  assert.doesNotMatch(
+    source,
+    /room,\s*participants,\s*excludeTrackNames,\s*volume,\s*debugAudio,\s*observabilityEnabled/
+  );
   assert.doesNotMatch(source, /startsWith\(prefix\)/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
