@@ -243,6 +243,10 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(
     source,
+    /emit: \(name, attributes\) => recordFrontendObservabilityRef\.current\(name, attributes\)/
+  );
+  assert.match(
+    source,
     /const startPlaybackObserver = \([\s\S]*if \(!observabilityEnabledRef\.current\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startMediaTrackAudioObserver/
   );
   assert.match(source, /recordFrontendObservabilityRef\.current/);
@@ -305,6 +309,8 @@ test('browser source client publishes frontend audio observability events', asyn
     source,
     /try \{[\s\S]*await stopObservedAudio\?\.\(\);[\s\S]*\} catch \(error\) \{[\s\S]*VAD observer stop failed[\s\S]*\} finally \{[\s\S]*track\.stop\(\);[\s\S]*FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_UNPUBLISHED/
   );
+  assert.doesNotMatch(source, /audioCaptureTrack/);
+  assert.doesNotMatch(source, /syncBrowserAudioEnabled/);
 });
 
 test('frontend vad observer defaults to local bundled assets', async () => {

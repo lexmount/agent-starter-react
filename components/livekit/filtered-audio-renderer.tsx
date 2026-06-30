@@ -307,7 +307,7 @@ export function FilteredAudioRenderer({
           startEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_STARTED,
           endEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ENDED,
           resumeErrorEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ERROR,
-          emit: recordFrontendObservability,
+          emit: (name, attributes) => recordFrontendObservabilityRef.current(name, attributes),
           sharedAudioContext: getSharedAudioContext(),
           attributes: () => playbackAttributes(diagnostics),
           startThreshold: 0.012,

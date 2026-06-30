@@ -31,7 +31,6 @@ const BROWSER_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
 
 interface BrowserSourceRuntime {
   audioTrack: LocalAudioTrack | null;
-  audioCaptureTrack: MediaStreamTrack | null;
   videoTrack: LocalVideoTrack | null;
   audioPublication: LocalTrackPublication | null;
   videoPublication: LocalTrackPublication | null;
@@ -127,9 +126,9 @@ export function useBrowserSourceClient(
       [OBSERVABILITY_ATTRS.TRACK_SID]: null,
       [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
     };
-    const { audioTrack, captureTrack } = await createDirectBrowserAudioTrack();
+    const audioTrack = await createDirectBrowserAudioTrack();
+    const captureTrack = audioTrack.mediaStreamTrack;
     audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
-    captureTrack.enabled = runtime.audioEnabled;
 
     try {
       const publication = await room.localParticipant.publishTrack(audioTrack, {
@@ -138,7 +137,6 @@ export function useBrowserSourceClient(
         stream: browserMediaStreamName,
       });
       runtime.audioTrack = audioTrack;
-      runtime.audioCaptureTrack = captureTrack;
       runtime.audioPublication = publication;
       runtime.audioObserverStop = null;
       vadAttributes[OBSERVABILITY_ATTRS.TRACK_SID] = publication.trackSid || null;
@@ -175,14 +173,14 @@ export function useBrowserSourceClient(
           },
         })
           .then((observer) => {
-            if (runtime.audioTrack === audioTrack && runtime.audioCaptureTrack === captureTrack) {
+            if (runtime.audioTrack === audioTrack) {
               runtime.audioObserverStop = observer.stop;
               return;
             }
             observer.stop();
           })
           .catch((error) => {
-            if (runtime.audioTrack !== audioTrack || runtime.audioCaptureTrack !== captureTrack) {
+            if (runtime.audioTrack !== audioTrack) {
               return;
             }
             console.warn('[browser-audio] VAD observer unavailable', error);
@@ -262,7 +260,6 @@ export function useBrowserSourceClient(
       const publication = runtime.audioPublication;
       const stopObservedAudio = runtime.audioObserverStop;
       runtime.audioTrack = null;
-      runtime.audioCaptureTrack = null;
       runtime.audioPublication = null;
       runtime.audioObserverStop = null;
       if (!track) return;
@@ -313,7 +310,6 @@ export function useBrowserSourceClient(
 
     runtimeRef.current = {
       audioTrack: null,
-      audioCaptureTrack: null,
       videoTrack: null,
       audioPublication: null,
       videoPublication: null,
@@ -368,7 +364,7 @@ export function useBrowserSourceClient(
         runtime.audioEnabled = nextEnabled;
         if (nextEnabled) {
           if (runtime.audioTrack) {
-            syncBrowserAudioEnabled(runtime, true);
+            syncTrackEnabled(runtime.audioTrack, true);
             await runtime.audioTrack.unmute();
             recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNMUTED, {
               [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
@@ -377,7 +373,7 @@ export function useBrowserSourceClient(
             await ensureAudioPublished();
           }
         } else if (runtime.audioTrack) {
-          syncBrowserAudioEnabled(runtime, false);
+          syncTrackEnabled(runtime.audioTrack, false);
           await runtime.audioTrack.mute();
           recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_MUTED, {
             [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
@@ -395,7 +391,7 @@ export function useBrowserSourceClient(
           ) {
             await unpublishAudio(runtime);
           } else {
-            syncBrowserAudioEnabled(runtime, previousRuntimeEnabled);
+            syncTrackEnabled(runtime.audioTrack, previousRuntimeEnabled);
           }
         }
         throw error;
@@ -489,25 +485,8 @@ export function useBrowserSourceClient(
   );
 }
 
-async function createDirectBrowserAudioTrack(): Promise<{
-  audioTrack: LocalAudioTrack;
-  captureTrack: MediaStreamTrack;
-}> {
-  const audioTrack = await createLocalAudioTrack(BROWSER_AUDIO_CONSTRAINTS);
-  return {
-    audioTrack,
-    captureTrack: audioTrack.mediaStreamTrack,
-  };
-}
-
-function syncBrowserAudioEnabled(runtime: BrowserSourceRuntime, enabled: boolean) {
-  syncTrackEnabled(runtime.audioTrack, enabled);
-  if (
-    runtime.audioCaptureTrack &&
-    runtime.audioCaptureTrack !== runtime.audioTrack?.mediaStreamTrack
-  ) {
-    runtime.audioCaptureTrack.enabled = enabled;
-  }
+async function createDirectBrowserAudioTrack(): Promise<LocalAudioTrack> {
+  return createLocalAudioTrack(BROWSER_AUDIO_CONSTRAINTS);
 }
 
 function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {
