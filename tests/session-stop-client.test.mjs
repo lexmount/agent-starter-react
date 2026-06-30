@@ -71,6 +71,69 @@ test('agent session stop sends only canonical session id to Next API', async () 
   }
 });
 
+test('agent session stop releases gateway sandbox sessions on public paths', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.deepEqual(calls, [
+      { url: '/api/session/stop', method: 'POST' },
+      { url: '/s/abc123/release', method: 'POST' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('agent session stop skips gateway release outside public sandbox paths', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.deepEqual(calls, [{ url: '/api/session/stop', method: 'POST' }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
 test('clears visible stop pending while keeping start gated during worker settle', async () => {
   const originalFetch = globalThis.fetch;
   const originalSetTimeout = globalThis.setTimeout;

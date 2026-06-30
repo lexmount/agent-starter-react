@@ -4,6 +4,7 @@ let stopRequestPending = false;
 let stopRequestPendingCount = 0;
 const stopListeners = new Set<() => void>();
 const DEFAULT_STOP_SETTLE_MS = 0;
+const GATEWAY_SESSION_PREFIX = '/s';
 
 type ActiveAgentSession = {
   roomName: string;
@@ -64,16 +65,52 @@ async function sendAgentSessionStop(
   sessionId: string,
   options: AgentSessionStopOptions = {}
 ): Promise<void> {
-  const response = await fetch('/api/session/stop', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, wait: options.waitForRemote }),
-    keepalive: true,
-  });
+  try {
+    const response = await fetch('/api/session/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, wait: options.waitForRemote }),
+      keepalive: true,
+    });
 
-  if (!response.ok) {
-    throw new Error(`agent session stop failed: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`agent session stop failed: ${response.status}`);
+    }
+  } finally {
+    await sendGatewaySessionRelease();
   }
+}
+
+async function sendGatewaySessionRelease(): Promise<void> {
+  const releasePath = resolveGatewaySessionReleasePath();
+  if (!releasePath) {
+    return;
+  }
+
+  try {
+    const response = await fetch(releasePath, {
+      method: 'POST',
+      keepalive: true,
+    });
+    if (!response.ok) {
+      console.warn(`Failed to release gateway sandbox session: ${response.status}`);
+    }
+  } catch (error: unknown) {
+    console.warn('Failed to release gateway sandbox session', error);
+  }
+}
+
+function resolveGatewaySessionReleasePath(): string {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const pathname = window.location?.pathname || '';
+  const prefix = `${GATEWAY_SESSION_PREFIX}/`;
+  if (!pathname.startsWith(prefix)) {
+    return '';
+  }
+  const slug = pathname.slice(prefix.length).split('/')[0] || '';
+  return slug ? `${prefix}${encodeURIComponent(slug)}/release` : '';
 }
 
 async function waitForAgentWorkerSettle(): Promise<void> {
