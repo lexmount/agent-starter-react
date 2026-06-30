@@ -43,6 +43,7 @@ test('frontend observability exports shared event protocol constants', () => {
     FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_STARTED,
     'frontend.reply_audio.playback_started'
   );
+  assert.equal(FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ERROR, 'frontend.reply_audio.playback_error');
   assert.equal(
     FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_ENDED,
     'frontend.browser_audio.vad_speech_ended'
@@ -177,17 +178,17 @@ test('frontend observability rejects backend markers on the wrong topic', () => 
   assert.equal(marker, null);
 });
 
-test('app mounts remote audio playback observability when enabled', async () => {
+test('app routes playback observability through the filtered audio renderer', async () => {
   const source = await readFile('components/app/app.tsx', 'utf8');
 
-  assert.match(source, /RemoteAudioPlaybackObserver/);
+  assert.match(source, /FilteredAudioRenderer/);
   assert.match(source, /observabilityEnabled=\{appConfig\.observabilityEnabled\}/);
+  assert.doesNotMatch(source, /RemoteAudioPlaybackObserver/);
 });
 
 test('track exclusion helpers ignore empty exclude names', async () => {
   const sources = await Promise.all(
     [
-      'components/livekit/remote-audio-playback-observer.tsx',
       'components/livekit/filtered-audio-renderer.tsx',
       'hooks/useAudioTrackFilter.ts',
       'hooks/useExcludedVideoTracks.ts',
@@ -200,10 +201,19 @@ test('track exclusion helpers ignore empty exclude names', async () => {
   }
 });
 
-test('remote audio observer uses protocol identity field with documented fallback', async () => {
-  const source = await readFile('components/livekit/remote-audio-playback-observer.tsx', 'utf8');
+test('filtered audio renderer reports real element playback with backend marker context', async () => {
+  const source = await readFile('components/livekit/filtered-audio-renderer.tsx', 'utf8');
 
-  assert.match(source, /observerKeysByParticipant/);
+  assert.match(source, /audioElement\.play\(\)/);
+  assert.match(
+    source,
+    /playPromise[\s\S]*\.then\(\(\) => \{[\s\S]*startPlaybackObserver\(elementKey, diagnostics, mediaStreamTrack\)/
+  );
+  assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_STARTED/);
+  assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ENDED/);
+  assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
+  assert.match(source, /parseBackendObservabilityMarkerPayload/);
+  assert.match(source, /outputSegmentAttributesFromMarker/);
   assert.doesNotMatch(source, /startsWith\(prefix\)/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
@@ -242,6 +252,10 @@ test('browser source client publishes frontend audio observability events', asyn
   assert.doesNotMatch(source, /startMediaTrackTailObserver/);
   assert.doesNotMatch(source, /BROWSER_AUDIO_LAST_ACTIVE_FRAME_SENT/);
   assert.match(source, /stop:\s*\(\) => Promise<void>/);
+  assert.match(
+    source,
+    /try \{[\s\S]*await stopObservedAudio\?\.\(\);[\s\S]*\} catch \(error\) \{[\s\S]*VAD observer stop failed[\s\S]*\} finally \{[\s\S]*track\.stop\(\);[\s\S]*FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_UNPUBLISHED/
+  );
 });
 
 test('frontend vad observer defaults to local bundled assets', async () => {

@@ -268,12 +268,17 @@ export function useBrowserSourceClient(
       if (!track) return;
 
       await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
-      await stopObservedAudio?.();
-      track.stop();
-      recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNPUBLISHED, {
-        [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
-        [OBSERVABILITY_ATTRS.TRACK_SID]: publication?.trackSid || null,
-      });
+      try {
+        await stopObservedAudio?.();
+      } catch (error) {
+        console.warn('[browser-audio] VAD observer stop failed', error);
+      } finally {
+        track.stop();
+        recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNPUBLISHED, {
+          [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+          [OBSERVABILITY_ATTRS.TRACK_SID]: publication?.trackSid || null,
+        });
+      }
     },
     [recordFrontendObservability, room]
   );

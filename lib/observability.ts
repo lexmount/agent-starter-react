@@ -14,6 +14,7 @@ export const FRONTEND_EVENTS = {
   BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE: 'frontend.browser_audio.vad_probe_unavailable',
   REPLY_AUDIO_PLAYBACK_STARTED: 'frontend.reply_audio.playback_started',
   REPLY_AUDIO_PLAYBACK_ENDED: 'frontend.reply_audio.playback_ended',
+  REPLY_AUDIO_PLAYBACK_ERROR: 'frontend.reply_audio.playback_error',
 } as const;
 
 export const BACKEND_MARKERS = {
