@@ -5,6 +5,7 @@ import { toastAlert } from '@/components/livekit/alert-toast';
 import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getVoiceSessionId, resetVoiceSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
+import { isValidConnectionRoomId } from '@/lib/connection-room-id';
 import { waitForRoomDisconnected } from '@/lib/room-disconnect';
 import {
   AgentSessionDispatchCancelledError,
@@ -37,6 +38,13 @@ export function useRoom(appConfig: AppConfig) {
   const browserSourceClient = useBrowserSourceClient(room, appConfig, {
     onVideoError: handleBrowserVideoError,
   });
+  const resolveVoiceSessionId = useCallback(() => {
+    const configuredSessionId = appConfig.voiceSessionId?.trim();
+    if (isValidConnectionRoomId(configuredSessionId)) {
+      return configuredSessionId;
+    }
+    return getVoiceSessionId();
+  }, [appConfig.voiceSessionId]);
 
   useEffect(() => {
     function onDisconnected() {
@@ -78,7 +86,7 @@ export function useRoom(appConfig: AppConfig) {
         );
 
         try {
-          const sessionId = sessionIdRef.current ?? getVoiceSessionId();
+          const sessionId = sessionIdRef.current ?? resolveVoiceSessionId();
           sessionIdRef.current = sessionId;
 
           const res = await fetch(url.toString(), {
@@ -100,7 +108,7 @@ export function useRoom(appConfig: AppConfig) {
           throw new Error('Error fetching connection details!');
         }
       }),
-    [appConfig]
+    [appConfig, resolveVoiceSessionId]
   );
 
   const startSession = useCallback(async () => {
@@ -113,7 +121,7 @@ export function useRoom(appConfig: AppConfig) {
       return;
     }
 
-    const sessionId = getVoiceSessionId();
+    const sessionId = resolveVoiceSessionId();
     sessionIdRef.current = sessionId;
     let dispatchSessionId: string | null = sessionId;
     let connectedRoomName: string | null = null;
@@ -208,7 +216,7 @@ export function useRoom(appConfig: AppConfig) {
     } catch (error) {
       await handleStartError(error);
     }
-  }, [room, appConfig, tokenSource, browserSourceClient]);
+  }, [room, appConfig, tokenSource, browserSourceClient, resolveVoiceSessionId]);
 
   const endSession = useCallback(() => {
     browserSourceClient.stop();

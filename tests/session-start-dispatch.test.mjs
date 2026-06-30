@@ -157,7 +157,9 @@ test('start call dispatches the agent with a cancellable room session id', async
     '';
 
   assert.match(useRoomSource, /const startSession = useCallback\(async \(\) =>/);
-  assert.match(useRoomSource, /const sessionId = getVoiceSessionId\(\)/);
+  assert.match(useRoomSource, /const sessionId = resolveVoiceSessionId\(\)/);
+  assert.match(useRoomSource, /appConfig\.voiceSessionId/);
+  assert.match(useRoomSource, /isValidConnectionRoomId\(configuredSessionId\)/);
   assert.doesNotMatch(dispatchAgentSessionSource, /crypto\.randomUUID\(\)/);
   assert.match(useRoomSource, /beginAgentSessionStart/);
   assert.match(useRoomSource, /registerAgentSessionDispatch/);
