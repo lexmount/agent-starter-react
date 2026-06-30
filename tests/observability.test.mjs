@@ -241,6 +241,10 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ENDED/);
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
+  assert.match(
+    source,
+    /const startPlaybackObserver = \([\s\S]*if \(!observabilityEnabled\) \{[\s\S]*return;[\s\S]*\}[\s\S]*startMediaTrackAudioObserver/
+  );
   assert.match(source, /addEventListener\('playing', handleElementPlaybackStarted\)/);
   assert.match(source, /activePlaybackSources\.get\(elementKey\)/);
   assert.match(

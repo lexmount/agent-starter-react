@@ -239,6 +239,9 @@ export function FilteredAudioRenderer({
       diagnostics: AudioTrackDiagnostics,
       mediaStreamTrack: MediaStreamTrack
     ) => {
+      if (!observabilityEnabled) {
+        return;
+      }
       stopPlaybackObserver(elementKey);
       playbackObserverStops.set(
         elementKey,
