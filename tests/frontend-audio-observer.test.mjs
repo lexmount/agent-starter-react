@@ -193,3 +193,79 @@ test('media track audio observer leaves caller-owned AudioContext open', () => {
     globalThis.MediaStream = originalMediaStream;
   }
 });
+
+test('media track audio observer emits resume failure when configured', async () => {
+  const originalWindow = globalThis.window;
+  const originalMediaStream = globalThis.MediaStream;
+  const originalConsoleWarn = console.warn;
+  const events = [];
+  const track = {
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  class FakeAudioContext {
+    createAnalyser() {
+      return {
+        fftSize: 0,
+        getFloatTimeDomainData(samples) {
+          samples.fill(0);
+        },
+      };
+    }
+
+    createMediaStreamSource() {
+      return {
+        connect() {},
+        disconnect() {},
+      };
+    }
+
+    resume() {
+      return Promise.reject(new Error('resume blocked'));
+    }
+
+    close() {
+      return Promise.resolve();
+    }
+  }
+
+  globalThis.MediaStream = class FakeMediaStream {
+    constructor(tracks) {
+      this.tracks = tracks;
+    }
+  };
+  globalThis.window = {
+    AudioContext: FakeAudioContext,
+    setInterval,
+    clearInterval,
+  };
+  console.warn = () => {};
+
+  try {
+    const observer = startMediaTrackAudioObserver({
+      mediaStreamTrack: track,
+      startEventName: 'start',
+      endEventName: 'end',
+      resumeErrorEventName: 'resume-error',
+      emit: (name, attributes) => events.push([name, attributes]),
+      attributes: { 'livekit.track_sid': 'TR_A' },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    observer.stop();
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0][0], 'resume-error');
+    assert.equal(events[0][1]['livekit.track_sid'], 'TR_A');
+    assert.equal(
+      events[0][1]['observability.frontend_audio.reason'],
+      'audio-context-resume-failed'
+    );
+    assert.equal(events[0][1]['observability.frontend_audio.error'], 'resume blocked');
+  } finally {
+    console.warn = originalConsoleWarn;
+    globalThis.window = originalWindow;
+    globalThis.MediaStream = originalMediaStream;
+  }
+});

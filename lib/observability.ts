@@ -55,6 +55,8 @@ export interface BackendObservabilityMarker {
   attributes: ObservabilityAttributes;
 }
 
+const MAX_BACKEND_MARKER_NAME_LENGTH = 128;
+
 type PublishableRoom = {
   name?: string;
   localParticipant?: {
@@ -147,6 +149,9 @@ export function parseBackendObservabilityMarkerPayload(
   if (!name.startsWith('backend.')) {
     return null;
   }
+  if (name.length > MAX_BACKEND_MARKER_NAME_LENGTH) {
+    return null;
+  }
 
   return {
     name,
@@ -177,6 +182,9 @@ export function outputSegmentAttributesFromMarker(
 
 function sanitizeObservabilityAttributes(value: unknown): ObservabilityAttributes {
   if (!value || typeof value !== 'object') {
+    return {};
+  }
+  if (Array.isArray(value)) {
     return {};
   }
   const output: ObservabilityAttributes = {};

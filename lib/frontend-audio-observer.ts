@@ -37,6 +37,7 @@ interface MediaTrackAudioObserverOptions {
   mediaStreamTrack: MediaStreamTrack;
   startEventName: string;
   endEventName: string;
+  resumeErrorEventName?: string;
   emit: (name: string, attributes?: ObservabilityAttributes) => void;
   sharedAudioContext?: AudioContext;
   attributes?: MediaTrackAudioObserverAttributes;
@@ -117,6 +118,7 @@ export function startMediaTrackAudioObserver({
   mediaStreamTrack,
   startEventName,
   endEventName,
+  resumeErrorEventName,
   emit,
   sharedAudioContext,
   attributes = {},
@@ -158,6 +160,14 @@ export function startMediaTrackAudioObserver({
   const intervalId = window.setInterval(() => detector.sample(), sampleIntervalMs);
   void audioContext.resume?.().catch((error) => {
     console.warn('[frontend-observability] audio observer could not resume AudioContext', error);
+    if (resumeErrorEventName) {
+      emit(resumeErrorEventName, {
+        ...resolveAttributes(attributes),
+        [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_REASON]: 'audio-context-resume-failed',
+        [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
+          error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   let stopped = false;

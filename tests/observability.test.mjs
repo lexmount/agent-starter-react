@@ -164,6 +164,34 @@ test('frontend observability parses backend output segment markers', () => {
   });
 });
 
+test('frontend observability rejects oversized backend marker names', () => {
+  const marker = parseBackendObservabilityMarkerPayload(
+    JSON.stringify({
+      schema_version: 1,
+      type: 'observability.backend_marker',
+      name: `backend.${'x'.repeat(122)}`,
+      attributes: {},
+    }),
+    BACKEND_OBSERVABILITY_MARKER_TOPIC
+  );
+
+  assert.equal(marker, null);
+});
+
+test('frontend observability rejects array backend marker attributes', () => {
+  const marker = parseBackendObservabilityMarkerPayload(
+    JSON.stringify({
+      schema_version: 1,
+      type: 'observability.backend_marker',
+      name: 'backend.output_audio.segment_started',
+      attributes: ['unexpected'],
+    }),
+    BACKEND_OBSERVABILITY_MARKER_TOPIC
+  );
+
+  assert.deepEqual(marker?.attributes, {});
+});
+
 test('frontend observability rejects backend markers on the wrong topic', () => {
   const marker = parseBackendObservabilityMarkerPayload(
     JSON.stringify({
@@ -212,6 +240,7 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_STARTED/);
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ENDED/);
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
+  assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(source, /parseBackendObservabilityMarkerPayload/);
   assert.match(source, /outputSegmentAttributesFromMarker/);
   assert.doesNotMatch(source, /startsWith\(prefix\)/);

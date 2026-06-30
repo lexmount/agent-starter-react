@@ -245,6 +245,7 @@ export function FilteredAudioRenderer({
           mediaStreamTrack,
           startEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_STARTED,
           endEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ENDED,
+          resumeErrorEventName: FRONTEND_EVENTS.REPLY_AUDIO_PLAYBACK_ERROR,
           emit: recordFrontendObservability,
           sharedAudioContext: getSharedAudioContext(),
           attributes: () => playbackAttributes(diagnostics),
