@@ -5,10 +5,12 @@ let stopRequestPendingCount = 0;
 const stopListeners = new Set<() => void>();
 const DEFAULT_STOP_SETTLE_MS = 0;
 const GATEWAY_SESSION_PREFIX = '/s';
+const GATEWAY_RELEASE_TIMEOUT_MS = 5000;
 
 type ActiveAgentSession = {
   roomName: string;
   sessionId: string;
+  gatewayReleasePath: string;
   abortController: AbortController;
   dispatchPromise: Promise<void>;
 };
@@ -63,7 +65,8 @@ function endStopRequestPending() {
 
 async function sendAgentSessionStop(
   sessionId: string,
-  options: AgentSessionStopOptions = {}
+  options: AgentSessionStopOptions = {},
+  gatewayReleasePath = ''
 ): Promise<void> {
   try {
     const response = await fetch('/api/session/stop', {
@@ -77,12 +80,12 @@ async function sendAgentSessionStop(
       throw new Error(`agent session stop failed: ${response.status}`);
     }
   } finally {
-    await sendGatewaySessionRelease();
+    await sendGatewaySessionRelease(gatewayReleasePath);
   }
 }
 
-async function sendGatewaySessionRelease(): Promise<void> {
-  const releasePath = resolveGatewaySessionReleasePath();
+async function sendGatewaySessionRelease(gatewayReleasePath = ''): Promise<void> {
+  const releasePath = gatewayReleasePath || resolveGatewaySessionReleasePath();
   if (!releasePath) {
     return;
   }
@@ -91,6 +94,7 @@ async function sendGatewaySessionRelease(): Promise<void> {
     const response = await fetch(releasePath, {
       method: 'POST',
       keepalive: true,
+      signal: createGatewayReleaseTimeoutSignal(),
     });
     if (!response.ok) {
       console.warn(`Failed to release gateway sandbox session: ${response.status}`);
@@ -98,6 +102,18 @@ async function sendGatewaySessionRelease(): Promise<void> {
   } catch (error: unknown) {
     console.warn('Failed to release gateway sandbox session', error);
   }
+}
+
+function createGatewayReleaseTimeoutSignal(): AbortSignal | undefined {
+  if (typeof AbortSignal === 'undefined') {
+    return undefined;
+  }
+  const timeout = (
+    AbortSignal as typeof AbortSignal & {
+      timeout?: (milliseconds: number) => AbortSignal;
+    }
+  ).timeout;
+  return typeof timeout === 'function' ? timeout(GATEWAY_RELEASE_TIMEOUT_MS) : undefined;
 }
 
 function resolveGatewaySessionReleasePath(): string {
@@ -124,10 +140,11 @@ async function waitForAgentWorkerSettle(): Promise<void> {
 
 async function sendAgentSessionStopAndSettle(
   sessionId: string,
-  options: AgentSessionStopOptions = {}
+  options: AgentSessionStopOptions = {},
+  gatewayReleasePath = ''
 ): Promise<void> {
   try {
-    await sendAgentSessionStop(sessionId, options);
+    await sendAgentSessionStop(sessionId, options, gatewayReleasePath);
   } finally {
     endStopRequestPending();
     await waitForAgentWorkerSettle();
@@ -137,9 +154,10 @@ async function sendAgentSessionStopAndSettle(
 
 function sendAgentSessionStopInBackground(
   sessionId: string,
-  options: AgentSessionStopOptions = {}
+  options: AgentSessionStopOptions = {},
+  gatewayReleasePath = ''
 ): void {
-  void sendAgentSessionStop(sessionId, options).catch((error: unknown) => {
+  void sendAgentSessionStop(sessionId, options, gatewayReleasePath).catch((error: unknown) => {
     console.warn('Failed to stop remote agent session', error);
   });
   clearActiveAgentSession(sessionId);
@@ -189,6 +207,7 @@ export function beginAgentSessionStart(roomName: string, sessionId: string): Abo
   activeStart = {
     roomName: normalizedRoomName,
     sessionId: normalizedSessionId,
+    gatewayReleasePath: resolveGatewaySessionReleasePath(),
     abortController,
     dispatchPromise: Promise.resolve(),
   };
@@ -256,17 +275,21 @@ export async function requestAgentSessionStop(
     return waitForAgentSessionStop();
   }
 
+  const gatewayReleasePath =
+    activeStart?.sessionId === normalizedSessionId
+      ? activeStart.gatewayReleasePath
+      : resolveGatewaySessionReleasePath();
   cancelAgentSessionStart(normalizedSessionId);
   clearActiveAgentSession(normalizedSessionId);
   if (options.waitForRemote === false) {
-    sendAgentSessionStopInBackground(normalizedSessionId, options);
+    sendAgentSessionStopInBackground(normalizedSessionId, options, gatewayReleasePath);
     return waitForAgentSessionStop();
   }
 
   beginStopRequestPending();
   const stopPromise = pendingStopPromise
     .catch(() => undefined)
-    .then(() => sendAgentSessionStopAndSettle(normalizedSessionId, options));
+    .then(() => sendAgentSessionStopAndSettle(normalizedSessionId, options, gatewayReleasePath));
   pendingStopPromise = stopPromise
     .catch(() => undefined)
     .then(() => pendingStartPromise.catch(() => undefined));

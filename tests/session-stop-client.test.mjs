@@ -104,6 +104,163 @@ test('agent session stop releases gateway sandbox sessions on public paths', asy
   }
 });
 
+test('agent session stop adds a timeout to gateway release requests', async () => {
+  const originalAbortSignal = globalThis.AbortSignal;
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const releaseSignal = { name: 'release-signal' };
+  const calls = [];
+  let timeoutMs;
+  globalThis.AbortSignal = {
+    timeout(ms) {
+      timeoutMs = ms;
+      return releaseSignal;
+    },
+  };
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method, signal: init.signal });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.equal(timeoutMs, 5000);
+    assert.deepEqual(calls, [
+      { url: '/api/session/stop', method: 'POST', signal: undefined },
+      { url: '/s/abc123/release', method: 'POST', signal: releaseSignal },
+    ]);
+  } finally {
+    globalThis.AbortSignal = originalAbortSignal;
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('agent session stop uses gateway release path cached at session start', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { beginAgentSessionStart, requestAgentSessionStop } = await loadSessionStopClientModule();
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+
+    beginAgentSessionStart('room-a', sessionId);
+    globalThis.window.location.pathname = '/not-a-sandbox-route';
+
+    await requestAgentSessionStop(sessionId);
+
+    assert.deepEqual(calls, [
+      { url: '/api/session/stop', method: 'POST' },
+      { url: '/s/abc123/release', method: 'POST' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('background agent session stop releases gateway sandbox sessions', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { beginAgentSessionStart, requestAgentSessionStop } = await loadSessionStopClientModule();
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+
+    beginAgentSessionStart('room-a', sessionId);
+    await requestAgentSessionStop(sessionId, { waitForRemote: false });
+    for (let i = 0; i < 8 && calls.length < 2; i++) {
+      await Promise.resolve();
+    }
+
+    assert.deepEqual(calls, [
+      { url: '/api/session/stop', method: 'POST' },
+      { url: '/s/abc123/release', method: 'POST' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('agent session stop warns when gateway release returns a non-2xx response', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const originalWindow = globalThis.window;
+  const warnings = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  console.warn = (...args) => {
+    warnings.push(args);
+  };
+  globalThis.fetch = async (url) => {
+    if (url === '/s/abc123/release') {
+      return { ok: false, status: 503 };
+    }
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.equal(warnings.length, 1);
+    assert.deepEqual(warnings[0], ['Failed to release gateway sandbox session: 503']);
+  } finally {
+    console.warn = originalWarn;
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
 test('agent session stop skips gateway release outside public sandbox paths', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
