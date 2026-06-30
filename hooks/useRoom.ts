@@ -134,8 +134,13 @@ export function useRoom(appConfig: AppConfig) {
 
     const recoverFromStartError = async (error: unknown) => {
       const startError = error instanceof Error ? error : new Error(String(error));
-      await browserSourceClient.stop();
-      room.disconnect();
+      try {
+        await browserSourceClient.stop();
+      } catch (stopError) {
+        console.warn('Failed to stop browser source after start failure', stopError);
+      } finally {
+        room.disconnect();
+      }
       if (connectedRoomName) {
         try {
           await requestAgentSessionStop(dispatchSessionId ?? sessionIdRef.current ?? undefined, {
@@ -227,11 +232,16 @@ export function useRoom(appConfig: AppConfig) {
   }, [room, appConfig, tokenSource, browserSourceClient, recordFrontendObservability]);
 
   const endSession = useCallback(async () => {
-    await browserSourceClient.stop();
-    room.disconnect();
-    resetVoiceSessionId();
-    sessionIdRef.current = null;
-    setIsSessionActive(false);
+    try {
+      await browserSourceClient.stop();
+    } catch (error) {
+      console.warn('Failed to stop browser source while ending session', error);
+    } finally {
+      room.disconnect();
+      resetVoiceSessionId();
+      sessionIdRef.current = null;
+      setIsSessionActive(false);
+    }
   }, [browserSourceClient, room]);
   const getCurrentSessionId = useCallback(() => sessionIdRef.current, []);
 

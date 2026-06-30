@@ -241,8 +241,11 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ENDED/);
   assert.match(source, /FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
   assert.match(source, /resumeErrorEventName: FRONTEND_EVENTS\.REPLY_AUDIO_PLAYBACK_ERROR/);
+  assert.match(source, /addEventListener\('playing', handleElementPlaybackStarted\)/);
+  assert.match(source, /activePlaybackSources\.get\(elementKey\)/);
   assert.match(source, /parseBackendObservabilityMarkerPayload/);
   assert.match(source, /outputSegmentAttributesFromMarker/);
+  assert.match(source, /if \(observabilityEnabled\) \{\s*room\.on\(RoomEvent\.DataReceived/);
   assert.doesNotMatch(source, /startsWith\(prefix\)/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY/);
   assert.match(source, /OBSERVABILITY_ATTRS\.PARTICIPANT_IDENTITY_LEGACY/);
@@ -318,4 +321,12 @@ test('room hook publishes room connected frontend observability event', async ()
 
   assert.match(source, /FRONTEND_EVENTS\.ROOM_CONNECTED/);
   assert.match(source, /publishFrontendObservabilityEvent/);
+  assert.match(
+    source,
+    /const recoverFromStartError = async[\s\S]*try \{[\s\S]*await browserSourceClient\.stop\(\);[\s\S]*\} catch \(stopError\)[\s\S]*\} finally \{[\s\S]*room\.disconnect\(\);[\s\S]*\}/
+  );
+  assert.match(
+    source,
+    /const endSession = useCallback\(async \(\) => \{[\s\S]*try \{[\s\S]*await browserSourceClient\.stop\(\);[\s\S]*\} catch \(error\)[\s\S]*\} finally \{[\s\S]*room\.disconnect\(\);[\s\S]*resetVoiceSessionId\(\);[\s\S]*setIsSessionActive\(false\);[\s\S]*\}/
+  );
 });

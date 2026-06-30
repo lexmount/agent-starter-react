@@ -192,6 +192,7 @@ export function FilteredAudioRenderer({
     const pendingPlayback = pendingPlaybackRef.current;
     const playbackObserverStops = playbackObserverStopsRef.current;
     const outputSegments = outputSegmentsRef.current;
+    const activePlaybackSources = new Map<string, PendingPlayback>();
     const audioElementListenerCleanups = new Map<string, () => void>();
     const getSharedAudioContext = () => {
       if (sharedAudioContextRef.current && sharedAudioContextRef.current.state !== 'closed') {
@@ -260,12 +261,14 @@ export function FilteredAudioRenderer({
       const audioElement = audioElements.get(elementKey);
       if (!audioElement) {
         pendingPlayback.delete(elementKey);
+        activePlaybackSources.delete(elementKey);
         stopPlaybackObserver(elementKey);
         return;
       }
 
       audioElementListenerCleanups.get(elementKey)?.();
       audioElementListenerCleanups.delete(elementKey);
+      activePlaybackSources.delete(elementKey);
       stopPlaybackObserver(elementKey);
       audioElement.pause();
       audioElement.srcObject = null;
@@ -279,6 +282,7 @@ export function FilteredAudioRenderer({
       Array.from(audioElements.keys()).forEach((elementKey) => removeAudioElement(elementKey));
       pendingPlayback.clear();
       playbackObserverStops.clear();
+      activePlaybackSources.clear();
       outputSegments.clear();
       void sharedAudioContextRef.current?.close?.().catch(() => undefined);
       sharedAudioContextRef.current = null;
@@ -293,6 +297,7 @@ export function FilteredAudioRenderer({
       const trackName = publication.trackName || publication.trackSid;
       const elementKey = `${participantIdentity}-${trackName}`;
       const diagnostics = buildAudioTrackDiagnostics(publication, participantIdentity);
+      const mediaStreamTrack = publication.track.mediaStreamTrack;
 
       debugAudioLog(debugAudio, '[FilteredAudioRenderer] 收到音频轨道订阅', diagnostics);
 
@@ -330,6 +335,18 @@ export function FilteredAudioRenderer({
         const handleElementPlaybackStopped = () => {
           stopPlaybackObserver(elementKey);
         };
+        const handleElementPlaybackStarted = () => {
+          const playbackSource = activePlaybackSources.get(elementKey);
+          if (!playbackSource || playbackObserverStops.has(elementKey)) {
+            return;
+          }
+          pendingPlayback.delete(elementKey);
+          startPlaybackObserver(
+            elementKey,
+            playbackSource.diagnostics,
+            playbackSource.mediaStreamTrack
+          );
+        };
         const handleElementPlaybackError = () => {
           stopPlaybackObserver(elementKey);
           recordPlaybackError(
@@ -338,10 +355,12 @@ export function FilteredAudioRenderer({
             createdAudioElement.error ?? new Error('audio element playback failed')
           );
         };
+        createdAudioElement.addEventListener('playing', handleElementPlaybackStarted);
         createdAudioElement.addEventListener('pause', handleElementPlaybackStopped);
         createdAudioElement.addEventListener('ended', handleElementPlaybackStopped);
         createdAudioElement.addEventListener('error', handleElementPlaybackError);
         audioElementListenerCleanups.set(elementKey, () => {
+          createdAudioElement.removeEventListener('playing', handleElementPlaybackStarted);
           createdAudioElement.removeEventListener('pause', handleElementPlaybackStopped);
           createdAudioElement.removeEventListener('ended', handleElementPlaybackStopped);
           createdAudioElement.removeEventListener('error', handleElementPlaybackError);
@@ -357,7 +376,12 @@ export function FilteredAudioRenderer({
       }
 
       // 设置音频流
-      const mediaStream = new MediaStream([publication.track.mediaStreamTrack]);
+      activePlaybackSources.set(elementKey, {
+        element: audioElement,
+        diagnostics,
+        mediaStreamTrack,
+      });
+      const mediaStream = new MediaStream([mediaStreamTrack]);
       audioElement.srcObject = mediaStream;
       audioElement.volume = volume;
 
@@ -372,7 +396,7 @@ export function FilteredAudioRenderer({
         debugAudio,
         elementKey,
         diagnostics,
-        mediaStreamTrack: publication.track.mediaStreamTrack,
+        mediaStreamTrack,
         pendingPlayback,
         recordPlaybackError,
         startPlaybackObserver,
@@ -511,7 +535,9 @@ export function FilteredAudioRenderer({
 
     room.on(RoomEvent.ParticipantConnected, onParticipantConnected);
     room.on(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
-    room.on(RoomEvent.DataReceived, onDataReceived);
+    if (observabilityEnabled) {
+      room.on(RoomEvent.DataReceived, onDataReceived);
+    }
 
     return () => {
       cleanup();
@@ -521,10 +547,20 @@ export function FilteredAudioRenderer({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       room.off(RoomEvent.ParticipantConnected, onParticipantConnected);
       room.off(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
-      room.off(RoomEvent.DataReceived, onDataReceived);
+      if (observabilityEnabled) {
+        room.off(RoomEvent.DataReceived, onDataReceived);
+      }
       participantListenerCleanups.forEach((cleanupListener) => cleanupListener());
     };
-  }, [room, participants, excludeTrackNames, volume, debugAudio, recordFrontendObservability]);
+  }, [
+    room,
+    participants,
+    excludeTrackNames,
+    volume,
+    debugAudio,
+    observabilityEnabled,
+    recordFrontendObservability,
+  ]);
 
   // 更新音量
   useEffect(() => {
