@@ -35,16 +35,25 @@ test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('https://livekit.example'), 'https://livekit.example');
 });
 
-test('session stop route does not call the room-input control endpoint', async () => {
+test('session stop route can call the room-input control endpoint before deleting the room', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
     'utf8'
   );
 
-  assert.doesNotMatch(routeSource, /process\.env\.ROOM_INPUT_URL/);
-  assert.doesNotMatch(routeSource, /resolveRoomInputStopUrl/);
-  assert.doesNotMatch(routeSource, /stopRoomInput/);
-  assert.doesNotMatch(routeSource, /GENERIC_CAMERA_PARTICIPANT_URL/);
+  const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
+
+  assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
+  assert.match(routeSource, /readStopEnv\('ROOM_INPUT_URL'\)/);
+  assert.match(routeSource, /resolveRoomInputStopUrls/);
+  assert.match(routeSource, /stopRoomInput/);
+  assert.match(routeSource, /FRONTDESK_INPUT_PARTICIPANT_URL/);
+  assert.match(routeSource, /FACE_SERVICE_URL/);
+  assert.match(routeSource, /GENERIC_CAMERA_PARTICIPANT_URL/);
+  assert.match(
+    cleanupSource,
+    /const roomInputResults = await stopRoomInput\(roomName, sessionId\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
+  );
 });
 
 test('session stop route cancels room session before remote cleanup', async () => {
@@ -84,6 +93,7 @@ test('session stop route deletes the LiveKit room after the dispatch barrier', a
   );
 
   assert.match(routeSource, /await waitForPendingDispatches\(roomName, sessionId\)/);
+  assert.match(routeSource, /await stopRoomInput\(roomName, sessionId\)/);
   assert.match(routeSource, /deleteLiveKitRoom\(roomName\)/);
 });
 
@@ -105,7 +115,7 @@ test('session stop route waits for local agent worker readiness before finishing
   assert.match(cleanupSource, /await waitForLocalAgentWorkerReadiness\(\)/);
   assert.match(
     cleanupSource,
-    /const cleanupResults = \[dispatchBarrierResult, liveKitRoomResult, agentWorkerReadinessResult\]/
+    /const cleanupResults = \[\s*dispatchBarrierResult,\s*\.\.\.roomInputResults,\s*liveKitRoomResult,\s*agentWorkerReadinessResult,\s*\]/
   );
 });
 
@@ -147,6 +157,7 @@ test('session stop route closes the registry even when remote cleanup is partial
 
   assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
   assert.match(cleanupSource, /const failures = results\.filter/);
+  assert.match(cleanupSource, /result\.fatal !== false/);
   assert.match(
     cleanupSource,
     /markRoomSessionStopped\(roomName, sessionId\);\s*return \{ results, failures \};/
