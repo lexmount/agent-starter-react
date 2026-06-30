@@ -8,7 +8,10 @@ import {
   deriveSessionIdFromLiveKitRoomName,
   isValidConnectionRoomId,
 } from '@/lib/connection-room-id';
-import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
+import {
+  resolveRoomInputStopUrls as resolveConfiguredRoomInputStopUrls,
+  resolveLiveKitHttpUrl,
+} from '@/lib/session-stop';
 import {
   markRoomSessionStopped,
   markRoomSessionStopping,
@@ -140,71 +143,28 @@ function shouldStopRoomInput(): boolean {
   return shouldWaitForLocalAgentWorkerReadiness();
 }
 
-function normalizeRoomInputControlUrl(rawUrl: string, action: 'start' | 'stop'): string {
-  const value = rawUrl.trim();
-  if (!value) {
-    return '';
-  }
-
-  try {
-    const url = new URL(value);
-    const pathname = url.pathname.replace(/\/+$/, '');
-    const otherAction = action === 'stop' ? 'start' : 'stop';
-    if (pathname.endsWith(`/${otherAction}`)) {
-      url.pathname = `${pathname.slice(0, -1 * (otherAction.length + 1))}/${action}`;
-    } else if (!pathname.endsWith(`/${action}`)) {
-      url.pathname = `${pathname}/${action}`;
-    }
-    url.search = '';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    const withoutTrailingSlash = value.replace(/\/+$/, '');
-    if (withoutTrailingSlash.endsWith(`/${action}`)) {
-      return withoutTrailingSlash;
-    }
-
-    const otherAction = action === 'stop' ? 'start' : 'stop';
-    if (withoutTrailingSlash.endsWith(`/${otherAction}`)) {
-      return `${withoutTrailingSlash.slice(0, -1 * (otherAction.length + 1))}/${action}`;
-    }
-    return `${withoutTrailingSlash}/${action}`;
-  }
-}
-
 function resolveRoomInputStopUrls(): string[] {
   if (!shouldStopRoomInput()) {
     return [];
   }
 
-  const inputSource = readStopInputSource();
-  const candidateUrls = [
-    readStopEnv('ROOM_AUDIO_INPUT_URL'),
-    readStopEnv('ROOM_VISION_INPUT_URL'),
-    readStopEnv('ROOM_INPUT_URL'),
-  ];
-
-  if (inputSource === 'xunfei' || inputSource === 'mixed') {
-    candidateUrls.push(
-      readStopEnv('FRONTDESK_INPUT_PARTICIPANT_URL'),
-      readStopEnv('FACE_SERVICE_URL')
-    );
-  }
-  if (inputSource === 'generic' || inputSource === 'mixed') {
-    candidateUrls.push(readStopEnv('GENERIC_CAMERA_PARTICIPANT_URL'));
-  }
-  if (inputSource === 'primebot' || inputSource === 'mixed') {
-    candidateUrls.push(readStopEnv('PRIMEBOT_INPUT_PARTICIPANT_URL'));
-  }
-
-  const urls = new Set<string>();
-  for (const candidate of candidateUrls) {
-    const stopUrl = normalizeRoomInputControlUrl(candidate, 'stop');
-    if (stopUrl) {
-      urls.add(stopUrl);
-    }
-  }
-  return [...urls];
+  return resolveConfiguredRoomInputStopUrls({
+    inputSource: readStopInputSource(),
+    audioInputDevice: readStopRoleDevice(
+      'ROOM_AUDIO_INPUT_DEVICE',
+      'NEXT_PUBLIC_ROOM_AUDIO_INPUT_DEVICE'
+    ),
+    visionInputDevice: readStopRoleDevice(
+      'ROOM_VISION_INPUT_DEVICE',
+      'NEXT_PUBLIC_ROOM_VISION_INPUT_DEVICE'
+    ),
+    roomAudioInputUrl: readStopEnv('ROOM_AUDIO_INPUT_URL'),
+    roomVisionInputUrl: readStopEnv('ROOM_VISION_INPUT_URL'),
+    roomInputUrl: readStopEnv('ROOM_INPUT_URL'),
+    frontdeskInputParticipantUrl: readStopEnv('FRONTDESK_INPUT_PARTICIPANT_URL'),
+    faceServiceUrl: readStopEnv('FACE_SERVICE_URL'),
+    genericCameraParticipantUrl: readStopEnv('GENERIC_CAMERA_PARTICIPANT_URL'),
+  });
 }
 
 function resolveLocalLiveKitServerLogPath(): string {

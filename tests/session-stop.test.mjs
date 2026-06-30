@@ -16,7 +16,7 @@ async function loadSessionStopModule() {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 }
 
-const { resolveLiveKitHttpUrl } = await loadSessionStopModule();
+const { resolveLiveKitHttpUrl, resolveRoomInputStopUrls } = await loadSessionStopModule();
 
 test('parses the latest target agent worker state from LiveKit server logs', () => {
   const source = [
@@ -33,6 +33,38 @@ test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('ws://localhost:7818'), 'http://localhost:7818');
   assert.equal(resolveLiveKitHttpUrl('wss://livekit.example'), 'https://livekit.example');
   assert.equal(resolveLiveKitHttpUrl('https://livekit.example'), 'https://livekit.example');
+});
+
+test('room input stop URL resolver ignores primebot non-server input', () => {
+  assert.deepEqual(
+    resolveRoomInputStopUrls({
+      inputSource: 'primebot',
+      roomInputUrl: 'http://room-input.local/start',
+      roomAudioInputUrl: 'http://audio.local/start',
+      roomVisionInputUrl: 'http://vision.local/start',
+      frontdeskInputParticipantUrl: 'http://xunfei.local/start',
+      faceServiceUrl: 'http://face.local/start',
+      genericCameraParticipantUrl: 'http://generic.local/start',
+    }),
+    []
+  );
+});
+
+test('room input stop URL resolver only stops selected mixed server roles', () => {
+  assert.deepEqual(
+    resolveRoomInputStopUrls({
+      inputSource: 'mixed',
+      audioInputDevice: 'xunfei',
+      visionInputDevice: 'browser',
+      roomAudioInputUrl: 'http://xunfei-audio.local/start',
+      roomVisionInputUrl: 'http://unused-vision.local/start',
+      roomInputUrl: 'http://fallback.local/start',
+      frontdeskInputParticipantUrl: 'http://frontdesk.local/start',
+      faceServiceUrl: 'http://face.local/start',
+      genericCameraParticipantUrl: 'http://generic.local/start',
+    }),
+    ['http://xunfei-audio.local/stop', 'http://frontdesk.local/stop', 'http://face.local/stop']
+  );
 });
 
 test('session stop route can call the room-input control endpoint before deleting the room', async () => {
