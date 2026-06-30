@@ -66,7 +66,7 @@ function endStopRequestPending() {
 async function sendAgentSessionStop(
   sessionId: string,
   options: AgentSessionStopOptions = {},
-  gatewayReleasePath = ''
+  gatewayReleasePath?: string
 ): Promise<void> {
   try {
     const response = await fetch('/api/session/stop', {
@@ -84,8 +84,8 @@ async function sendAgentSessionStop(
   }
 }
 
-async function sendGatewaySessionRelease(gatewayReleasePath = ''): Promise<void> {
-  const releasePath = gatewayReleasePath || resolveGatewaySessionReleasePath();
+async function sendGatewaySessionRelease(gatewayReleasePath?: string): Promise<void> {
+  const releasePath = gatewayReleasePath ?? resolveGatewaySessionReleasePath();
   if (!releasePath) {
     return;
   }
@@ -125,8 +125,15 @@ function resolveGatewaySessionReleasePath(): string {
   if (!pathname.startsWith(prefix)) {
     return '';
   }
-  const slug = pathname.slice(prefix.length).split('/')[0] || '';
-  return slug ? `${prefix}${encodeURIComponent(slug)}/release` : '';
+  const rawSlug = pathname.slice(prefix.length).split('/')[0] || '';
+  if (!rawSlug) {
+    return '';
+  }
+  try {
+    return `${prefix}${encodeURIComponent(decodeURIComponent(rawSlug))}/release`;
+  } catch {
+    return '';
+  }
 }
 
 async function waitForAgentWorkerSettle(): Promise<void> {
@@ -141,7 +148,7 @@ async function waitForAgentWorkerSettle(): Promise<void> {
 async function sendAgentSessionStopAndSettle(
   sessionId: string,
   options: AgentSessionStopOptions = {},
-  gatewayReleasePath = ''
+  gatewayReleasePath?: string
 ): Promise<void> {
   try {
     await sendAgentSessionStop(sessionId, options, gatewayReleasePath);
@@ -155,7 +162,7 @@ async function sendAgentSessionStopAndSettle(
 function sendAgentSessionStopInBackground(
   sessionId: string,
   options: AgentSessionStopOptions = {},
-  gatewayReleasePath = ''
+  gatewayReleasePath?: string
 ): void {
   void sendAgentSessionStop(sessionId, options, gatewayReleasePath).catch((error: unknown) => {
     console.warn('Failed to stop remote agent session', error);

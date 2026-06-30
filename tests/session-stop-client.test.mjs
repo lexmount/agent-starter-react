@@ -185,6 +185,73 @@ test('agent session stop uses gateway release path cached at session start', asy
   }
 });
 
+test('agent session stop preserves already encoded gateway slug segments', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/hello%20world/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.deepEqual(calls, [
+      { url: '/api/session/stop', method: 'POST' },
+      { url: '/s/hello%20world/release', method: 'POST' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('agent session stop does not fallback to current path when cached gateway release path is empty', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { beginAgentSessionStart, requestAgentSessionStop } = await loadSessionStopClientModule();
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+
+    beginAgentSessionStart('room-a', sessionId);
+    globalThis.window.location.pathname = '/s/abc123/live';
+
+    await requestAgentSessionStop(sessionId);
+
+    assert.deepEqual(calls, [{ url: '/api/session/stop', method: 'POST' }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
 test('background agent session stop releases gateway sandbox sessions', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
