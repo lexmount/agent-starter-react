@@ -1,6 +1,4 @@
-const DEFAULT_ROLE_INPUT_DEVICE = 'xunfei';
-const VALID_INPUT_DEVICES = new Set(['xunfei', 'generic', 'primebot', 'browser']);
-const SERVER_ROOM_INPUT_DEVICES = new Set(['xunfei', 'generic']);
+import { resolveRoleInputDevices, usesServerRoomInputDevice } from './input-device-config';
 
 export type RoomInputControlAction = 'start' | 'stop';
 
@@ -33,22 +31,6 @@ export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | unde
     return `http://${normalized.slice('ws://'.length)}`;
   }
   return normalized;
-}
-
-function normalizeInputSource(inputSource?: string | null): string {
-  const normalized = (inputSource || '').trim().toLowerCase();
-  return normalized || 'browser';
-}
-
-function normalizeRoleInputDevice(
-  inputDevice: string | null | undefined,
-  fallback: string
-): string {
-  const normalized = (inputDevice || '').trim().toLowerCase();
-  if (VALID_INPUT_DEVICES.has(normalized)) {
-    return normalized;
-  }
-  return fallback;
 }
 
 function addRoomInputStopUrl(urls: Set<string>, rawUrl?: string | null): void {
@@ -106,26 +88,23 @@ export function resolveRoomInputStopUrls({
   faceServiceUrl,
   genericCameraParticipantUrl,
 }: ResolveRoomInputStopUrlsOptions): string[] {
-  const normalizedInputSource = normalizeInputSource(inputSource);
-  const isMixedInputSource = normalizedInputSource === 'mixed';
-  const baseInputDevice = isMixedInputSource
-    ? DEFAULT_ROLE_INPUT_DEVICE
-    : normalizeRoleInputDevice(normalizedInputSource, DEFAULT_ROLE_INPUT_DEVICE);
-  const resolvedAudioInputDevice = isMixedInputSource
-    ? normalizeRoleInputDevice(audioInputDevice, baseInputDevice)
-    : baseInputDevice;
-  const resolvedVisionInputDevice = isMixedInputSource
-    ? normalizeRoleInputDevice(visionInputDevice, baseInputDevice)
-    : baseInputDevice;
+  const {
+    audioInputDevice: resolvedAudioInputDevice,
+    visionInputDevice: resolvedVisionInputDevice,
+  } = resolveRoleInputDevices({
+    inputSource,
+    audioInputDevice,
+    visionInputDevice,
+  });
 
   const urls = new Set<string>();
   const selectedServerDevices = new Set<string>();
 
-  if (SERVER_ROOM_INPUT_DEVICES.has(resolvedAudioInputDevice)) {
+  if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
     selectedServerDevices.add(resolvedAudioInputDevice);
     addRoomInputStopUrl(urls, roomAudioInputUrl || roomInputUrl);
   }
-  if (SERVER_ROOM_INPUT_DEVICES.has(resolvedVisionInputDevice)) {
+  if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
     selectedServerDevices.add(resolvedVisionInputDevice);
     addRoomInputStopUrl(urls, roomVisionInputUrl || roomInputUrl);
   }
