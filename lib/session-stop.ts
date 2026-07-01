@@ -8,6 +8,11 @@ export interface ResolveRoomInputStopUrlsOptions {
   inputSource?: string | null;
   audioInputDevice?: string | null;
   visionInputDevice?: string | null;
+  /**
+   * Room-input control URLs are configured as base endpoint paths. The
+   * normalizer intentionally strips query/hash fragments when switching
+   * between /start and /stop so stop calls do not inherit start-only params.
+   */
   roomAudioInputUrl?: string | null;
   roomVisionInputUrl?: string | null;
   roomInputUrl?: string | null;
@@ -71,6 +76,8 @@ export function normalizeRoomInputControlUrl(
     } else if (!pathname.endsWith(`/${action}`)) {
       url.pathname = `${pathname}/${action}`;
     }
+    // Control URLs are base endpoint paths; query/hash fragments are not part
+    // of the room-input stop contract and should not be carried across actions.
     url.search = '';
     url.hash = '';
     return url.toString();
