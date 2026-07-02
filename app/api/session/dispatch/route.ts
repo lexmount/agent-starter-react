@@ -157,11 +157,15 @@ async function createAgentDispatchWithRetry(
     try {
       throwIfSessionCancelled(session);
 
-      const alreadyJoined = await roomHasAgentParticipant(roomClient, roomName, agentName);
+      const alreadyJoined = await findAgentParticipant(roomClient, roomName, agentName);
       throwIfSessionCancelled(session);
       if (alreadyJoined) {
         markRoomSessionRunning(session);
-        return { attempts, alreadyJoined: true };
+        return {
+          attempts,
+          alreadyJoined: true,
+          agentParticipant: summarizeAgentParticipant(alreadyJoined),
+        };
       }
 
       const dispatch = await dispatchClient.createDispatch(roomName, agentName);
@@ -174,21 +178,24 @@ async function createAgentDispatchWithRetry(
         throw new RoomSessionCancelledError(session);
       }
 
-      if (
-        await waitForAgentParticipant(
-          roomClient,
-          roomName,
-          agentName,
-          remainingDispatchTime(startedAt),
-          session
-        )
-      ) {
+      const agentParticipant = await waitForAgentParticipant(
+        roomClient,
+        roomName,
+        agentName,
+        remainingDispatchTime(startedAt),
+        session
+      );
+      if (agentParticipant) {
         if (isRoomSessionCancelled(session)) {
           await deleteLiveKitRoomQuietly(roomClient, roomName);
           throw new RoomSessionCancelledError(session);
         }
         markRoomSessionRunning(session);
-        return { attempts, dispatchId: dispatch.id };
+        return {
+          attempts,
+          dispatchId: dispatch.id,
+          agentParticipant: summarizeAgentParticipant(agentParticipant),
+        };
       }
 
       lastError = new Error('agent participant did not join before retry');
@@ -231,17 +238,16 @@ async function waitForAgentParticipant(
   maxWaitMs: number,
   session: RoomSessionToken
 ) {
-  const deadline = Date.now() + Math.min(maxWaitMs, AGENT_DISPATCH_RETRY_MS);
+  const deadline = Date.now() + maxWaitMs;
 
   do {
     throwIfSessionCancelled(session);
-    if (
-      await roomHasAgentParticipant(roomClient, roomName, agentName, {
-        allowAnonymousLiveKitAgentFallback: true,
-      })
-    ) {
+    const participant = await findAgentParticipant(roomClient, roomName, agentName, {
+      allowAnonymousLiveKitAgentFallback: true,
+    });
+    if (participant) {
       throwIfSessionCancelled(session);
-      return true;
+      return participant;
     }
 
     const waitMs = Math.min(AGENT_DISPATCH_POLL_MS, deadline - Date.now());
@@ -251,33 +257,35 @@ async function waitForAgentParticipant(
   } while (Date.now() < deadline);
 
   throwIfSessionCancelled(session);
-  return roomHasAgentParticipant(roomClient, roomName, agentName, {
+  return findAgentParticipant(roomClient, roomName, agentName, {
     allowAnonymousLiveKitAgentFallback: true,
   });
 }
 
-async function roomHasAgentParticipant(
+async function findAgentParticipant(
   roomClient: RoomServiceClient,
   roomName: string,
   agentName: string,
   options: AgentParticipantMatchOptions = {}
 ) {
   const participants = await roomClient.listParticipants(roomName);
-  if (participants.some((participant) => isExpectedAgentParticipant(participant, agentName))) {
-    return true;
+  const expectedAgent = participants.find((participant) =>
+    isExpectedAgentParticipant(participant, agentName)
+  );
+  if (expectedAgent) {
+    return expectedAgent;
   }
   if (!options.allowAnonymousLiveKitAgentFallback) {
-    return false;
+    return null;
   }
 
   // Local LiveKit may omit agent attributes; fresh per-session rooms keep this fallback bounded.
   const anonymousLiveKitAgents = participants.filter(isAnonymousLiveKitAgentParticipant);
-  return anonymousLiveKitAgents.length === 1;
+  return anonymousLiveKitAgents.length === 1 ? anonymousLiveKitAgents[0] : null;
 }
 
 function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: string) {
-  const attributes = participant.attributes ?? {};
-  return attributes['lk.agent.name'] === agentName || attributes['lk.agent_name'] === agentName;
+  return readAgentNameAttribute(participant.attributes ?? {}) === agentName;
 }
 
 function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {
@@ -285,9 +293,24 @@ function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {
   return (
     participant.kind === ParticipantInfo_Kind.AGENT &&
     participant.identity.startsWith('agent-') &&
-    !attributes['lk.agent.name'] &&
-    !attributes['lk.agent_name']
+    !readAgentNameAttribute(attributes)
   );
+}
+
+function readAgentNameAttribute(attributes: Record<string, string>) {
+  return attributes['lk.agent.name'] || attributes['lk.agent_name'] || attributes.lkAgentName || '';
+}
+
+function summarizeAgentParticipant(participant: ParticipantInfo | null) {
+  if (!participant) {
+    return null;
+  }
+
+  return {
+    identity: participant.identity,
+    kind: participant.kind,
+    attributes: participant.attributes ?? {},
+  };
 }
 
 async function deleteDispatchQuietly(

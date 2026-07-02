@@ -40,7 +40,8 @@ test('session dispatch route retries explicit agent dispatch after the browser j
   assert.match(routeSource, /AGENT_DISPATCH_TIMEOUT_MS/);
   assert.match(routeSource, /AGENT_DISPATCH_RETRY_MS/);
   assert.match(routeSource, /calculateDispatchRetryDelay/);
-  assert.match(routeSource, /roomHasAgentParticipant/);
+  assert.match(routeSource, /findAgentParticipant/);
+  assert.match(routeSource, /summarizeAgentParticipant/);
   assert.match(routeSource, /deleteDispatchQuietly/);
   assert.match(routeSource, /dispatchClient\.createDispatch/);
   assert.match(routeSource, /roomName is required/);
@@ -120,8 +121,10 @@ test('session dispatch route keeps pre-dispatch agent matching tied to the confi
 
   assert.ok(participantMatcher, 'isExpectedAgentParticipant should be defined');
   const participantMatcherSource = participantMatcher[0];
-  assert.match(participantMatcherSource, /attributes\['lk\.agent\.name'\] === agentName/);
-  assert.match(participantMatcherSource, /attributes\['lk\.agent_name'\] === agentName/);
+  assert.match(participantMatcherSource, /readAgentNameAttribute/);
+  assert.match(routeSource, /attributes\['lk\.agent\.name'\]/);
+  assert.match(routeSource, /attributes\['lk\.agent_name'\]/);
+  assert.match(routeSource, /attributes\.lkAgentName/);
   assert.doesNotMatch(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
 });
 
@@ -133,19 +136,18 @@ test('session dispatch route only accepts anonymous LiveKit agent fallback after
 
   assert.match(
     routeSource,
-    /const alreadyJoined = await roomHasAgentParticipant\(roomClient, roomName, agentName\);/
+    /const alreadyJoined = await findAgentParticipant\(roomClient, roomName, agentName\);/
   );
   assert.match(routeSource, /type AgentParticipantMatchOptions/);
   assert.match(routeSource, /allowAnonymousLiveKitAgentFallback/);
   assert.match(
     routeSource,
-    /roomHasAgentParticipant\(\s*roomClient,\s*roomName,\s*agentName,\s*\{\s*allowAnonymousLiveKitAgentFallback: true,?\s*\}\s*\)/
+    /findAgentParticipant\(\s*roomClient,\s*roomName,\s*agentName,\s*\{\s*allowAnonymousLiveKitAgentFallback: true,?\s*\}\s*\)/
   );
   assert.match(routeSource, /function isAnonymousLiveKitAgentParticipant/);
   assert.match(routeSource, /ParticipantInfo_Kind\.AGENT/);
   assert.match(routeSource, /identity\.startsWith\(['"]agent-['"]\)/);
-  assert.match(routeSource, /!attributes\['lk\.agent\.name'\]/);
-  assert.match(routeSource, /!attributes\['lk\.agent_name'\]/);
+  assert.match(routeSource, /!readAgentNameAttribute\(attributes\)/);
   assert.match(routeSource, /fresh per-session rooms/);
   assert.match(routeSource, /anonymousLiveKitAgents\.length === 1/);
 });
@@ -284,6 +286,46 @@ test('browser video input shows the camera control as enabled by default', async
     controlBarSource,
     /mediaEnabled=\{usesBrowserRawVideoInput \? browserSourceClient\.videoEnabled : undefined\}/
   );
+});
+
+test('microphone device selector remains visible before media permission is granted', async () => {
+  const trackSelectorSource = await readFile(
+    new URL('../components/livekit/agent-control-bar/track-selector.tsx', import.meta.url),
+    'utf8'
+  );
+  const deviceSelectSource = await readFile(
+    new URL('../components/livekit/agent-control-bar/track-device-select.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(trackSelectorSource, /alwaysVisible=\{kind === 'audioinput'\}/);
+  assert.match(deviceSelectSource, /alwaysVisible = false/);
+  assert.match(deviceSelectSource, /!alwaysVisible && filteredDevices\.length < 2/);
+  assert.match(deviceSelectSource, /setRequestPermissionsState\(true\)/);
+});
+
+test('raw browser audio applies the selected microphone device to capture', async () => {
+  const browserSourceSource = await readFile(
+    new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
+    'utf8'
+  );
+  const sessionProviderSource = await readFile(
+    new URL('../components/app/session-provider.tsx', import.meta.url),
+    'utf8'
+  );
+  const controlBarSource = await readFile(
+    new URL('../components/livekit/agent-control-bar/agent-control-bar.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(browserSourceSource, /setAudioDeviceId: \(deviceId: string\) => Promise<void>/);
+  assert.match(browserSourceSource, /const audioDeviceIdRef = useRef<string \| null>\(null\)/);
+  assert.match(browserSourceSource, /buildAudioCaptureOptions\(audioDeviceIdRef\.current\)/);
+  assert.match(browserSourceSource, /deviceId: \{ exact: deviceId \}/);
+  assert.match(sessionProviderSource, /setAudioDeviceId: async \(\) => \{\}/);
+  assert.match(controlBarSource, /const handleAudioDeviceSelect = useCallback/);
+  assert.match(controlBarSource, /browserSourceClient\.setAudioDeviceId\(deviceId\)/);
+  assert.match(controlBarSource, /onActiveDeviceChange=\{handleAudioDeviceSelect\}/);
 });
 
 test('configurable video selector only changes externally controlled media from user toggle', async () => {

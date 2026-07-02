@@ -45,6 +45,7 @@ export interface BrowserSourceClient {
   videoTrack: LocalVideoTrack | null;
   audioPending: boolean;
   videoPending: boolean;
+  setAudioDeviceId: (deviceId: string) => Promise<void>;
   setAudioEnabled: (enabled: boolean) => Promise<void>;
   setVideoEnabled: (enabled: boolean) => Promise<void>;
   start: () => Promise<void>;
@@ -74,6 +75,7 @@ export function useBrowserSourceClient(
   const browserVideoHeight = appConfig.browserVideoHeight ?? 480;
   const browserVideoStatsEnabled = appConfig.browserVideoStats || appConfig.debugVideo || false;
   const audioEnabledRef = useRef(audioConfigured);
+  const audioDeviceIdRef = useRef<string | null>(null);
   const videoEnabledRef = useRef(videoConfigured ? BROWSER_VIDEO_DEFAULT_ENABLED : false);
   const [audioEnabled, setAudioEnabledState] = useState(audioConfigured);
   const [videoEnabled, setVideoEnabledState] = useState(
@@ -89,11 +91,9 @@ export function useBrowserSourceClient(
       return;
     }
 
-    const audioTrack = await createLocalAudioTrack({
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    });
+    const audioTrack = await createLocalAudioTrack(
+      buildAudioCaptureOptions(audioDeviceIdRef.current)
+    );
     audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
 
     try {
@@ -289,6 +289,41 @@ export function useBrowserSourceClient(
     [audioConfigured, ensureAudioPublished, unpublishAudio]
   );
 
+  const setAudioDeviceId = useCallback(
+    async (deviceId: string) => {
+      if (!audioConfigured) {
+        return;
+      }
+
+      const nextDeviceId = normalizeAudioDeviceId(deviceId);
+      const previousDeviceId = audioDeviceIdRef.current;
+      if (nextDeviceId === previousDeviceId) {
+        return;
+      }
+
+      setAudioPending(true);
+      audioDeviceIdRef.current = nextDeviceId;
+      const runtime = runtimeRef.current;
+      try {
+        if (runtime?.audioEnabled) {
+          await unpublishAudio(runtime);
+          await ensureAudioPublished();
+        }
+      } catch (error) {
+        audioDeviceIdRef.current = previousDeviceId;
+        if (runtime?.audioEnabled && !runtime.audioTrack) {
+          await ensureAudioPublished().catch((restoreError) => {
+            console.warn('[browser-audio] failed to restore previous input device', restoreError);
+          });
+        }
+        throw error;
+      } finally {
+        setAudioPending(false);
+      }
+    },
+    [audioConfigured, ensureAudioPublished, unpublishAudio]
+  );
+
   const setVideoEnabled = useCallback(
     async (nextEnabled: boolean) => {
       if (!videoConfigured) {
@@ -348,6 +383,7 @@ export function useBrowserSourceClient(
       videoTrack,
       audioPending,
       videoPending,
+      setAudioDeviceId,
       setAudioEnabled,
       setVideoEnabled,
       start,
@@ -360,12 +396,30 @@ export function useBrowserSourceClient(
       videoTrack,
       audioPending,
       videoPending,
+      setAudioDeviceId,
       setAudioEnabled,
       setVideoEnabled,
       start,
       stop,
     ]
   );
+}
+
+function normalizeAudioDeviceId(deviceId: string | null | undefined) {
+  if (!deviceId || deviceId === 'default') {
+    return null;
+  }
+
+  return deviceId;
+}
+
+function buildAudioCaptureOptions(deviceId: string | null) {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
 }
 
 function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {
