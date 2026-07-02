@@ -505,6 +505,19 @@ test('new session starts truncate the previous dispatch wait chain', async () =>
   assert.match(beginStartSource, /pendingStartPromise = Promise\.resolve\(\)/);
 });
 
+test('gateway release uses the cached release path without runtime fallback', async () => {
+  const source = await readFile(new URL('../lib/session-stop-client.ts', import.meta.url), 'utf8');
+  const releaseSource =
+    source.match(
+      /async function sendGatewaySessionRelease[\s\S]*?\n}\n\nfunction createGatewayReleaseTimeoutSignal/
+    )?.[0] ?? '';
+
+  assert.match(releaseSource, /gatewayReleasePath: string/);
+  assert.match(releaseSource, /fetch\(gatewayReleasePath/);
+  assert.doesNotMatch(releaseSource, /gatewayReleasePath \?\?/);
+  assert.doesNotMatch(releaseSource, /resolveGatewaySessionReleasePath\(\)/);
+});
+
 test('disconnect control exits the local session before remote stop finishes', async () => {
   const controlBarSource = await readFile(
     new URL('../components/livekit/agent-control-bar/agent-control-bar.tsx', import.meta.url),

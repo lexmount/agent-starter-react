@@ -108,11 +108,7 @@ export function TrackDeviceSelect({
       </SelectTrigger>
       <SelectContent>
         {filteredDevices.length === 0 && (
-          <SelectItem
-            value={PERMISSION_PROMPT_DEVICE_VALUE}
-            className="font-mono text-xs"
-            disabled={!open}
-          >
+          <SelectItem value={PERMISSION_PROMPT_DEVICE_VALUE} className="font-mono text-xs">
             Allow {kind === 'audioinput' ? 'microphone' : 'camera'} access
           </SelectItem>
         )}

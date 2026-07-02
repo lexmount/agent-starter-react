@@ -65,8 +65,8 @@ function endStopRequestPending() {
 
 async function sendAgentSessionStop(
   sessionId: string,
-  options: AgentSessionStopOptions = {},
-  gatewayReleasePath?: string
+  options: AgentSessionStopOptions,
+  gatewayReleasePath: string
 ): Promise<void> {
   try {
     const response = await fetch('/api/session/stop', {
@@ -84,14 +84,13 @@ async function sendAgentSessionStop(
   }
 }
 
-async function sendGatewaySessionRelease(gatewayReleasePath?: string): Promise<void> {
-  const releasePath = gatewayReleasePath ?? resolveGatewaySessionReleasePath();
-  if (!releasePath) {
+async function sendGatewaySessionRelease(gatewayReleasePath: string): Promise<void> {
+  if (!gatewayReleasePath) {
     return;
   }
 
   try {
-    const response = await fetch(releasePath, {
+    const response = await fetch(gatewayReleasePath, {
       method: 'POST',
       keepalive: true,
       signal: createGatewayReleaseTimeoutSignal(),
@@ -147,8 +146,8 @@ async function waitForAgentWorkerSettle(): Promise<void> {
 
 async function sendAgentSessionStopAndSettle(
   sessionId: string,
-  options: AgentSessionStopOptions = {},
-  gatewayReleasePath?: string
+  options: AgentSessionStopOptions,
+  gatewayReleasePath: string
 ): Promise<void> {
   try {
     await sendAgentSessionStop(sessionId, options, gatewayReleasePath);
@@ -161,8 +160,8 @@ async function sendAgentSessionStopAndSettle(
 
 function sendAgentSessionStopInBackground(
   sessionId: string,
-  options: AgentSessionStopOptions = {},
-  gatewayReleasePath?: string
+  options: AgentSessionStopOptions,
+  gatewayReleasePath: string
 ): void {
   void sendAgentSessionStop(sessionId, options, gatewayReleasePath).catch((error: unknown) => {
     console.warn('Failed to stop remote agent session', error);

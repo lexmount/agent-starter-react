@@ -112,6 +112,22 @@ test('session dispatch route logs successful dispatch with canonical session ide
   assert.match(routeSource, /roomName/);
 });
 
+test('session dispatch response does not expose raw agent attributes', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+    'utf8'
+  );
+  const summarySource =
+    routeSource.match(
+      /function summarizeAgentParticipant[\s\S]*?\n}\n\nasync function deleteDispatchQuietly/
+    )?.[0] ?? '';
+
+  assert.match(summarySource, /identity: participant\.identity/);
+  assert.doesNotMatch(summarySource, /participant\.kind/);
+  assert.doesNotMatch(summarySource, /participant\.attributes/);
+  assert.doesNotMatch(summarySource, /attributes:/);
+});
+
 test('session dispatch route keeps pre-dispatch agent matching tied to the configured agent name', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/dispatch/route.ts', import.meta.url),

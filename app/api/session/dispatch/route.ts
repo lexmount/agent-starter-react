@@ -178,6 +178,10 @@ async function createAgentDispatchWithRetry(
         throw new RoomSessionCancelledError(session);
       }
 
+      // A successful LiveKit dispatch often needs multiple seconds before the
+      // agent worker joins the room. Wait for the full remaining session-start
+      // budget here; the retry loop is for API/listParticipants failures, not
+      // for repeatedly recreating a healthy dispatch every retry interval.
       const agentParticipant = await waitForAgentParticipant(
         roomClient,
         roomName,
@@ -308,8 +312,6 @@ function summarizeAgentParticipant(participant: ParticipantInfo | null) {
 
   return {
     identity: participant.identity,
-    kind: participant.kind,
-    attributes: participant.attributes ?? {},
   };
 }
 
