@@ -122,7 +122,7 @@ export function AgentControlBar({
       onDisconnect?.();
     });
     registerAgentSessionLocalCleanup(localDisconnectPromise);
-    void requestAgentSessionStop(sessionId, { releaseGatewaySession: true });
+    void requestAgentSessionStop(sessionId);
   }, [endSession, getCurrentSessionId, onDisconnect]);
 
   const handleRawMicrophoneToggle = useCallback(

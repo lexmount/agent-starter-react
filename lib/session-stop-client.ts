@@ -4,20 +4,16 @@ let stopRequestPending = false;
 let stopRequestPendingCount = 0;
 const stopListeners = new Set<() => void>();
 const DEFAULT_STOP_SETTLE_MS = 0;
-const GATEWAY_SESSION_PREFIX = '/s';
-const GATEWAY_RELEASE_TIMEOUT_MS = 5000;
 
 type ActiveAgentSession = {
   roomName: string;
   sessionId: string;
-  gatewayReleasePath: string;
   abortController: AbortController;
   dispatchPromise: Promise<void>;
 };
 
 type AgentSessionStopOptions = {
   waitForRemote?: boolean;
-  releaseGatewaySession?: boolean;
 };
 
 let activeStart: ActiveAgentSession | null = null;
@@ -66,76 +62,17 @@ function endStopRequestPending() {
 
 async function sendAgentSessionStop(
   sessionId: string,
-  options: AgentSessionStopOptions,
-  gatewayReleasePath: string
+  options: AgentSessionStopOptions
 ): Promise<void> {
-  try {
-    const response = await fetch('/api/session/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, wait: options.waitForRemote }),
-      keepalive: true,
-    });
+  const response = await fetch('/api/session/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, wait: options.waitForRemote }),
+    keepalive: true,
+  });
 
-    if (!response.ok) {
-      throw new Error(`agent session stop failed: ${response.status}`);
-    }
-  } finally {
-    if (!options.releaseGatewaySession) {
-      return;
-    }
-    await sendGatewaySessionRelease(gatewayReleasePath);
-  }
-}
-
-async function sendGatewaySessionRelease(gatewayReleasePath: string): Promise<void> {
-  if (!gatewayReleasePath) {
-    return;
-  }
-
-  try {
-    const response = await fetch(gatewayReleasePath, {
-      method: 'POST',
-      keepalive: true,
-      signal: createGatewayReleaseTimeoutSignal(),
-    });
-    if (!response.ok) {
-      console.warn(`Failed to release gateway sandbox session: ${response.status}`);
-    }
-  } catch (error: unknown) {
-    console.warn('Failed to release gateway sandbox session', error);
-  }
-}
-
-function createGatewayReleaseTimeoutSignal(): AbortSignal | undefined {
-  if (typeof AbortSignal === 'undefined') {
-    return undefined;
-  }
-  const timeout = (
-    AbortSignal as typeof AbortSignal & {
-      timeout?: (milliseconds: number) => AbortSignal;
-    }
-  ).timeout;
-  return typeof timeout === 'function' ? timeout(GATEWAY_RELEASE_TIMEOUT_MS) : undefined;
-}
-
-function resolveGatewaySessionReleasePath(): string {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-  const pathname = window.location?.pathname || '';
-  const prefix = `${GATEWAY_SESSION_PREFIX}/`;
-  if (!pathname.startsWith(prefix)) {
-    return '';
-  }
-  const rawSlug = pathname.slice(prefix.length).split('/')[0] || '';
-  if (!rawSlug) {
-    return '';
-  }
-  try {
-    return `${prefix}${encodeURIComponent(decodeURIComponent(rawSlug))}/release`;
-  } catch {
-    return '';
+  if (!response.ok) {
+    throw new Error(`agent session stop failed: ${response.status}`);
   }
 }
 
@@ -150,11 +87,10 @@ async function waitForAgentWorkerSettle(): Promise<void> {
 
 async function sendAgentSessionStopAndSettle(
   sessionId: string,
-  options: AgentSessionStopOptions,
-  gatewayReleasePath: string
+  options: AgentSessionStopOptions
 ): Promise<void> {
   try {
-    await sendAgentSessionStop(sessionId, options, gatewayReleasePath);
+    await sendAgentSessionStop(sessionId, options);
   } finally {
     endStopRequestPending();
     await waitForAgentWorkerSettle();
@@ -164,10 +100,9 @@ async function sendAgentSessionStopAndSettle(
 
 function sendAgentSessionStopInBackground(
   sessionId: string,
-  options: AgentSessionStopOptions,
-  gatewayReleasePath: string
+  options: AgentSessionStopOptions
 ): void {
-  void sendAgentSessionStop(sessionId, options, gatewayReleasePath).catch((error: unknown) => {
+  void sendAgentSessionStop(sessionId, options).catch((error: unknown) => {
     console.warn('Failed to stop remote agent session', error);
   });
   clearActiveAgentSession(sessionId);
@@ -217,7 +152,6 @@ export function beginAgentSessionStart(roomName: string, sessionId: string): Abo
   activeStart = {
     roomName: normalizedRoomName,
     sessionId: normalizedSessionId,
-    gatewayReleasePath: resolveGatewaySessionReleasePath(),
     abortController,
     dispatchPromise: Promise.resolve(),
   };
@@ -285,21 +219,17 @@ export async function requestAgentSessionStop(
     return waitForAgentSessionStop();
   }
 
-  const gatewayReleasePath =
-    activeStart?.sessionId === normalizedSessionId
-      ? activeStart.gatewayReleasePath
-      : resolveGatewaySessionReleasePath();
   cancelAgentSessionStart(normalizedSessionId);
   clearActiveAgentSession(normalizedSessionId);
   if (options.waitForRemote === false) {
-    sendAgentSessionStopInBackground(normalizedSessionId, options, gatewayReleasePath);
+    sendAgentSessionStopInBackground(normalizedSessionId, options);
     return waitForAgentSessionStop();
   }
 
   beginStopRequestPending();
   const stopPromise = pendingStopPromise
     .catch(() => undefined)
-    .then(() => sendAgentSessionStopAndSettle(normalizedSessionId, options, gatewayReleasePath));
+    .then(() => sendAgentSessionStopAndSettle(normalizedSessionId, options));
   pendingStopPromise = stopPromise
     .catch(() => undefined)
     .then(() => pendingStartPromise.catch(() => undefined));
