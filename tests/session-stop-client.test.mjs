@@ -71,7 +71,7 @@ test('agent session stop sends only canonical session id to Next API', async () 
   }
 });
 
-test('agent session stop releases gateway sandbox sessions on public paths', async () => {
+test('agent session stop does not release gateway sandbox sessions by default on public paths', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
@@ -89,6 +89,38 @@ test('agent session stop releases gateway sandbox sessions on public paths', asy
     const { requestAgentSessionStop } = await loadSessionStopClientModule();
 
     await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+
+    assert.deepEqual(calls, [{ url: '/api/session/stop', method: 'POST' }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+});
+
+test('agent session stop releases gateway sandbox sessions when explicitly requested', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    location: {
+      pathname: '/s/abc123/live',
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url, method: init.method });
+    return { ok: true, status: 200 };
+  };
+
+  try {
+    const { requestAgentSessionStop } = await loadSessionStopClientModule();
+
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555', {
+      releaseGatewaySession: true,
+    });
 
     assert.deepEqual(calls, [
       { url: '/api/session/stop', method: 'POST' },
@@ -130,7 +162,9 @@ test('agent session stop adds a timeout to gateway release requests', async () =
   try {
     const { requestAgentSessionStop } = await loadSessionStopClientModule();
 
-    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555', {
+      releaseGatewaySession: true,
+    });
 
     assert.equal(timeoutMs, 5000);
     assert.deepEqual(calls, [
@@ -169,7 +203,7 @@ test('agent session stop uses gateway release path cached at session start', asy
     beginAgentSessionStart('room-a', sessionId);
     globalThis.window.location.pathname = '/not-a-sandbox-route';
 
-    await requestAgentSessionStop(sessionId);
+    await requestAgentSessionStop(sessionId, { releaseGatewaySession: true });
 
     assert.deepEqual(calls, [
       { url: '/api/session/stop', method: 'POST' },
@@ -202,7 +236,9 @@ test('agent session stop preserves already encoded gateway slug segments', async
   try {
     const { requestAgentSessionStop } = await loadSessionStopClientModule();
 
-    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555', {
+      releaseGatewaySession: true,
+    });
 
     assert.deepEqual(calls, [
       { url: '/api/session/stop', method: 'POST' },
@@ -252,7 +288,7 @@ test('agent session stop does not fallback to current path when cached gateway r
   }
 });
 
-test('background agent session stop releases gateway sandbox sessions', async () => {
+test('background agent session stop releases gateway sandbox sessions when requested', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const calls = [];
@@ -271,7 +307,10 @@ test('background agent session stop releases gateway sandbox sessions', async ()
     const sessionId = '11111111-2222-4333-8444-555555555555';
 
     beginAgentSessionStart('room-a', sessionId);
-    await requestAgentSessionStop(sessionId, { waitForRemote: false });
+    await requestAgentSessionStop(sessionId, {
+      waitForRemote: false,
+      releaseGatewaySession: true,
+    });
     for (let i = 0; i < 8 && calls.length < 2; i++) {
       await Promise.resolve();
     }
@@ -313,7 +352,9 @@ test('agent session stop warns when gateway release returns a non-2xx response',
   try {
     const { requestAgentSessionStop } = await loadSessionStopClientModule();
 
-    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555');
+    await requestAgentSessionStop('11111111-2222-4333-8444-555555555555', {
+      releaseGatewaySession: true,
+    });
 
     assert.equal(warnings.length, 1);
     assert.deepEqual(warnings[0], ['Failed to release gateway sandbox session: 503']);
@@ -527,7 +568,10 @@ test('disconnect control exits the local session before remote stop finishes', a
   assert.match(controlBarSource, /getActiveAgentSession/);
   assert.match(controlBarSource, /getCurrentSessionId/);
   assert.match(controlBarSource, /registerAgentSessionLocalCleanup/);
-  assert.match(controlBarSource, /requestAgentSessionStop\(sessionId\)/);
+  assert.match(
+    controlBarSource,
+    /requestAgentSessionStop\(sessionId,\s*\{\s*releaseGatewaySession:\s*true/
+  );
   assert.doesNotMatch(controlBarSource, /usesFastBrowserStop/);
   assert.doesNotMatch(controlBarSource, /waitForRemote:\s*!/);
   assert.doesNotMatch(controlBarSource, /await requestAgentSessionStop\(room\.name\)/);

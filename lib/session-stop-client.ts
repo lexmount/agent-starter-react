@@ -17,6 +17,7 @@ type ActiveAgentSession = {
 
 type AgentSessionStopOptions = {
   waitForRemote?: boolean;
+  releaseGatewaySession?: boolean;
 };
 
 let activeStart: ActiveAgentSession | null = null;
@@ -80,6 +81,9 @@ async function sendAgentSessionStop(
       throw new Error(`agent session stop failed: ${response.status}`);
     }
   } finally {
+    if (!options.releaseGatewaySession) {
+      return;
+    }
     await sendGatewaySessionRelease(gatewayReleasePath);
   }
 }
