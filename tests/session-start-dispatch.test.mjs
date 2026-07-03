@@ -128,19 +128,21 @@ test('session dispatch response does not expose raw agent attributes', async () 
   assert.doesNotMatch(summarySource, /attributes:/);
 });
 
-test('session dispatch route keeps pre-dispatch agent matching tied to the configured agent name', async () => {
-  const routeSource = await readFile(
-    new URL('../app/api/session/dispatch/route.ts', import.meta.url),
+test('session dispatch readiness keeps agent matching tied to the configured agent name', async () => {
+  const readinessSource = await readFile(
+    new URL('../lib/session-dispatch-readiness.ts', import.meta.url),
     'utf8'
   );
-  const participantMatcher = routeSource.match(/function isExpectedAgentParticipant[\s\S]*?\n}/);
+  const participantMatcher = readinessSource.match(
+    /function isExpectedAgentParticipant[\s\S]*?\n}/
+  );
 
   assert.ok(participantMatcher, 'isExpectedAgentParticipant should be defined');
   const participantMatcherSource = participantMatcher[0];
   assert.match(participantMatcherSource, /readAgentNameAttribute/);
-  assert.match(routeSource, /attributes\['lk\.agent\.name'\]/);
-  assert.match(routeSource, /attributes\['lk\.agent_name'\]/);
-  assert.match(routeSource, /attributes\.lkAgentName/);
+  assert.match(readinessSource, /attributes\['lk\.agent\.name'\]/);
+  assert.match(readinessSource, /attributes\['lk\.agent_name'\]/);
+  assert.match(readinessSource, /attributes\.lkAgentName/);
   assert.doesNotMatch(participantMatcherSource, /identity\.startsWith\(['"]agent-['"]\)/);
 });
 
@@ -149,23 +151,28 @@ test('session dispatch route only accepts anonymous LiveKit agent fallback after
     new URL('../app/api/session/dispatch/route.ts', import.meta.url),
     'utf8'
   );
+  const readinessSource = await readFile(
+    new URL('../lib/session-dispatch-readiness.ts', import.meta.url),
+    'utf8'
+  );
 
+  assert.match(routeSource, /findReusableAgentParticipant/);
   assert.match(
     routeSource,
-    /const alreadyJoined = await findAgentParticipant\(roomClient, roomName, agentName\);/
+    /const alreadyJoined = await findReusableAgentParticipant\(roomClient, roomName, agentName\);/
   );
-  assert.match(routeSource, /type AgentParticipantMatchOptions/);
-  assert.match(routeSource, /allowAnonymousLiveKitAgentFallback/);
+  assert.match(readinessSource, /type AgentParticipantMatchOptions/);
+  assert.match(readinessSource, /allowAnonymousLiveKitAgentFallback/);
   assert.match(
     routeSource,
     /findAgentParticipant\(\s*roomClient,\s*roomName,\s*agentName,\s*\{\s*allowAnonymousLiveKitAgentFallback: true,?\s*\}\s*\)/
   );
-  assert.match(routeSource, /function isAnonymousLiveKitAgentParticipant/);
-  assert.match(routeSource, /ParticipantInfo_Kind\.AGENT/);
-  assert.match(routeSource, /identity\.startsWith\(['"]agent-['"]\)/);
-  assert.match(routeSource, /!readAgentNameAttribute\(attributes\)/);
-  assert.match(routeSource, /fresh per-session rooms/);
-  assert.match(routeSource, /anonymousLiveKitAgents\.length === 1/);
+  assert.match(readinessSource, /function isAnonymousLiveKitAgentParticipant/);
+  assert.match(readinessSource, /ParticipantInfo_Kind\.AGENT/);
+  assert.match(readinessSource, /identity\.startsWith\(['"]agent-['"]\)/);
+  assert.match(readinessSource, /!readAgentNameAttribute\(attributes\)/);
+  assert.match(readinessSource, /fresh per-session rooms/);
+  assert.match(readinessSource, /anonymousLiveKitAgents\.length === 1/);
 });
 
 test('start call dispatches the agent with a cancellable room session id', async () => {

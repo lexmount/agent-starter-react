@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
-import { type ParticipantInfo, ParticipantInfo_Kind } from '@livekit/protocol';
+import { type ParticipantInfo } from '@livekit/protocol';
 import {
   deriveLiveKitRoomName,
   deriveSessionIdFromLiveKitRoomName,
   isValidConnectionRoomId,
 } from '@/lib/connection-room-id';
+import {
+  type AgentParticipantMatchOptions,
+  findAgentParticipantInList,
+  findReusableAgentParticipant as findReusableAgentParticipantInList,
+} from '@/lib/session-dispatch-readiness';
 import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
   type RoomSessionToken,
@@ -22,10 +27,6 @@ const AGENT_DISPATCH_POLL_MS = readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200)
 
 export const runtime = 'nodejs';
 export const revalidate = 0;
-
-type AgentParticipantMatchOptions = {
-  allowAnonymousLiveKitAgentFallback?: boolean;
-};
 
 class RoomSessionCancelledError extends Error {
   constructor(session: RoomSessionToken) {
@@ -157,7 +158,7 @@ async function createAgentDispatchWithRetry(
     try {
       throwIfSessionCancelled(session);
 
-      const alreadyJoined = await findAgentParticipant(roomClient, roomName, agentName);
+      const alreadyJoined = await findReusableAgentParticipant(roomClient, roomName, agentName);
       throwIfSessionCancelled(session);
       if (alreadyJoined) {
         markRoomSessionRunning(session);
@@ -273,36 +274,16 @@ async function findAgentParticipant(
   options: AgentParticipantMatchOptions = {}
 ) {
   const participants = await roomClient.listParticipants(roomName);
-  const expectedAgent = participants.find((participant) =>
-    isExpectedAgentParticipant(participant, agentName)
-  );
-  if (expectedAgent) {
-    return expectedAgent;
-  }
-  if (!options.allowAnonymousLiveKitAgentFallback) {
-    return null;
-  }
-
-  // Local LiveKit may omit agent attributes; fresh per-session rooms keep this fallback bounded.
-  const anonymousLiveKitAgents = participants.filter(isAnonymousLiveKitAgentParticipant);
-  return anonymousLiveKitAgents.length === 1 ? anonymousLiveKitAgents[0] : null;
+  return findAgentParticipantInList(participants, agentName, options);
 }
 
-function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: string) {
-  return readAgentNameAttribute(participant.attributes ?? {}) === agentName;
-}
-
-function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {
-  const attributes = participant.attributes ?? {};
-  return (
-    participant.kind === ParticipantInfo_Kind.AGENT &&
-    participant.identity.startsWith('agent-') &&
-    !readAgentNameAttribute(attributes)
-  );
-}
-
-function readAgentNameAttribute(attributes: Record<string, string>) {
-  return attributes['lk.agent.name'] || attributes['lk.agent_name'] || attributes.lkAgentName || '';
+async function findReusableAgentParticipant(
+  roomClient: RoomServiceClient,
+  roomName: string,
+  agentName: string
+) {
+  const participants = await roomClient.listParticipants(roomName);
+  return findReusableAgentParticipantInList(participants, agentName);
 }
 
 function summarizeAgentParticipant(participant: ParticipantInfo | null) {
