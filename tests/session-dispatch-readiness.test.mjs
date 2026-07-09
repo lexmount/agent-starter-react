@@ -22,7 +22,24 @@ function participant({
   };
 }
 
-test('dispatch does not reuse an agent before room video input is ready', () => {
+test('dispatch reuses an active agent by default without room video input readiness', () => {
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  const participants = [
+    agent,
+    participant({
+      identity: 'voice_assistant_user_session',
+      tracks: [{ name: 'browser_video_track', type: TrackType.VIDEO, muted: false }],
+    }),
+  ];
+
+  assert.equal(findReusableAgentParticipant(participants, 'frontdesk-browser-agent'), agent);
+});
+
+test('dispatch can require room video input readiness before reusing an agent', () => {
   const participants = [
     participant({
       identity: 'agent-AJ_stale',
@@ -35,7 +52,12 @@ test('dispatch does not reuse an agent before room video input is ready', () => 
     }),
   ];
 
-  assert.equal(findReusableAgentParticipant(participants, 'frontdesk-browser-agent'), null);
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
+      requireRoomVideoInputReady: true,
+    }),
+    null
+  );
 });
 
 test('dispatch can reuse an active agent once room video input is publishing', () => {
@@ -53,7 +75,12 @@ test('dispatch can reuse an active agent once room video input is publishing', (
     }),
   ];
 
-  assert.equal(findReusableAgentParticipant(participants, 'frontdesk-browser-agent'), agent);
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
+      requireRoomVideoInputReady: true,
+    }),
+    agent
+  );
 });
 
 test('dispatch does not reuse disconnected agents', () => {

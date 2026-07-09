@@ -8,6 +8,7 @@ import {
 } from '@/lib/connection-room-id';
 import {
   type AgentParticipantMatchOptions,
+  type ReusableAgentParticipantOptions,
   findAgentParticipantInList,
   findReusableAgentParticipant as findReusableAgentParticipantInList,
 } from '@/lib/session-dispatch-readiness';
@@ -45,6 +46,8 @@ export async function POST(req: Request) {
     agent_name?: string;
     sessionId?: string;
     session_id?: string;
+    requireRoomVideoInputReady?: boolean;
+    require_room_video_input_ready?: boolean;
   };
   try {
     body = await req.json();
@@ -73,6 +76,8 @@ export async function POST(req: Request) {
   if (!sessionId) {
     return NextResponse.json({ status: 'error', error: 'sessionId is required' }, { status: 400 });
   }
+  const requireRoomVideoInputReady =
+    body.requireRoomVideoInputReady === true || body.require_room_video_input_ready === true;
 
   const liveKitHttpUrl = resolveLiveKitHttpUrl(process.env.LIVEKIT_URL);
   const apiKey = process.env.LIVEKIT_API_KEY;
@@ -94,7 +99,8 @@ export async function POST(req: Request) {
         roomClient,
         roomName,
         agentName,
-        session
+        session,
+        { requireRoomVideoInputReady }
       );
       console.info('agent session dispatch completed', {
         roomName,
@@ -148,7 +154,8 @@ async function createAgentDispatchWithRetry(
   roomClient: RoomServiceClient,
   roomName: string,
   agentName: string,
-  session: RoomSessionToken
+  session: RoomSessionToken,
+  reusableAgentOptions: ReusableAgentParticipantOptions = {}
 ) {
   const startedAt = Date.now();
   let lastError: unknown;
@@ -158,7 +165,12 @@ async function createAgentDispatchWithRetry(
     try {
       throwIfSessionCancelled(session);
 
-      const alreadyJoined = await findReusableAgentParticipant(roomClient, roomName, agentName);
+      const alreadyJoined = await findReusableAgentParticipant(
+        roomClient,
+        roomName,
+        agentName,
+        reusableAgentOptions
+      );
       throwIfSessionCancelled(session);
       if (alreadyJoined) {
         markRoomSessionRunning(session);
@@ -280,10 +292,11 @@ async function findAgentParticipant(
 async function findReusableAgentParticipant(
   roomClient: RoomServiceClient,
   roomName: string,
-  agentName: string
+  agentName: string,
+  options: ReusableAgentParticipantOptions = {}
 ) {
   const participants = await roomClient.listParticipants(roomName);
-  return findReusableAgentParticipantInList(participants, agentName);
+  return findReusableAgentParticipantInList(participants, agentName, options);
 }
 
 function summarizeAgentParticipant(participant: ParticipantInfo | null) {

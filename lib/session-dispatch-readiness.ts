@@ -9,6 +9,10 @@ export type AgentParticipantMatchOptions = {
   allowAnonymousLiveKitAgentFallback?: boolean;
 };
 
+export type ReusableAgentParticipantOptions = AgentParticipantMatchOptions & {
+  requireRoomVideoInputReady?: boolean;
+};
+
 const ROOM_VIDEO_INPUT_IDENTITY = 'room_video_input';
 
 function readRoomInputVideoTrackName() {
@@ -21,11 +25,17 @@ function readRoomInputVideoTrackName() {
 
 export function findReusableAgentParticipant(
   participants: ParticipantInfo[],
-  agentName: string
+  agentName: string,
+  options: ReusableAgentParticipantOptions = {}
 ): ParticipantInfo | null {
-  const expectedAgent = findAgentParticipantInList(participants, agentName);
+  const { requireRoomVideoInputReady = false, ...matchOptions } = options;
+  const expectedAgent = findAgentParticipantInList(participants, agentName, matchOptions);
   if (!expectedAgent) {
     return null;
+  }
+
+  if (!requireRoomVideoInputReady) {
+    return expectedAgent;
   }
 
   return hasReadyRoomVideoInput(participants) ? expectedAgent : null;
