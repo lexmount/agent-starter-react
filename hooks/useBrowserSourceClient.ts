@@ -11,6 +11,11 @@ import {
   createLocalVideoTrack,
 } from 'livekit-client';
 import type { AppConfig } from '@/app-config';
+import {
+  BROWSER_AUDIO_CONSTRAINTS,
+  assertBrowserEchoCancellationActive,
+  inspectBrowserAudioCapture,
+} from '@/lib/browser-audio-capture';
 import { startMediaTrackVadObserver } from '@/lib/frontend-vad-observer';
 import {
   FRONTEND_EVENTS,
@@ -23,12 +28,6 @@ const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 const DEFAULT_BROWSER_MEDIA_STREAM_NAME = 'browser_input';
 const BROWSER_VIDEO_DEFAULT_ENABLED = true;
 const BROWSER_VIDEO_STATS_INTERVAL_MS = 5000;
-const BROWSER_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-};
-
 interface BrowserSourceRuntime {
   audioTrack: LocalAudioTrack | null;
   videoTrack: LocalVideoTrack | null;
@@ -135,6 +134,7 @@ export function useBrowserSourceClient(
     audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
 
     try {
+      logBrowserAudioCaptureDiagnostics(captureTrack);
       const publication = await room.localParticipant.publishTrack(audioTrack, {
         name: BROWSER_AUDIO_TRACK_NAME,
         source: Track.Source.Microphone,
@@ -539,6 +539,15 @@ function buildAudioCaptureOptions(deviceId: string | null) {
     ...BROWSER_AUDIO_CONSTRAINTS,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   };
+}
+
+function logBrowserAudioCaptureDiagnostics(track: MediaStreamTrack) {
+  const diagnostics = inspectBrowserAudioCapture(
+    track,
+    navigator.mediaDevices.getSupportedConstraints()
+  );
+  console.info('[browser-audio] capture diagnostics', diagnostics);
+  assertBrowserEchoCancellationActive(diagnostics);
 }
 
 function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {
