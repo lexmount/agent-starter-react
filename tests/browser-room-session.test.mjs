@@ -64,3 +64,19 @@ test('ending a voice session clears the reusable session id', async () => {
   assert.match(useRoomSource, /resetVoiceSessionId/);
   assert.doesNotMatch(useRoomSource, /if \(appConfig\.usesBrowserRawMediaInput\)/);
 });
+
+test('browser room starts local media and agent dispatch concurrently after room connect', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  const browserSourceSource = await readFile(
+    new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(
+    useRoomSource,
+    /await room\.connect[\s\S]*connectedRoomName = room\.name;[\s\S]*await Promise\.allSettled\(\[[\s\S]*startLocalInput\(\),[\s\S]*dispatchAgentSession\(\),[\s\S]*\]\)/
+  );
+  assert.match(useRoomSource, /localInputResult\.status === 'rejected'/);
+  assert.match(useRoomSource, /dispatchResult\.status === 'rejected'/);
+  assert.match(browserSourceSource, /Promise\.allSettled\(\[audioStart, videoStart\]\)/);
+});

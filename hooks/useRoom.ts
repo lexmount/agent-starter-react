@@ -7,7 +7,13 @@ import { getVoiceSessionId, resetVoiceSessionId } from '@/lib/browser-room-sessi
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 import { isValidConnectionRoomId } from '@/lib/connection-room-id';
 import { usesServerRoomInputDevice } from '@/lib/input-device-config';
-import { FRONTEND_EVENTS, publishFrontendObservabilityEvent } from '@/lib/observability';
+import {
+  FRONTEND_EVENTS,
+  beginFrontendObservabilitySession,
+  endFrontendObservabilitySession,
+  flushFrontendObservabilityEvents,
+  recordFrontendObservabilityEvent,
+} from '@/lib/observability';
 import { waitForRoomDisconnected } from '@/lib/room-disconnect';
 import {
   AgentSessionDispatchCancelledError,
@@ -55,7 +61,7 @@ export function useRoom(appConfig: AppConfig) {
   }, [appConfig.voiceSessionId]);
   const recordFrontendObservability = useCallback(
     (name: string, attributes?: Record<string, string | number | boolean | null>) => {
-      void publishFrontendObservabilityEvent({
+      void recordFrontendObservabilityEvent({
         enabled: !!appConfig.observabilityEnabled,
         room,
         name,
@@ -94,6 +100,7 @@ export function useRoom(appConfig: AppConfig) {
       void requestAgentSessionStop(sessionIdRef.current, {
         waitForRemote: false,
       });
+      endFrontendObservabilitySession(room);
       room.disconnect();
     };
   }, [room]);
@@ -107,6 +114,7 @@ export function useRoom(appConfig: AppConfig) {
         );
 
         try {
+          recordFrontendObservability(FRONTEND_EVENTS.CONNECTION_DETAILS_STARTED);
           const sessionId = sessionIdRef.current ?? resolveVoiceSessionId();
           sessionIdRef.current = sessionId;
 
@@ -120,7 +128,9 @@ export function useRoom(appConfig: AppConfig) {
               sessionId,
             }),
           });
-          return await readConnectionDetailsResponse(res, { sessionId });
+          const connectionDetails = await readConnectionDetailsResponse(res, { sessionId });
+          recordFrontendObservability(FRONTEND_EVENTS.CONNECTION_DETAILS_FINISHED);
+          return connectionDetails;
         } catch (error) {
           console.error('Error fetching connection details:', error);
           if (error instanceof Error) {
@@ -129,7 +139,7 @@ export function useRoom(appConfig: AppConfig) {
           throw new Error('Error fetching connection details!');
         }
       }),
-    [appConfig, resolveVoiceSessionId]
+    [appConfig, recordFrontendObservability, resolveVoiceSessionId]
   );
 
   const startSession = useCallback(async () => {
@@ -166,6 +176,7 @@ export function useRoom(appConfig: AppConfig) {
         }
       }
       resetVoiceSessionId();
+      endFrontendObservabilitySession(room);
       sessionIdRef.current = null;
       setIsSessionActive(false);
       toastAlert({
@@ -188,8 +199,10 @@ export function useRoom(appConfig: AppConfig) {
     };
 
     setIsSessionActive(true);
+    beginFrontendObservabilitySession(room);
 
     const dispatchAgentSession = async () => {
+      recordFrontendObservability(FRONTEND_EVENTS.DISPATCH_STARTED);
       dispatchSessionId = sessionId;
       const signal = beginAgentSessionStart(room.name, sessionId);
       const dispatchPromise = requestAgentSessionDispatch(appConfig.agentName, sessionId, {
@@ -198,6 +211,11 @@ export function useRoom(appConfig: AppConfig) {
       });
       registerAgentSessionDispatch(room.name, sessionId, dispatchPromise);
       await dispatchPromise;
+      recordFrontendObservability(FRONTEND_EVENTS.DISPATCH_FINISHED);
+      await flushFrontendObservabilityEvents({
+        enabled: !!appConfig.observabilityEnabled,
+        room,
+      });
     };
 
     const startDefaultMicrophone = async () => {
@@ -226,22 +244,37 @@ export function useRoom(appConfig: AppConfig) {
 
       if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
         const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
+        recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_STARTED);
         await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+        recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_FINISHED);
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
         connectedRoomName = room.name;
-        await startLocalInput();
+        const [localInputResult, dispatchResult] = await Promise.allSettled([
+          startLocalInput(),
+          dispatchAgentSession(),
+        ]);
+        if (localInputResult.status === 'rejected') {
+          throw localInputResult.reason;
+        }
+        if (dispatchResult.status === 'rejected') {
+          throw dispatchResult.reason;
+        }
       } else {
         await Promise.all([
           startDefaultMicrophone(),
           tokenSource.fetch({ agentName: appConfig.agentName }).then(async (connectionDetails) => {
+            recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_STARTED);
             await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
+            recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_FINISHED);
             recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
             connectedRoomName = room.name;
           }),
         ]);
       }
 
-      await dispatchAgentSession();
+      if (!(browserSourceClient.enabled || appConfig.usesServerRoomInput)) {
+        await dispatchAgentSession();
+      }
     } catch (error) {
       await handleStartError(error);
     }
@@ -262,6 +295,7 @@ export function useRoom(appConfig: AppConfig) {
     } finally {
       room.disconnect();
       resetVoiceSessionId();
+      endFrontendObservabilitySession(room);
       sessionIdRef.current = null;
       setIsSessionActive(false);
     }

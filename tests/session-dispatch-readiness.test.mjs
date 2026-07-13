@@ -83,6 +83,44 @@ test('dispatch can reuse an active agent once room video input is publishing', (
   );
 });
 
+test('prewarm readiness requires both room input participants without requiring a video frame', () => {
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  const participants = [
+    agent,
+    participant({ identity: 'room_audio_input' }),
+    participant({ identity: 'room_video_input' }),
+  ];
+
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
+      requireRoomInputParticipantsReady: true,
+    }),
+    agent
+  );
+});
+
+test('prewarm readiness rejects a room missing either input participant', () => {
+  const participants = [
+    participant({
+      identity: 'agent-AJ_running',
+      kind: ParticipantInfo_Kind.AGENT,
+      attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+    }),
+    participant({ identity: 'room_video_input' }),
+  ];
+
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
+      requireRoomInputParticipantsReady: true,
+    }),
+    null
+  );
+});
+
 test('dispatch does not reuse disconnected agents', () => {
   const participants = [
     participant({

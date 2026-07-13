@@ -11,8 +11,10 @@ export type AgentParticipantMatchOptions = {
 
 export type ReusableAgentParticipantOptions = AgentParticipantMatchOptions & {
   requireRoomVideoInputReady?: boolean;
+  requireRoomInputParticipantsReady?: boolean;
 };
 
+const ROOM_AUDIO_INPUT_IDENTITY = 'room_audio_input';
 const ROOM_VIDEO_INPUT_IDENTITY = 'room_video_input';
 
 function readRoomInputVideoTrackName() {
@@ -28,17 +30,35 @@ export function findReusableAgentParticipant(
   agentName: string,
   options: ReusableAgentParticipantOptions = {}
 ): ParticipantInfo | null {
-  const { requireRoomVideoInputReady = false, ...matchOptions } = options;
+  const {
+    requireRoomVideoInputReady = false,
+    requireRoomInputParticipantsReady = false,
+    ...matchOptions
+  } = options;
   const expectedAgent = findAgentParticipantInList(participants, agentName, matchOptions);
   if (!expectedAgent) {
     return null;
   }
 
   if (!requireRoomVideoInputReady) {
-    return expectedAgent;
+    return requireRoomInputParticipantsReady && !hasReadyRoomInputParticipants(participants)
+      ? null
+      : expectedAgent;
   }
 
-  return hasReadyRoomVideoInput(participants) ? expectedAgent : null;
+  if (!hasReadyRoomVideoInput(participants)) {
+    return null;
+  }
+  return requireRoomInputParticipantsReady && !hasReadyRoomInputParticipants(participants)
+    ? null
+    : expectedAgent;
+}
+
+export function summarizeRoomInputReadiness(participants: ParticipantInfo[]) {
+  return {
+    audioParticipantReady: hasActiveParticipant(participants, ROOM_AUDIO_INPUT_IDENTITY),
+    visionParticipantReady: hasActiveParticipant(participants, ROOM_VIDEO_INPUT_IDENTITY),
+  };
 }
 
 export function findAgentParticipantInList(
@@ -73,6 +93,17 @@ function hasReadyRoomVideoInput(participants: ParticipantInfo[]) {
           track.type === TrackType.VIDEO &&
           track.muted !== true
       )
+  );
+}
+
+function hasReadyRoomInputParticipants(participants: ParticipantInfo[]) {
+  const readiness = summarizeRoomInputReadiness(participants);
+  return readiness.audioParticipantReady && readiness.visionParticipantReady;
+}
+
+function hasActiveParticipant(participants: ParticipantInfo[], identity: string) {
+  return participants.some(
+    (participant) => participant.identity === identity && isParticipantActive(participant)
   );
 }
 
