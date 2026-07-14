@@ -159,6 +159,19 @@ export function useRoom(appConfig: AppConfig) {
 
     const recoverFromStartError = async (error: unknown) => {
       const startError = error instanceof Error ? error : new Error(String(error));
+      if (connectedRoomName) {
+        try {
+          await flushFrontendObservabilityEvents({
+            enabled: !!appConfig.observabilityEnabled,
+            room,
+          });
+        } catch (observabilityError) {
+          console.warn(
+            '[frontend-observability] failed to flush startup failure events',
+            observabilityError
+          );
+        }
+      }
       try {
         await browserSourceClient.stop();
       } catch (stopError) {
@@ -254,6 +267,12 @@ export function useRoom(appConfig: AppConfig) {
           dispatchAgentSession(),
         ]);
         if (localInputResult.status === 'rejected') {
+          if (dispatchResult.status === 'rejected') {
+            console.warn(
+              'Agent dispatch also failed while local input was starting',
+              dispatchResult.reason
+            );
+          }
           throw localInputResult.reason;
         }
         if (dispatchResult.status === 'rejected') {

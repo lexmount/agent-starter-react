@@ -48,26 +48,82 @@ export class RoomSessionCancelledError extends Error {
   }
 }
 
-const inFlightDispatches = new Map<string, Promise<Record<string, unknown>>>();
+type InFlightDispatch = {
+  operation: Promise<Record<string, unknown>>;
+  callers: number;
+};
+
+const inFlightDispatches = new Map<string, InFlightDispatch>();
 
 export async function dispatchRoomSession(
   request: DispatchRoomSessionRequest,
   dependencies: DispatchDependencies = {}
 ) {
+  const startedAt = Date.now();
   const key = `${request.sessionId}\u0000${request.roomName}\u0000${request.agentName}`;
-  const existing = inFlightDispatches.get(key);
-  if (existing) {
-    return existing;
+  let inFlight = inFlightDispatches.get(key);
+  if (!inFlight) {
+    // Dispatch creation is shared by identity. Each caller waits for its own
+    // readiness contract below so a prewarm cannot weaken a concurrent request.
+    inFlight = {
+      operation: runRoomSessionDispatch({ ...request, readiness: {} }, dependencies),
+      callers: 0,
+    };
+    inFlightDispatches.set(key, inFlight);
   }
 
-  const operation = runRoomSessionDispatch(request, dependencies);
-  inFlightDispatches.set(key, operation);
+  inFlight.callers += 1;
   try {
-    return await operation;
+    const dispatch = await inFlight.operation;
+    return await waitForRequestedRoomSessionReadiness(request, dependencies, dispatch, startedAt);
   } finally {
-    if (inFlightDispatches.get(key) === operation) {
+    inFlight.callers -= 1;
+    if (inFlight.callers === 0 && inFlightDispatches.get(key) === inFlight) {
       inFlightDispatches.delete(key);
     }
+  }
+}
+
+async function waitForRequestedRoomSessionReadiness(
+  request: DispatchRoomSessionRequest,
+  dependencies: DispatchDependencies,
+  dispatch: Record<string, unknown>,
+  startedAt: number
+) {
+  const readiness = request.readiness ?? {};
+  if (
+    readiness.requireRoomInputParticipantsReady !== true &&
+    readiness.requireRoomVideoInputReady !== true
+  ) {
+    return dispatch;
+  }
+
+  const clients = resolveClients(dependencies);
+  const session = beginRoomSessionDispatch(request.roomName, request.sessionId, request.agentName);
+  try {
+    const timeoutMs =
+      dependencies.dispatchTimeoutMs || readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', 20_000);
+    const participant = await waitForReusableAgentParticipant(
+      clients.roomClient,
+      request.roomName,
+      request.agentName,
+      readiness,
+      remainingDispatchTime(startedAt, timeoutMs),
+      dependencies.dispatchPollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200),
+      session,
+      dependencies.sleep || sleep
+    );
+    if (!participant) {
+      throw new Error('agent and required room inputs did not become ready');
+    }
+    throwIfSessionCancelled(session);
+    markRoomSessionRunning(session);
+    return {
+      ...dispatch,
+      agentParticipant: summarizeAgentParticipant(participant),
+    };
+  } finally {
+    finishRoomSessionDispatch(session);
   }
 }
 

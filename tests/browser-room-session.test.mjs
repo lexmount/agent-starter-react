@@ -78,5 +78,9 @@ test('browser room starts local media and agent dispatch concurrently after room
   );
   assert.match(useRoomSource, /localInputResult\.status === 'rejected'/);
   assert.match(useRoomSource, /dispatchResult\.status === 'rejected'/);
+  assert.match(
+    useRoomSource,
+    /localInputResult\.status === 'rejected'[\s\S]*dispatchResult\.status === 'rejected'[\s\S]*console\.warn/
+  );
   assert.match(browserSourceSource, /Promise\.allSettled\(\[audioStart, videoStart\]\)/);
 });

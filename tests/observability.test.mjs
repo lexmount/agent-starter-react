@@ -431,10 +431,18 @@ test('frontend audio observer reuses shared observability attribute types', asyn
 
 test('room hook publishes room connected frontend observability event', async () => {
   const source = await readFile('hooks/useRoom.ts', 'utf8');
+  const recoverySource = source.slice(
+    source.indexOf('const recoverFromStartError'),
+    source.indexOf('const handleStartError')
+  );
 
   assert.match(source, /FRONTEND_EVENTS\.ROOM_CONNECTED/);
   assert.match(source, /recordFrontendObservabilityEvent/);
   assert.match(source, /flushFrontendObservabilityEvents/);
+  assert.ok(
+    recoverySource.indexOf('flushFrontendObservabilityEvents') <
+      recoverySource.indexOf('room.disconnect()')
+  );
   assert.match(
     source,
     /const recoverFromStartError = async[\s\S]*try \{[\s\S]*await browserSourceClient\.stop\(\);[\s\S]*\} catch \(stopError\)[\s\S]*\} finally \{[\s\S]*room\.disconnect\(\);[\s\S]*\}/

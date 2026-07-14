@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ParticipantInfo_Kind, ParticipantInfo_State } from '@livekit/protocol';
+import { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } from '@livekit/protocol';
 import {
   resolveAgentWorkerReadyFile,
   waitForAgentWorkerReady,
@@ -23,11 +23,15 @@ function activeParticipant(identity, attributes = {}) {
   };
 }
 
-function readyParticipants(agentName) {
+function readyParticipants(agentName, { videoReady = false } = {}) {
+  const videoParticipant = activeParticipant('room_video_input');
+  if (videoReady) {
+    videoParticipant.tracks = [{ name: 'room_video', type: TrackType.VIDEO, muted: false }];
+  }
   return [
     activeParticipant('agent-ready', { 'lk.agent.name': agentName }),
     activeParticipant('room_audio_input'),
-    activeParticipant('room_video_input'),
+    videoParticipant,
   ];
 }
 
@@ -100,6 +104,82 @@ test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () =>
   assert.equal(dispatchCalls, 1);
   assert.deepEqual(secondResult, firstResult);
   assert.equal(firstResult.dispatchId, 'dispatch-concurrent');
+});
+
+test('concurrent dispatch callers wait for their own readiness contract', async () => {
+  const agentName = 'frontdesk-browser-agent-readiness-contract';
+  let dispatchCalls = 0;
+  let agentReady = false;
+  let videoReady = false;
+  let releaseDispatch;
+  let releaseVideo;
+  let markVideoWaitStarted;
+  const dispatchGate = new Promise((resolve) => {
+    releaseDispatch = resolve;
+  });
+  const videoGate = new Promise((resolve) => {
+    releaseVideo = resolve;
+  });
+  const videoWaitStarted = new Promise((resolve) => {
+    markVideoWaitStarted = resolve;
+  });
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCalls += 1;
+      await dispatchGate;
+      agentReady = true;
+      return { id: 'dispatch-readiness-contract' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listParticipants() {
+      return agentReady ? readyParticipants(agentName, { videoReady }) : [];
+    },
+    async listRooms() {
+      return [{ name: 'voice_assistant_room_readiness_contract' }];
+    },
+    async createRoom() {
+      throw new Error('room already exists');
+    },
+    async deleteRoom() {},
+  };
+  const request = {
+    roomName: 'voice_assistant_room_readiness_contract',
+    sessionId: 'readiness-contract',
+    agentName,
+  };
+
+  const prewarm = dispatchRoomSession(
+    { ...request, readiness: { requireRoomInputParticipantsReady: true } },
+    { dispatchClient, roomClient, dispatchTimeoutMs: 100 }
+  );
+  const browserDispatch = dispatchRoomSession(
+    { ...request, readiness: { requireRoomVideoInputReady: true } },
+    {
+      dispatchClient,
+      roomClient,
+      dispatchTimeoutMs: 100,
+      dispatchPollMs: 1,
+      sleep: async () => {
+        markVideoWaitStarted();
+        await videoGate;
+      },
+    }
+  );
+
+  releaseDispatch();
+  const prewarmResult = await prewarm;
+  await videoWaitStarted;
+  assert.equal(dispatchCalls, 1);
+  assert.equal(prewarmResult.dispatchId, 'dispatch-readiness-contract');
+
+  videoReady = true;
+  releaseVideo();
+  const browserResult = await browserDispatch;
+
+  assert.equal(dispatchCalls, 1);
+  assert.equal(browserResult.dispatchId, 'dispatch-readiness-contract');
 });
 
 test('prewarm creates the room and waits for both room input participants', async () => {
