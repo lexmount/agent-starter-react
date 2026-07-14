@@ -21,6 +21,7 @@ import {
 } from '@/lib/session-dispatch-client';
 import {
   beginAgentSessionStart,
+  cancelAgentSessionStart,
   registerAgentSessionDispatch,
   requestAgentSessionStop,
   waitForAgentSessionStop,
@@ -251,6 +252,15 @@ export function useRoom(appConfig: AppConfig) {
       await startDefaultMicrophone();
     };
 
+    const startLocalInputOrCancelDispatch = async () => {
+      try {
+        await startLocalInput();
+      } catch (error) {
+        cancelAgentSessionStart(sessionId);
+        throw error;
+      }
+    };
+
     try {
       await waitForAgentSessionStop();
       await waitForRoomDisconnected(room);
@@ -263,7 +273,7 @@ export function useRoom(appConfig: AppConfig) {
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
         connectedRoomName = room.name;
         const [localInputResult, dispatchResult] = await Promise.allSettled([
-          startLocalInput(),
+          startLocalInputOrCancelDispatch(),
           dispatchAgentSession(),
         ]);
         if (localInputResult.status === 'rejected') {

@@ -74,7 +74,11 @@ test('browser room starts local media and agent dispatch concurrently after room
 
   assert.match(
     useRoomSource,
-    /await room\.connect[\s\S]*connectedRoomName = room\.name;[\s\S]*await Promise\.allSettled\(\[[\s\S]*startLocalInput\(\),[\s\S]*dispatchAgentSession\(\),[\s\S]*\]\)/
+    /await room\.connect[\s\S]*connectedRoomName = room\.name;[\s\S]*await Promise\.allSettled\(\[[\s\S]*startLocalInputOrCancelDispatch\(\),[\s\S]*dispatchAgentSession\(\),[\s\S]*\]\)/
+  );
+  assert.match(
+    useRoomSource,
+    /const startLocalInputOrCancelDispatch = async \(\) => \{[\s\S]*await startLocalInput\(\);[\s\S]*catch \(error\) \{[\s\S]*cancelAgentSessionStart\(sessionId\);[\s\S]*throw error;/
   );
   assert.match(useRoomSource, /localInputResult\.status === 'rejected'/);
   assert.match(useRoomSource, /dispatchResult\.status === 'rejected'/);
