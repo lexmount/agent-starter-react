@@ -11,7 +11,7 @@ import {
   createLocalVideoTrack,
 } from 'livekit-client';
 import type { AppConfig } from '@/app-config';
-import { startMediaTrackVadObserver } from '@/lib/frontend-vad-observer';
+import { resolveVadAssetBasePaths, startMediaTrackVadObserver } from '@/lib/frontend-vad-observer';
 import {
   FRONTEND_EVENTS,
   OBSERVABILITY_ATTRS,
@@ -154,8 +154,12 @@ export function useBrowserSourceClient(
         [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
       });
       if (appConfig.observabilityEnabled) {
+        const vadAssetBasePaths = appConfig.sandboxId
+          ? resolveVadAssetBasePaths(window.location.pathname)
+          : undefined;
         void startMediaTrackVadObserver({
           mediaStreamTrack: captureTrack,
+          ...vadAssetBasePaths,
           onSpeechStart: (event) => {
             recordFrontendObservability(
               FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_STARTED,
@@ -206,6 +210,7 @@ export function useBrowserSourceClient(
     }
   }, [
     appConfig.observabilityEnabled,
+    appConfig.sandboxId,
     audioConfigured,
     browserMediaStreamName,
     recordFrontendObservability,
