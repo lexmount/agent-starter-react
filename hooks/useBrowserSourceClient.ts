@@ -344,6 +344,8 @@ export function useBrowserSourceClient(
       audioObserverStop: null,
     };
 
+    // Sandbox sessions target Chromium and keep independent capture concurrent
+    // so camera permission does not delay the microphone or agent dispatch.
     const audioStart = audioEnabledRef.current ? ensureAudioPublished() : Promise.resolve();
     const videoStart = videoEnabledRef.current ? ensureVideoPublished() : Promise.resolve();
     const [audioResult, videoResult] = await Promise.allSettled([audioStart, videoStart]);

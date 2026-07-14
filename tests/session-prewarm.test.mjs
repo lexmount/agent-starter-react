@@ -10,6 +10,7 @@ import {
   dispatchRoomSession,
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
+import { getRoomSessionSnapshot } from '../app/api/session/session-registry.ts';
 
 function activeParticipant(identity, attributes = {}) {
   return {
@@ -173,6 +174,9 @@ test('concurrent dispatch callers wait for their own readiness contract', async 
   await videoWaitStarted;
   assert.equal(dispatchCalls, 1);
   assert.equal(prewarmResult.dispatchId, 'dispatch-readiness-contract');
+  assert.deepEqual(getRoomSessionSnapshot(request.roomName)?.dispatchIds, [
+    'dispatch-readiness-contract',
+  ]);
 
   videoReady = true;
   releaseVideo();
@@ -180,6 +184,7 @@ test('concurrent dispatch callers wait for their own readiness contract', async 
 
   assert.equal(dispatchCalls, 1);
   assert.equal(browserResult.dispatchId, 'dispatch-readiness-contract');
+  assert.deepEqual(getRoomSessionSnapshot(request.roomName)?.dispatchIds, []);
 });
 
 test('prewarm creates the room and waits for both room input participants', async () => {
