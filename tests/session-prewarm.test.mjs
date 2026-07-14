@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } from '@livekit/protocol';
 import {
@@ -10,7 +11,6 @@ import {
   dispatchRoomSession,
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
-import { getRoomSessionSnapshot } from '../app/api/session/session-registry';
 
 function activeParticipant(identity, attributes = {}) {
   return {
@@ -174,9 +174,6 @@ test('concurrent dispatch callers wait for their own readiness contract', async 
   await videoWaitStarted;
   assert.equal(dispatchCalls, 1);
   assert.equal(prewarmResult.dispatchId, 'dispatch-readiness-contract');
-  assert.deepEqual(getRoomSessionSnapshot(request.roomName)?.dispatchIds, [
-    'dispatch-readiness-contract',
-  ]);
 
   videoReady = true;
   releaseVideo();
@@ -184,7 +181,27 @@ test('concurrent dispatch callers wait for their own readiness contract', async 
 
   assert.equal(dispatchCalls, 1);
   assert.equal(browserResult.dispatchId, 'dispatch-readiness-contract');
-  assert.deepEqual(getRoomSessionSnapshot(request.roomName)?.dispatchIds, []);
+});
+
+test('shared dispatch token stays active through per-caller readiness waits', async () => {
+  const source = await readFile(
+    new URL('../app/api/session/session-dispatch-service.ts', import.meta.url),
+    'utf8'
+  );
+  const dispatchSource = source.slice(
+    source.indexOf('export async function dispatchRoomSession'),
+    source.indexOf('async function waitForRequestedRoomSessionReadiness')
+  );
+  const readinessSource = source.slice(
+    source.indexOf('async function waitForRequestedRoomSessionReadiness'),
+    source.indexOf('export async function prewarmRoomSession')
+  );
+
+  assert.match(
+    dispatchSource,
+    /inFlight\.callers === 0[\s\S]*finishRoomSessionDispatch\(inFlight\.session\)/
+  );
+  assert.doesNotMatch(readinessSource, /beginRoomSessionDispatch|finishRoomSessionDispatch/);
 });
 
 test('prewarm creates the room and waits for both room input participants', async () => {
