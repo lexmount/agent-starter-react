@@ -10,7 +10,7 @@ import {
   dispatchRoomSession,
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
-import { getRoomSessionSnapshot } from '../app/api/session/session-registry.ts';
+import { getRoomSessionSnapshot } from '../app/api/session/session-registry';
 
 function activeParticipant(identity, attributes = {}) {
   return {
