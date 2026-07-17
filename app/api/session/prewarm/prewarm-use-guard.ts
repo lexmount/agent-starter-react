@@ -5,7 +5,8 @@ const globalForPrewarmUse = globalThis as typeof globalThis & {
   __liveavatarPrewarmUseStates?: PrewarmUseStates;
 };
 
-// Keep one authorization state even if the Next.js server loads this module in multiple chunks.
+// Process-local like session-registry: deploy one Next.js process or use sticky routing.
+// globalThis also keeps one state if that process loads this module in multiple chunks.
 const prewarmUseStates =
   globalForPrewarmUse.__liveavatarPrewarmUseStates ??
   (globalForPrewarmUse.__liveavatarPrewarmUseStates = new Map());

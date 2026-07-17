@@ -327,6 +327,20 @@ test('browser video input shows the camera control as enabled by default', async
   );
 });
 
+test('browser source reports video failure even when audio capture also fails', async () => {
+  const browserSourceSource = await readFile(
+    new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
+    'utf8'
+  );
+  const audioFailureBranch =
+    browserSourceSource.match(
+      /if \(audioResult\.status === 'rejected'\) \{[\s\S]*?throw audioResult\.reason;\n    \}/
+    )?.[0] ?? '';
+
+  assert.match(audioFailureBranch, /if \(videoResult\.status === 'rejected'\)/);
+  assert.match(audioFailureBranch, /onVideoError\?\.\(videoResult\.reason as Error\)/);
+});
+
 test('microphone device selector remains visible before media permission is granted', async () => {
   const trackSelectorSource = await readFile(
     new URL('../components/livekit/agent-control-bar/track-selector.tsx', import.meta.url),

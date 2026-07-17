@@ -351,6 +351,9 @@ export function useBrowserSourceClient(
     const [audioResult, videoResult] = await Promise.allSettled([audioStart, videoStart]);
 
     if (audioResult.status === 'rejected') {
+      if (videoResult.status === 'rejected') {
+        onVideoError?.(videoResult.reason as Error);
+      }
       await stop();
       throw audioResult.reason;
     }
