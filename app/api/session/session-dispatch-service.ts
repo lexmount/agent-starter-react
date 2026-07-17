@@ -383,7 +383,7 @@ async function waitForReusableAgentParticipant(
   session: RoomSessionToken,
   sleepFn: (ms: number) => Promise<unknown>
 ) {
-  do {
+  while (true) {
     throwIfSessionCancelled(session);
     const participant = await findReusableAgentParticipant(roomClient, roomName, agentName, {
       allowAnonymousLiveKitAgentFallback: true,
@@ -394,16 +394,11 @@ async function waitForReusableAgentParticipant(
       return participant;
     }
     const waitMs = Math.min(pollMs, remainingDispatchTime(getDeadline()));
-    if (waitMs > 0) {
-      await sleepFn(waitMs);
+    if (waitMs <= 0) {
+      return null;
     }
-  } while (Date.now() < getDeadline());
-
-  throwIfSessionCancelled(session);
-  return findReusableAgentParticipant(roomClient, roomName, agentName, {
-    allowAnonymousLiveKitAgentFallback: true,
-    ...readiness,
-  });
+    await sleepFn(waitMs);
+  }
 }
 
 async function findReusableAgentParticipant(

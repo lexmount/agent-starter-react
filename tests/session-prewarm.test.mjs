@@ -340,6 +340,79 @@ test('a concurrent prewarm budget extends the shared in-flight dispatch', async 
   }
 });
 
+test('a prewarm budget can extend the dispatch during the old deadline check', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  let dispatchCalls = 0;
+  let releaseDeadlineCheck;
+  let markDeadlineCheckStarted;
+  let deadlineCheckBlocked = false;
+  Date.now = () => now;
+
+  const deadlineCheckStarted = new Promise((resolve) => {
+    markDeadlineCheckStarted = resolve;
+  });
+  const deadlineCheckGate = new Promise((resolve) => {
+    releaseDeadlineCheck = resolve;
+  });
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCalls += 1;
+      return { id: 'dispatch-late-shared-budget' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listParticipants() {
+      if (now === 9_000 && !deadlineCheckBlocked) {
+        deadlineCheckBlocked = true;
+        markDeadlineCheckStarted();
+        await deadlineCheckGate;
+      }
+      return [];
+    },
+    async deleteRoom() {},
+  };
+  const dependencies = {
+    dispatchClient,
+    roomClient,
+    dispatchPollMs: 1_000,
+    dispatchRetryMs: 1_000,
+    sleep: async (ms) => {
+      now += ms;
+    },
+  };
+  const request = {
+    roomName: 'voice_assistant_room_late_shared_budget',
+    sessionId: 'late-shared-budget',
+    agentName: 'frontdesk-browser-agent-late-shared-budget',
+  };
+
+  try {
+    const regularDispatch = dispatchRoomSession(request, {
+      ...dependencies,
+      dispatchTimeoutMs: 8_000,
+    });
+    await deadlineCheckStarted;
+    const prewarmDispatch = dispatchRoomSession(request, {
+      ...dependencies,
+      dispatchTimeoutMs: 20_000,
+    });
+    releaseDeadlineCheck();
+    const results = await Promise.allSettled([regularDispatch, prewarmDispatch]);
+
+    assert.equal(dispatchCalls, 1);
+    assert.equal(now, 29_000);
+    assert.equal(
+      results.every((result) => result.status === 'rejected'),
+      true
+    );
+  } finally {
+    releaseDeadlineCheck?.();
+    Date.now = originalNow;
+  }
+});
+
 test('concurrent dispatch callers wait for their own readiness contract', async () => {
   const agentName = 'frontdesk-browser-agent-readiness-contract';
   let dispatchCalls = 0;
