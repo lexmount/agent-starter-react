@@ -52,6 +52,7 @@ type InFlightDispatch = {
   operation: Promise<Record<string, unknown>>;
   session: RoomSessionToken;
   callers: number;
+  deadline: { value: number };
 };
 
 const inFlightDispatches = new Map<string, InFlightDispatch>();
@@ -63,12 +64,15 @@ export async function dispatchRoomSession(
   dependencies: DispatchDependencies = {}
 ) {
   const startedAt = Date.now();
+  const timeoutMs = resolveDispatchTimeoutMs(dependencies);
   const key = `${request.sessionId}\u0000${request.roomName}\u0000${request.agentName}`;
   let inFlight = inFlightDispatches.get(key);
   if (!inFlight) {
     const clients = resolveClients(dependencies);
+    const deadline = { value: startedAt + timeoutMs };
     // Dispatch creation is shared by identity. Each caller waits for its own
-    // readiness contract below so a prewarm cannot weaken a concurrent request.
+    // readiness contract below, while the shared operation keeps the longest
+    // timeout budget of all concurrent callers.
     const session = beginRoomSessionDispatch(
       request.roomName,
       request.sessionId,
@@ -78,12 +82,16 @@ export async function dispatchRoomSession(
       operation: runRoomSessionDispatch(
         { ...request, readiness: {} },
         { ...dependencies, ...clients },
-        session
+        session,
+        () => deadline.value
       ),
       session,
       callers: 0,
+      deadline,
     };
     inFlightDispatches.set(key, inFlight);
+  } else {
+    inFlight.deadline.value = Math.max(inFlight.deadline.value, startedAt + timeoutMs);
   }
 
   inFlight.callers += 1;
@@ -124,12 +132,13 @@ async function waitForRequestedRoomSessionReadiness(
   const timeoutMs =
     dependencies.dispatchTimeoutMs ||
     readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
+  const deadline = startedAt + timeoutMs;
   const participant = await waitForReusableAgentParticipant(
     clients.roomClient,
     request.roomName,
     request.agentName,
     readiness,
-    remainingDispatchTime(startedAt, timeoutMs),
+    () => deadline,
     dependencies.dispatchPollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200),
     session,
     dependencies.sleep || sleep
@@ -174,7 +183,8 @@ export async function prewarmRoomSession(
 async function runRoomSessionDispatch(
   request: DispatchRoomSessionRequest,
   dependencies: DispatchDependencies,
-  session: RoomSessionToken
+  session: RoomSessionToken,
+  getDeadline: () => number
 ) {
   const { roomName, sessionId, agentName, readiness = {} } = request;
   const clients = resolveClients(dependencies);
@@ -187,6 +197,7 @@ async function runRoomSessionDispatch(
     readiness,
     {
       timeoutMs: dependencies.dispatchTimeoutMs,
+      getDeadline,
       retryMs: dependencies.dispatchRetryMs,
       pollMs: dependencies.dispatchPollMs,
       sleep: dependencies.sleep,
@@ -252,6 +263,7 @@ async function createAgentDispatchWithRetry(
   reusableAgentOptions: ReusableAgentParticipantOptions,
   options: {
     timeoutMs?: number;
+    getDeadline?: () => number;
     retryMs?: number;
     pollMs?: number;
     sleep?: (ms: number) => Promise<unknown>;
@@ -260,10 +272,11 @@ async function createAgentDispatchWithRetry(
   const timeoutMs =
     options.timeoutMs ||
     readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
+  const fixedDeadline = Date.now() + timeoutMs;
+  const getDeadline = options.getDeadline || (() => fixedDeadline);
   const retryMs = options.retryMs || readPositiveIntEnv('AGENT_DISPATCH_RETRY_MS', 500);
   const pollMs = options.pollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200);
   const sleepFn = options.sleep || sleep;
-  const startedAt = Date.now();
   let lastError: unknown;
   let attempts = 0;
   let dispatchId = '';
@@ -305,7 +318,7 @@ async function createAgentDispatchWithRetry(
         roomName,
         agentName,
         reusableAgentOptions,
-        remainingDispatchTime(startedAt, timeoutMs),
+        getDeadline,
         pollMs,
         session,
         sleepFn
@@ -327,14 +340,14 @@ async function createAgentDispatchWithRetry(
       }
       lastError = error;
       const waitMs = Math.min(
-        calculateDispatchRetryDelay(attempts, retryMs, timeoutMs),
-        remainingDispatchTime(startedAt, timeoutMs)
+        calculateDispatchRetryDelay(attempts, retryMs),
+        remainingDispatchTime(getDeadline())
       );
       if (waitMs > 0) {
         await sleepFn(waitMs);
       }
     }
-  } while (Date.now() - startedAt < timeoutMs);
+  } while (Date.now() < getDeadline());
 
   await deleteDispatchQuietly(dispatchClient, dispatchId, roomName);
   throw new Error(
@@ -344,13 +357,20 @@ async function createAgentDispatchWithRetry(
   );
 }
 
-function remainingDispatchTime(startedAt: number, timeoutMs: number) {
-  return Math.max(0, timeoutMs - (Date.now() - startedAt));
+function resolveDispatchTimeoutMs(dependencies: DispatchDependencies) {
+  return (
+    dependencies.dispatchTimeoutMs ||
+    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS)
+  );
 }
 
-function calculateDispatchRetryDelay(attempts: number, retryMs: number, timeoutMs: number) {
+function remainingDispatchTime(deadline: number) {
+  return Math.max(0, deadline - Date.now());
+}
+
+function calculateDispatchRetryDelay(attempts: number, retryMs: number) {
   const multiplier = 2 ** Math.max(0, attempts - 1);
-  return Math.min(retryMs * multiplier, timeoutMs);
+  return retryMs * multiplier;
 }
 
 async function waitForReusableAgentParticipant(
@@ -358,12 +378,11 @@ async function waitForReusableAgentParticipant(
   roomName: string,
   agentName: string,
   readiness: ReusableAgentParticipantOptions,
-  maxWaitMs: number,
+  getDeadline: () => number,
   pollMs: number,
   session: RoomSessionToken,
   sleepFn: (ms: number) => Promise<unknown>
 ) {
-  const deadline = Date.now() + maxWaitMs;
   do {
     throwIfSessionCancelled(session);
     const participant = await findReusableAgentParticipant(roomClient, roomName, agentName, {
@@ -374,11 +393,11 @@ async function waitForReusableAgentParticipant(
       throwIfSessionCancelled(session);
       return participant;
     }
-    const waitMs = Math.min(pollMs, deadline - Date.now());
+    const waitMs = Math.min(pollMs, remainingDispatchTime(getDeadline()));
     if (waitMs > 0) {
       await sleepFn(waitMs);
     }
-  } while (Date.now() < deadline);
+  } while (Date.now() < getDeadline());
 
   throwIfSessionCancelled(session);
   return findReusableAgentParticipant(roomClient, roomName, agentName, {

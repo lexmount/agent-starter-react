@@ -74,8 +74,10 @@ test('session dispatch retry backs off between repeated attempts', async () => {
 
   assert.match(serviceSource, /function calculateDispatchRetryDelay/);
   assert.match(serviceSource, /2 \*\* Math\.max\(0, attempts - 1\)/);
-  assert.match(serviceSource, /Math\.min\(retryMs \* multiplier, timeoutMs\)/);
-  assert.match(serviceSource, /calculateDispatchRetryDelay\(attempts/);
+  assert.match(
+    serviceSource,
+    /Math\.min\([\s\S]*calculateDispatchRetryDelay\(attempts, retryMs\)[\s\S]*remainingDispatchTime\(getDeadline\(\)\)[\s\S]*\)/
+  );
 });
 
 test('session dispatch route pins the Next.js runtime to nodejs', async () => {

@@ -283,6 +283,63 @@ test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () =>
   assert.equal(firstResult.dispatchId, 'dispatch-concurrent');
 });
 
+test('a concurrent prewarm budget extends the shared in-flight dispatch', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  let dispatchCalls = 0;
+  Date.now = () => now;
+
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCalls += 1;
+      return { id: 'dispatch-shared-budget' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listParticipants() {
+      return [];
+    },
+    async deleteRoom() {},
+  };
+  const dependencies = {
+    dispatchClient,
+    roomClient,
+    dispatchPollMs: 1_000,
+    dispatchRetryMs: 1_000,
+    sleep: async (ms) => {
+      now += ms;
+    },
+  };
+  const request = {
+    roomName: 'voice_assistant_room_shared_budget',
+    sessionId: 'shared-budget',
+    agentName: 'frontdesk-browser-agent-shared-budget',
+  };
+
+  try {
+    const startedAt = now;
+    const regularDispatch = dispatchRoomSession(request, {
+      ...dependencies,
+      dispatchTimeoutMs: 8_000,
+    });
+    const prewarmDispatch = dispatchRoomSession(request, {
+      ...dependencies,
+      dispatchTimeoutMs: 20_000,
+    });
+    const results = await Promise.allSettled([regularDispatch, prewarmDispatch]);
+
+    assert.equal(dispatchCalls, 1);
+    assert.equal(now - startedAt, 20_000);
+    for (const result of results) {
+      assert.equal(result.status, 'rejected');
+      assert.match(result.reason.message, /agent dispatch failed/);
+    }
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('concurrent dispatch callers wait for their own readiness contract', async () => {
   const agentName = 'frontdesk-browser-agent-readiness-contract';
   let dispatchCalls = 0;
