@@ -6,6 +6,12 @@ import {
   resolveAgentWorkerReadyFile,
   waitForAgentWorkerReady,
 } from '../app/api/session/agent-worker-readiness.ts';
+import {
+  beginPrewarmUse,
+  buildPrewarmUseKey,
+  completePrewarmUse,
+  failPrewarmUse,
+} from '../app/api/session/prewarm/prewarm-use-guard.ts';
 import { POST as prewarmRoute } from '../app/api/session/prewarm/route.ts';
 import {
   dispatchRoomSession,
@@ -58,6 +64,75 @@ test('prewarm route rejects requests without the per-sandbox secret', async () =
       delete process.env.LIVEAVATAR_PREWARM_SECRET;
     } else {
       process.env.LIVEAVATAR_PREWARM_SECRET = previous;
+    }
+  }
+});
+
+test('prewarm authorization is single-use after success and retryable after failure', () => {
+  const completedKey = buildPrewarmUseKey(
+    'completed-session',
+    'voice_assistant_room_completed-session',
+    'frontdesk-browser-agent-completed-session'
+  );
+  assert.equal(beginPrewarmUse(completedKey), 'started');
+  assert.equal(beginPrewarmUse(completedKey), 'in_progress');
+  completePrewarmUse(completedKey);
+  assert.equal(beginPrewarmUse(completedKey), 'completed');
+
+  const retryableKey = buildPrewarmUseKey(
+    'retryable-session',
+    'voice_assistant_room_retryable-session',
+    'frontdesk-browser-agent-retryable-session'
+  );
+  assert.equal(beginPrewarmUse(retryableKey), 'started');
+  failPrewarmUse(retryableKey);
+  assert.equal(beginPrewarmUse(retryableKey), 'started');
+  failPrewarmUse(retryableKey);
+});
+
+test('prewarm route returns 409 after its server-owned authorization is consumed', async () => {
+  const sessionId = 'a16e0a10-4f28-4a78-8f1f-019c25a273cb';
+  const roomName = `voice_assistant_room_${sessionId}`;
+  const agentName = 'frontdesk-browser-agent-consumed';
+  const secret = 'consumed-prewarm-secret';
+  const envNames = [
+    'LIVEAVATAR_PREWARM_SECRET',
+    'LIVEAVATAR_VOICE_SESSION_ID',
+    'LIVEAVATAR_LIVEKIT_ROOM_NAME',
+    'AGENT_NAME',
+  ];
+  const previous = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
+  Object.assign(process.env, {
+    LIVEAVATAR_PREWARM_SECRET: secret,
+    LIVEAVATAR_VOICE_SESSION_ID: sessionId,
+    LIVEAVATAR_LIVEKIT_ROOM_NAME: roomName,
+    AGENT_NAME: agentName,
+  });
+
+  const useKey = buildPrewarmUseKey(sessionId, roomName, agentName);
+  assert.equal(beginPrewarmUse(useKey), 'started');
+  completePrewarmUse(useKey);
+
+  try {
+    const response = await prewarmRoute(
+      new Request('http://sandbox.example.test/api/session/prewarm', {
+        method: 'POST',
+        headers: { 'x-liveavatar-prewarm-secret': secret },
+      })
+    );
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+      status: 'error',
+      error: 'prewarm authorization already consumed',
+    });
+  } finally {
+    for (const name of envNames) {
+      if (previous[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = previous[name];
+      }
     }
   }
 });

@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
+import {
+  beginPrewarmUse,
+  buildPrewarmUseKey,
+  completePrewarmUse,
+  failPrewarmUse,
+} from '@/app/api/session/prewarm/prewarm-use-guard';
 import { prewarmRoomSession } from '@/app/api/session/session-dispatch-service';
 import { deriveLiveKitRoomName, isValidConnectionRoomId } from '@/lib/connection-room-id';
 
@@ -33,13 +39,30 @@ export async function POST(request: Request) {
     );
   }
 
+  const prewarmUseKey = buildPrewarmUseKey(sessionId, roomName, agentName);
+  const prewarmUseState = beginPrewarmUse(prewarmUseKey);
+  if (prewarmUseState !== 'started') {
+    return NextResponse.json(
+      {
+        status: 'error',
+        error:
+          prewarmUseState === 'in_progress'
+            ? 'prewarm already in progress'
+            : 'prewarm authorization already consumed',
+      },
+      { status: 409, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   try {
     const result = await prewarmRoomSession({ roomName, sessionId, agentName });
+    completePrewarmUse(prewarmUseKey);
     return NextResponse.json(
       { status: 'prewarmed', roomName, sessionId, agentName, ...result },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error) {
+    failPrewarmUse(prewarmUseKey);
     return NextResponse.json(
       {
         status: 'error',
