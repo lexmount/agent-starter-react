@@ -3,15 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } from '@livekit/protocol';
 import {
-  resolveAgentWorkerReadyFile,
-  waitForAgentWorkerReady,
-} from '../app/api/session/agent-worker-readiness.ts';
-import {
   beginPrewarmUse,
   buildPrewarmUseKey,
   completePrewarmUse,
   failPrewarmUse,
-} from '../app/api/session/prewarm/prewarm-use-guard.ts';
+} from '@/app/api/session/prewarm/prewarm-use-guard';
+import {
+  resolveAgentWorkerReadyFile,
+  waitForAgentWorkerReady,
+} from '../app/api/session/agent-worker-readiness.ts';
 import { POST as prewarmRoute } from '../app/api/session/prewarm/route.ts';
 import {
   dispatchRoomSession,
