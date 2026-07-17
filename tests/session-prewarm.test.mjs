@@ -237,6 +237,70 @@ test('regular dispatch keeps the shorter timeout while prewarm gets a larger bud
   }
 });
 
+test('prewarm shares one timeout across worker readiness and dispatch', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  let workerMaxWaitMs;
+  Date.now = () => now;
+
+  const dispatchClient = {
+    async createDispatch() {
+      return { id: 'dispatch-shared-prewarm-timeout' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listRooms() {
+      return [{ name: 'voice_assistant_room_shared_prewarm_timeout' }];
+    },
+    async createRoom({ name }) {
+      return { name };
+    },
+    async listParticipants() {
+      return [];
+    },
+    async deleteRoom() {},
+  };
+
+  try {
+    const startedAt = now;
+    await assert.rejects(
+      prewarmRoomSession(
+        {
+          roomName: 'voice_assistant_room_shared_prewarm_timeout',
+          sessionId: 'shared-prewarm-timeout',
+          agentName: 'frontdesk-browser-agent-shared-prewarm-timeout',
+        },
+        {
+          dispatchClient,
+          roomClient,
+          waitForAgentWorkerReady: async (_agentName, options) => {
+            workerMaxWaitMs = options.maxWaitMs;
+            now += 12_000;
+            return {
+              state: 'skipped',
+              agentName: _agentName,
+              reason: 'not_sandbox',
+              waitedMs: 0,
+            };
+          },
+          dispatchPollMs: 1_000,
+          dispatchRetryMs: 1_000,
+          sleep: async (ms) => {
+            now += ms;
+          },
+        }
+      ),
+      /agent dispatch failed/
+    );
+
+    assert.equal(workerMaxWaitMs, 20_000);
+    assert.equal(now - startedAt, 20_000);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () => {
   const agentName = 'frontdesk-browser-agent-concurrent';
   let dispatchCalls = 0;
@@ -655,4 +719,29 @@ test('worker readiness ignores stale agent markers and waits for the expected wo
   assert.equal(reads, 2);
   assert.equal(readiness.state, 'ready');
   assert.equal(readiness.workerId, 'AW_current');
+});
+
+test('worker readiness respects a caller-owned maximum wait budget', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  Date.now = () => now;
+
+  try {
+    await assert.rejects(
+      waitForAgentWorkerReady('frontdesk-browser-agent-timeout', {
+        readyFile: '/tmp/agent-worker-ready.json',
+        timeoutMs: 100,
+        maxWaitMs: 30,
+        pollMs: 10,
+        readFile: async () => '{}',
+        sleep: async (ms) => {
+          now += ms;
+        },
+      }),
+      /agent worker did not register before prewarm timeout/
+    );
+    assert.equal(now, 1_030);
+  } finally {
+    Date.now = originalNow;
+  }
 });

@@ -6,7 +6,11 @@ import {
   summarizeRoomInputReadiness,
 } from '@/lib/session-dispatch-readiness';
 import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
-import { type AgentWorkerReadiness, waitForAgentWorkerReady } from './agent-worker-readiness';
+import {
+  type AgentWorkerReadiness,
+  type WaitForAgentWorkerReadyOptions,
+  waitForAgentWorkerReady,
+} from './agent-worker-readiness';
 import {
   type RoomSessionToken,
   beginRoomSessionDispatch,
@@ -29,7 +33,10 @@ type DispatchDependencies = {
   dispatchRetryMs?: number;
   dispatchPollMs?: number;
   sleep?: (ms: number) => Promise<unknown>;
-  waitForAgentWorkerReady?: (agentName: string) => Promise<AgentWorkerReadiness>;
+  waitForAgentWorkerReady?: (
+    agentName: string,
+    options?: Pick<WaitForAgentWorkerReadyOptions, 'maxWaitMs'>
+  ) => Promise<AgentWorkerReadiness>;
 };
 
 export type DispatchRoomSessionRequest = {
@@ -158,12 +165,18 @@ export async function prewarmRoomSession(
   request: Omit<DispatchRoomSessionRequest, 'readiness'>,
   dependencies: DispatchDependencies = {}
 ) {
+  const prewarmTimeoutMs = dependencies.dispatchTimeoutMs || DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS;
+  const prewarmDeadline = Date.now() + prewarmTimeoutMs;
   const clients = resolveClients(dependencies);
-  const dispatchTimeoutMs = dependencies.dispatchTimeoutMs || DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS;
   const room = await ensureLiveKitRoom(clients.roomClient, request.roomName);
   const workerReadiness = await (dependencies.waitForAgentWorkerReady || waitForAgentWorkerReady)(
-    request.agentName
+    request.agentName,
+    { maxWaitMs: remainingDispatchTime(prewarmDeadline) }
   );
+  const dispatchTimeoutMs = remainingDispatchTime(prewarmDeadline);
+  if (dispatchTimeoutMs <= 0) {
+    throw new Error('prewarm timeout expired before agent dispatch');
+  }
   const dispatch = await dispatchRoomSession(
     {
       ...request,

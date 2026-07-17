@@ -11,9 +11,10 @@ type AgentWorkerReadyMarker = {
   registeredAt: string;
 };
 
-type WaitForAgentWorkerReadyOptions = {
+export type WaitForAgentWorkerReadyOptions = {
   readyFile?: string;
   timeoutMs?: number;
+  maxWaitMs?: number;
   pollMs?: number;
   readFile?: (filePath: string) => Promise<string>;
   sleep?: (ms: number) => Promise<unknown>;
@@ -57,9 +58,13 @@ export async function waitForAgentWorkerReady(
     return { state: 'skipped', agentName, reason: 'not_sandbox', waitedMs: 0 };
   }
 
-  const timeoutMs =
+  const configuredTimeoutMs =
     options.timeoutMs ??
     readPositiveInt(process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
+  const timeoutMs =
+    options.maxWaitMs === undefined
+      ? configuredTimeoutMs
+      : Math.max(0, Math.min(configuredTimeoutMs, options.maxWaitMs));
   const pollMs =
     options.pollMs ??
     readPositiveInt(process.env.LIVEAVATAR_AGENT_WORKER_READY_POLL_MS, DEFAULT_READY_POLL_MS);
