@@ -7,6 +7,8 @@ const globalForPrewarmUse = globalThis as typeof globalThis & {
 
 // Process-local like session-registry: deploy one Next.js process or use sticky routing.
 // globalThis also keeps one state if that process loads this module in multiple chunks.
+// Completed identities remain consumed: Gateway uses a fresh UUID per sandbox session and
+// releases the whole sandbox after any ambiguous/failed prewarm response instead of replaying it.
 const prewarmUseStates =
   globalForPrewarmUse.__liveavatarPrewarmUseStates ??
   (globalForPrewarmUse.__liveavatarPrewarmUseStates = new Map());

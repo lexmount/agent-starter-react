@@ -162,17 +162,79 @@ test('missing LiveKit configuration fails before registering a room session', as
 });
 
 test('regular dispatch keeps the shorter timeout while prewarm gets a larger budget', async () => {
-  const source = await readFile(
-    new URL('../app/api/session/session-dispatch-service.ts', import.meta.url),
-    'utf8'
-  );
+  const originalNow = Date.now;
+  const originalTimeout = process.env.AGENT_DISPATCH_TIMEOUT_MS;
+  let now = 1_000;
+  let dispatchCount = 0;
+  Date.now = () => now;
+  delete process.env.AGENT_DISPATCH_TIMEOUT_MS;
 
-  assert.match(source, /DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 8_000/);
-  assert.match(source, /DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS = 20_000/);
-  assert.match(
-    source,
-    /dispatchTimeoutMs = dependencies\.dispatchTimeoutMs \|\| DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS/
-  );
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCount += 1;
+      return { id: `dispatch-timeout-${dispatchCount}` };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listRooms([roomName]) {
+      return [{ name: roomName }];
+    },
+    async createRoom({ name }) {
+      return { name };
+    },
+    async listParticipants() {
+      return [];
+    },
+    async deleteRoom() {},
+  };
+  const dependencies = {
+    dispatchClient,
+    roomClient,
+    dispatchPollMs: 1_000,
+    dispatchRetryMs: 1_000,
+    sleep: async (ms) => {
+      now += ms;
+    },
+    waitForAgentWorkerReady: async () => ({ state: 'not_required' }),
+  };
+
+  try {
+    const regularStartedAt = now;
+    await assert.rejects(
+      dispatchRoomSession(
+        {
+          roomName: 'voice_assistant_room_regular_timeout',
+          sessionId: 'regular-timeout',
+          agentName: 'frontdesk-browser-agent-regular-timeout',
+        },
+        dependencies
+      ),
+      /agent dispatch failed/
+    );
+    assert.equal(now - regularStartedAt, 8_000);
+
+    const prewarmStartedAt = now;
+    await assert.rejects(
+      prewarmRoomSession(
+        {
+          roomName: 'voice_assistant_room_prewarm_timeout',
+          sessionId: 'prewarm-timeout',
+          agentName: 'frontdesk-browser-agent-prewarm-timeout',
+        },
+        dependencies
+      ),
+      /agent dispatch failed/
+    );
+    assert.equal(now - prewarmStartedAt, 20_000);
+  } finally {
+    Date.now = originalNow;
+    if (originalTimeout === undefined) {
+      delete process.env.AGENT_DISPATCH_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_DISPATCH_TIMEOUT_MS = originalTimeout;
+    }
+  }
 });
 
 test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () => {
