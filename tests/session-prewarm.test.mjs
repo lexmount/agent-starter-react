@@ -314,6 +314,47 @@ test('prewarm creates the room and waits for both room input participants', asyn
   });
 });
 
+test('repeated prewarm reuses ready participants without creating another dispatch', async () => {
+  const agentName = 'frontdesk-browser-agent-idempotent';
+  let dispatchCalls = 0;
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCalls += 1;
+      return { id: 'unexpected-dispatch' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listRooms() {
+      return [{ name: 'voice_assistant_room_idempotent' }];
+    },
+    async createRoom() {
+      throw new Error('room already exists');
+    },
+    async listParticipants() {
+      return readyParticipants(agentName);
+    },
+    async deleteRoom() {},
+  };
+  const request = {
+    roomName: 'voice_assistant_room_idempotent',
+    sessionId: 'idempotent',
+    agentName,
+  };
+  const dependencies = {
+    dispatchClient,
+    roomClient,
+    waitForAgentWorkerReady: async () => ({ state: 'not_required' }),
+  };
+
+  const first = await prewarmRoomSession(request, dependencies);
+  const second = await prewarmRoomSession(request, dependencies);
+
+  assert.equal(first.dispatch.alreadyJoined, true);
+  assert.equal(second.dispatch.alreadyJoined, true);
+  assert.equal(dispatchCalls, 0);
+});
+
 test('sandbox worker readiness resolves to the shared workspace marker', () => {
   assert.equal(
     resolveAgentWorkerReadyFile({
