@@ -55,6 +55,8 @@ type InFlightDispatch = {
 };
 
 const inFlightDispatches = new Map<string, InFlightDispatch>();
+const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 8_000;
+const DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS = 20_000;
 
 export async function dispatchRoomSession(
   request: DispatchRoomSessionRequest,
@@ -64,6 +66,7 @@ export async function dispatchRoomSession(
   const key = `${request.sessionId}\u0000${request.roomName}\u0000${request.agentName}`;
   let inFlight = inFlightDispatches.get(key);
   if (!inFlight) {
+    const clients = resolveClients(dependencies);
     // Dispatch creation is shared by identity. Each caller waits for its own
     // readiness contract below so a prewarm cannot weaken a concurrent request.
     const session = beginRoomSessionDispatch(
@@ -72,7 +75,11 @@ export async function dispatchRoomSession(
       request.agentName
     );
     inFlight = {
-      operation: runRoomSessionDispatch({ ...request, readiness: {} }, dependencies, session),
+      operation: runRoomSessionDispatch(
+        { ...request, readiness: {} },
+        { ...dependencies, ...clients },
+        session
+      ),
       session,
       callers: 0,
     };
@@ -115,7 +122,8 @@ async function waitForRequestedRoomSessionReadiness(
 
   const clients = resolveClients(dependencies);
   const timeoutMs =
-    dependencies.dispatchTimeoutMs || readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', 20_000);
+    dependencies.dispatchTimeoutMs ||
+    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
   const participant = await waitForReusableAgentParticipant(
     clients.roomClient,
     request.roomName,
@@ -142,6 +150,7 @@ export async function prewarmRoomSession(
   dependencies: DispatchDependencies = {}
 ) {
   const clients = resolveClients(dependencies);
+  const dispatchTimeoutMs = dependencies.dispatchTimeoutMs || DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS;
   const room = await ensureLiveKitRoom(clients.roomClient, request.roomName);
   const workerReadiness = await (dependencies.waitForAgentWorkerReady || waitForAgentWorkerReady)(
     request.agentName
@@ -151,7 +160,7 @@ export async function prewarmRoomSession(
       ...request,
       readiness: { requireRoomInputParticipantsReady: true },
     },
-    { ...dependencies, ...clients }
+    { ...dependencies, ...clients, dispatchTimeoutMs }
   );
   const participants = await clients.roomClient.listParticipants(request.roomName);
   return {
@@ -248,7 +257,9 @@ async function createAgentDispatchWithRetry(
     sleep?: (ms: number) => Promise<unknown>;
   }
 ) {
-  const timeoutMs = options.timeoutMs || readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', 20_000);
+  const timeoutMs =
+    options.timeoutMs ||
+    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
   const retryMs = options.retryMs || readPositiveIntEnv('AGENT_DISPATCH_RETRY_MS', 500);
   const pollMs = options.pollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200);
   const sleepFn = options.sleep || sleep;

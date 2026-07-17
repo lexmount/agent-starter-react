@@ -11,6 +11,7 @@ import {
   dispatchRoomSession,
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
+import { getRoomSessionSnapshot } from '../app/api/session/session-registry.ts';
 
 function activeParticipant(identity, attributes = {}) {
   return {
@@ -59,6 +60,44 @@ test('prewarm route rejects requests without the per-sandbox secret', async () =
       process.env.LIVEAVATAR_PREWARM_SECRET = previous;
     }
   }
+});
+
+test('missing LiveKit configuration fails before registering a room session', async () => {
+  const names = ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  names.forEach((name) => delete process.env[name]);
+
+  const request = {
+    roomName: 'voice_assistant_room_missing_config',
+    sessionId: 'missing-config',
+    agentName: 'frontdesk-browser-agent-missing-config',
+  };
+  try {
+    await assert.rejects(dispatchRoomSession(request), /LiveKit API configuration is required/);
+    assert.equal(getRoomSessionSnapshot(request.roomName), undefined);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = previous[name];
+      }
+    }
+  }
+});
+
+test('regular dispatch keeps the shorter timeout while prewarm gets a larger budget', async () => {
+  const source = await readFile(
+    new URL('../app/api/session/session-dispatch-service.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 8_000/);
+  assert.match(source, /DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS = 20_000/);
+  assert.match(
+    source,
+    /dispatchTimeoutMs = dependencies\.dispatchTimeoutMs \|\| DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS/
+  );
 });
 
 test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () => {
