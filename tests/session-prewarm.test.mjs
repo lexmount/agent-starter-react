@@ -302,6 +302,12 @@ test('prewarm shares one timeout across worker readiness and dispatch', async ()
 });
 
 test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () => {
+  const firstService = await import(
+    '../app/api/session/session-dispatch-service.ts?chunk=dispatch-a'
+  );
+  const secondService = await import(
+    '../app/api/session/session-dispatch-service.ts?chunk=dispatch-b'
+  );
   const agentName = 'frontdesk-browser-agent-concurrent';
   let dispatchCalls = 0;
   let ready = false;
@@ -337,8 +343,8 @@ test('concurrent prewarm dispatch calls share one LiveKit dispatch', async () =>
     readiness: { requireRoomInputParticipantsReady: true },
   };
 
-  const first = dispatchRoomSession(request, { dispatchClient, roomClient });
-  const second = dispatchRoomSession(request, { dispatchClient, roomClient });
+  const first = firstService.dispatchRoomSession(request, { dispatchClient, roomClient });
+  const second = secondService.dispatchRoomSession(request, { dispatchClient, roomClient });
   releaseDispatch();
   const [firstResult, secondResult] = await Promise.all([first, second]);
 

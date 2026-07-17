@@ -62,7 +62,17 @@ type InFlightDispatch = {
   deadline: { value: number };
 };
 
-const inFlightDispatches = new Map<string, InFlightDispatch>();
+type InFlightDispatches = Map<string, InFlightDispatch>;
+
+const globalForInFlightDispatches = globalThis as typeof globalThis & {
+  __liveavatarInFlightDispatches?: InFlightDispatches;
+};
+
+// Process-local like session-registry; globalThis keeps dispatch de-duplication and
+// deadline extensions shared when Next.js loads this service in multiple chunks.
+const inFlightDispatches =
+  globalForInFlightDispatches.__liveavatarInFlightDispatches ??
+  (globalForInFlightDispatches.__liveavatarInFlightDispatches = new Map());
 const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 8_000;
 const DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS = 20_000;
 
