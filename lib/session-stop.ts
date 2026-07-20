@@ -33,6 +33,15 @@ export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | unde
   return normalized;
 }
 
+export function isLiveKitRoomNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const { status, code } = error as { status?: unknown; code?: unknown };
+  return status === 404 && code === 'not_found';
+}
+
 function addRoomInputStopUrl(urls: Set<string>, rawUrl?: string | null): void {
   const stopUrl = normalizeRoomInputControlUrl(rawUrl || '', 'stop');
   if (stopUrl) {
