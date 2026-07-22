@@ -110,8 +110,8 @@ export function useRoom(appConfig: AppConfig) {
     () =>
       TokenSource.custom(async () => {
         const url = new URL(
-          process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details',
-          window.location.origin
+          process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? 'api/connection-details',
+          window.location.href
         );
 
         try {
