@@ -9,6 +9,7 @@ import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
   type AgentWorkerReadiness,
   type WaitForAgentWorkerReadyOptions,
+  resolveAgentWorkerReadyTimeoutMs,
   waitForAgentWorkerReady,
 } from './agent-worker-readiness';
 import {
@@ -30,6 +31,7 @@ type DispatchDependencies = {
   dispatchClient?: DispatchClient;
   roomClient?: RoomClient;
   dispatchTimeoutMs?: number;
+  dispatchDeadlineMs?: number;
   dispatchRetryMs?: number;
   dispatchPollMs?: number;
   sleep?: (ms: number) => Promise<unknown>;
@@ -74,19 +76,64 @@ const inFlightDispatches =
   globalForInFlightDispatches.__liveavatarInFlightDispatches ??
   (globalForInFlightDispatches.__liveavatarInFlightDispatches = new Map());
 const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 8_000;
-const DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS = 20_000;
+const DEFAULT_PREWARM_TOTAL_TIMEOUT_MS = 45_000;
+
+export type PrewarmPhase = 'room' | 'worker_readiness' | 'dispatch_readiness';
+
+export type PrewarmTimings = {
+  totalPrewarmMs: number;
+  roomEnsureMs: number;
+  workerReadyWaitMs: number;
+  dispatchReadinessMs: number;
+};
+
+export type PrewarmFailureTimings = Partial<PrewarmTimings> &
+  Pick<PrewarmTimings, 'totalPrewarmMs'>;
+
+export class PrewarmRoomSessionError extends Error {
+  readonly phase: PrewarmPhase;
+  readonly timings: PrewarmFailureTimings;
+  readonly retryReady?: Promise<void>;
+
+  constructor(
+    phase: PrewarmPhase,
+    timings: PrewarmFailureTimings,
+    cause: unknown,
+    retryReady?: Promise<void>
+  ) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`prewarm failed during ${phase}: ${detail}`, { cause });
+    this.name = 'PrewarmRoomSessionError';
+    this.phase = phase;
+    this.timings = { ...timings };
+    this.retryReady = retryReady;
+  }
+}
+
+class PrewarmDeadlineError extends Error {
+  readonly settled: Promise<void>;
+
+  constructor(message: string, settled: Promise<void>) {
+    super(message);
+    this.name = 'PrewarmDeadlineError';
+    this.settled = settled;
+  }
+}
 
 export async function dispatchRoomSession(
   request: DispatchRoomSessionRequest,
   dependencies: DispatchDependencies = {}
 ) {
   const startedAt = Date.now();
-  const timeoutMs = resolveDispatchTimeoutMs(dependencies);
+  const callerDeadline = resolveDispatchDeadline(dependencies, startedAt);
+  if (callerDeadline <= startedAt) {
+    throw new Error('agent dispatch deadline expired before dispatch');
+  }
   const key = `${request.sessionId}\u0000${request.roomName}\u0000${request.agentName}`;
   let inFlight = inFlightDispatches.get(key);
   if (!inFlight) {
     const clients = resolveClients(dependencies);
-    const deadline = { value: startedAt + timeoutMs };
+    const deadline = { value: callerDeadline };
     // Dispatch creation is shared by identity. Each caller waits for its own
     // readiness contract below, while the shared operation keeps the longest
     // timeout budget of all concurrent callers.
@@ -108,7 +155,7 @@ export async function dispatchRoomSession(
     };
     inFlightDispatches.set(key, inFlight);
   } else {
-    inFlight.deadline.value = Math.max(inFlight.deadline.value, startedAt + timeoutMs);
+    inFlight.deadline.value = Math.max(inFlight.deadline.value, callerDeadline);
   }
 
   inFlight.callers += 1;
@@ -146,10 +193,7 @@ async function waitForRequestedRoomSessionReadiness(
   }
 
   const clients = resolveClients(dependencies);
-  const timeoutMs =
-    dependencies.dispatchTimeoutMs ||
-    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
-  const deadline = startedAt + timeoutMs;
+  const deadline = resolveDispatchDeadline(dependencies, startedAt);
   const participant = await waitForReusableAgentParticipant(
     clients.roomClient,
     request.roomName,
@@ -175,31 +219,134 @@ export async function prewarmRoomSession(
   request: Omit<DispatchRoomSessionRequest, 'readiness'>,
   dependencies: DispatchDependencies = {}
 ) {
-  const prewarmTimeoutMs = dependencies.dispatchTimeoutMs || DEFAULT_PREWARM_DISPATCH_TIMEOUT_MS;
-  const prewarmDeadline = Date.now() + prewarmTimeoutMs;
-  const clients = resolveClients(dependencies);
-  const room = await ensureLiveKitRoom(clients.roomClient, request.roomName);
-  const workerReadiness = await (dependencies.waitForAgentWorkerReady || waitForAgentWorkerReady)(
-    request.agentName,
-    { maxWaitMs: remainingDispatchTime(prewarmDeadline) }
-  );
-  const dispatchTimeoutMs = remainingDispatchTime(prewarmDeadline);
-  if (dispatchTimeoutMs <= 0) {
-    throw new Error('prewarm timeout expired before agent dispatch');
+  const prewarmStartedAt = Date.now();
+  const prewarmTimeoutMs =
+    dependencies.dispatchTimeoutMs ||
+    readPositiveIntEnv('LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS', DEFAULT_PREWARM_TOTAL_TIMEOUT_MS);
+  const prewarmDeadline = prewarmStartedAt + prewarmTimeoutMs;
+  const prewarmAbortController = new AbortController();
+  const completedTimings: Partial<PrewarmTimings> = {};
+
+  const roomPhaseStartedAt = Date.now();
+  let roomAndClients: {
+    room: Awaited<ReturnType<typeof ensureLiveKitRoom>>;
+    clients: ReturnType<typeof resolveClients>;
+  };
+  try {
+    roomAndClients = await runWithinPrewarmDeadline(
+      prewarmDeadline,
+      'room',
+      async () => {
+        const clients = resolveClients(dependencies);
+        const room = await ensureLiveKitRoom(
+          clients.roomClient,
+          request.roomName,
+          prewarmDeadline,
+          prewarmAbortController.signal
+        );
+        return { clients, room };
+      },
+      prewarmAbortController
+    );
+    completedTimings.roomEnsureMs = elapsedSince(roomPhaseStartedAt);
+  } catch (error) {
+    throw buildPrewarmPhaseError(
+      'room',
+      prewarmStartedAt,
+      roomPhaseStartedAt,
+      completedTimings,
+      error
+    );
   }
-  const dispatch = await dispatchRoomSession(
-    {
-      ...request,
-      readiness: { requireRoomInputParticipantsReady: true },
-    },
-    { ...dependencies, ...clients, dispatchTimeoutMs }
-  );
-  const participants = await clients.roomClient.listParticipants(request.roomName);
+
+  const workerPhaseStartedAt = Date.now();
+  let workerReadiness: AgentWorkerReadiness;
+  try {
+    const workerMaxWaitMs = Math.min(
+      resolveAgentWorkerReadyTimeoutMs(),
+      remainingDispatchTime(prewarmDeadline)
+    );
+    workerReadiness = await runWithinPrewarmDeadline(
+      prewarmDeadline,
+      'worker_readiness',
+      () =>
+        (dependencies.waitForAgentWorkerReady || waitForAgentWorkerReady)(request.agentName, {
+          maxWaitMs: workerMaxWaitMs,
+        }),
+      prewarmAbortController
+    );
+    completedTimings.workerReadyWaitMs = elapsedSince(workerPhaseStartedAt);
+  } catch (error) {
+    throw buildPrewarmPhaseError(
+      'worker_readiness',
+      prewarmStartedAt,
+      workerPhaseStartedAt,
+      completedTimings,
+      error
+    );
+  }
+
+  const dispatchPhaseStartedAt = Date.now();
+  let dispatchAndParticipants: {
+    dispatch: Awaited<ReturnType<typeof dispatchRoomSession>>;
+    participants: ParticipantInfo[];
+  };
+  try {
+    dispatchAndParticipants = await runWithinPrewarmDeadline(
+      prewarmDeadline,
+      'dispatch_readiness',
+      async () => {
+        const dispatch = await dispatchRoomSession(
+          {
+            ...request,
+            readiness: { requireRoomInputParticipantsReady: true },
+          },
+          {
+            ...dependencies,
+            ...roomAndClients.clients,
+            dispatchDeadlineMs: prewarmDeadline,
+          }
+        );
+        throwIfPrewarmUnavailable(
+          prewarmDeadline,
+          prewarmAbortController.signal,
+          'final readiness check'
+        );
+        const participants = await roomAndClients.clients.roomClient.listParticipants(
+          request.roomName
+        );
+        throwIfPrewarmUnavailable(
+          prewarmDeadline,
+          prewarmAbortController.signal,
+          'final readiness check'
+        );
+        return { dispatch, participants };
+      },
+      prewarmAbortController
+    );
+    completedTimings.dispatchReadinessMs = elapsedSince(dispatchPhaseStartedAt);
+  } catch (error) {
+    throw buildPrewarmPhaseError(
+      'dispatch_readiness',
+      prewarmStartedAt,
+      dispatchPhaseStartedAt,
+      completedTimings,
+      error
+    );
+  }
+
+  const timings: PrewarmTimings = {
+    totalPrewarmMs: elapsedSince(prewarmStartedAt),
+    roomEnsureMs: completedTimings.roomEnsureMs,
+    workerReadyWaitMs: completedTimings.workerReadyWaitMs,
+    dispatchReadinessMs: completedTimings.dispatchReadinessMs,
+  };
   return {
-    room: { name: room.name },
+    room: { name: roomAndClients.room.name },
     workerReadiness,
-    dispatch,
-    readiness: summarizeRoomInputReadiness(participants),
+    dispatch: dispatchAndParticipants.dispatch,
+    readiness: summarizeRoomInputReadiness(dispatchAndParticipants.participants),
+    timings,
   };
 }
 
@@ -260,16 +407,29 @@ function resolveClients(dependencies: DispatchDependencies): {
   };
 }
 
-async function ensureLiveKitRoom(roomClient: RoomClient, roomName: string) {
+async function ensureLiveKitRoom(
+  roomClient: RoomClient,
+  roomName: string,
+  deadline: number,
+  abortSignal: AbortSignal
+) {
   const existing = await roomClient.listRooms([roomName]);
+  throwIfPrewarmUnavailable(deadline, abortSignal, 'room ensure');
   if (existing.length > 0) {
     return existing[0];
   }
 
   try {
-    return await roomClient.createRoom({ name: roomName });
+    const created = await roomClient.createRoom({ name: roomName });
+    if (abortSignal.aborted || remainingDispatchTime(deadline) <= 0) {
+      await deleteLiveKitRoomQuietly(roomClient, roomName);
+      throw new Error('room ensure deadline expired after room creation');
+    }
+    return created;
   } catch (error) {
+    throwIfPrewarmUnavailable(deadline, abortSignal, 'room ensure');
     const raced = await roomClient.listRooms([roomName]);
+    throwIfPrewarmUnavailable(deadline, abortSignal, 'room ensure');
     if (raced.length > 0) {
       return raced[0];
     }
@@ -307,6 +467,7 @@ async function createAgentDispatchWithRetry(
   do {
     try {
       throwIfSessionCancelled(session);
+      throwIfDeadlineExpired(getDeadline(), 'agent dispatch');
       const alreadyJoined = await findReusableAgentParticipant(
         roomClient,
         roomName,
@@ -314,6 +475,7 @@ async function createAgentDispatchWithRetry(
         reusableAgentOptions
       );
       throwIfSessionCancelled(session);
+      throwIfDeadlineExpired(getDeadline(), 'agent dispatch');
       if (alreadyJoined) {
         markRoomSessionRunning(session);
         return {
@@ -324,10 +486,12 @@ async function createAgentDispatchWithRetry(
       }
 
       if (!dispatchId) {
+        throwIfDeadlineExpired(getDeadline(), 'agent dispatch creation');
         const dispatch = await dispatchClient.createDispatch(roomName, agentName);
         attempts += 1;
         dispatchId = dispatch.id;
         registerRoomSessionDispatchId(session, dispatchId);
+        throwIfDeadlineExpired(getDeadline(), 'agent dispatch creation');
       }
 
       if (isRoomSessionCancelled(session)) {
@@ -380,15 +544,90 @@ async function createAgentDispatchWithRetry(
   );
 }
 
-function resolveDispatchTimeoutMs(dependencies: DispatchDependencies) {
-  return (
+function resolveDispatchDeadline(dependencies: DispatchDependencies, startedAt: number) {
+  if (
+    dependencies.dispatchDeadlineMs !== undefined &&
+    Number.isFinite(dependencies.dispatchDeadlineMs)
+  ) {
+    return dependencies.dispatchDeadlineMs;
+  }
+  const timeoutMs =
     dependencies.dispatchTimeoutMs ||
-    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS)
-  );
+    readPositiveIntEnv('AGENT_DISPATCH_TIMEOUT_MS', DEFAULT_AGENT_DISPATCH_TIMEOUT_MS);
+  return startedAt + timeoutMs;
 }
 
 function remainingDispatchTime(deadline: number) {
   return Math.max(0, deadline - Date.now());
+}
+
+function elapsedSince(startedAt: number) {
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function buildPrewarmPhaseError(
+  phase: PrewarmPhase,
+  prewarmStartedAt: number,
+  phaseStartedAt: number,
+  completedTimings: Partial<PrewarmTimings>,
+  cause: unknown
+) {
+  const phaseTimingKey: Record<
+    PrewarmPhase,
+    'roomEnsureMs' | 'workerReadyWaitMs' | 'dispatchReadinessMs'
+  > = {
+    room: 'roomEnsureMs',
+    worker_readiness: 'workerReadyWaitMs',
+    dispatch_readiness: 'dispatchReadinessMs',
+  };
+  return new PrewarmRoomSessionError(
+    phase,
+    {
+      ...completedTimings,
+      [phaseTimingKey[phase]]: elapsedSince(phaseStartedAt),
+      totalPrewarmMs: elapsedSince(prewarmStartedAt),
+    },
+    cause,
+    cause instanceof PrewarmDeadlineError ? cause.settled : undefined
+  );
+}
+
+async function runWithinPrewarmDeadline<T>(
+  deadline: number,
+  phase: PrewarmPhase,
+  operation: () => Promise<T>,
+  abortController: AbortController
+): Promise<T> {
+  const remainingMs = remainingDispatchTime(deadline);
+  if (remainingMs <= 0) {
+    abortController.abort();
+    throw new Error(`prewarm deadline expired before ${phase}`);
+  }
+
+  const operationPromise = Promise.resolve().then(operation);
+  const settled = operationPromise.then(
+    () => undefined,
+    () => undefined
+  );
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      abortController.abort();
+      reject(new PrewarmDeadlineError(`prewarm deadline expired during ${phase}`, settled));
+    }, remainingMs);
+  });
+  try {
+    const result = await Promise.race([operationPromise, timeout]);
+    if (Date.now() >= deadline) {
+      abortController.abort();
+      throw new PrewarmDeadlineError(`prewarm deadline expired during ${phase}`, settled);
+    }
+    return result;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function calculateDispatchRetryDelay(attempts: number, retryMs: number) {
@@ -408,10 +647,16 @@ async function waitForReusableAgentParticipant(
 ) {
   while (true) {
     throwIfSessionCancelled(session);
+    if (remainingDispatchTime(getDeadline()) <= 0) {
+      return null;
+    }
     const participant = await findReusableAgentParticipant(roomClient, roomName, agentName, {
       allowAnonymousLiveKitAgentFallback: true,
       ...readiness,
     });
+    if (remainingDispatchTime(getDeadline()) <= 0) {
+      return null;
+    }
     if (participant) {
       throwIfSessionCancelled(session);
       return participant;
@@ -422,6 +667,23 @@ async function waitForReusableAgentParticipant(
     }
     await sleepFn(waitMs);
   }
+}
+
+function throwIfDeadlineExpired(deadline: number, phase: string): void {
+  if (remainingDispatchTime(deadline) <= 0) {
+    throw new Error(`${phase} deadline expired`);
+  }
+}
+
+function throwIfPrewarmUnavailable(
+  deadline: number,
+  abortSignal: AbortSignal,
+  phase: string
+): void {
+  if (abortSignal.aborted) {
+    throw new Error(`${phase} cancelled after prewarm timeout`);
+  }
+  throwIfDeadlineExpired(deadline, phase);
 }
 
 async function findReusableAgentParticipant(

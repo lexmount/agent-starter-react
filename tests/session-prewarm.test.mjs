@@ -7,6 +7,7 @@ import {
   buildPrewarmUseKey,
   completePrewarmUse,
   failPrewarmUse,
+  releasePrewarmUseAfterFailure,
 } from '@/app/api/session/prewarm/prewarm-use-guard';
 import {
   resolveAgentWorkerReadyFile,
@@ -14,6 +15,7 @@ import {
 } from '../app/api/session/agent-worker-readiness.ts';
 import { POST as prewarmRoute } from '../app/api/session/prewarm/route.ts';
 import {
+  PrewarmRoomSessionError,
   dispatchRoomSession,
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
@@ -137,6 +139,129 @@ test('prewarm route returns 409 after its server-owned authorization is consumed
   }
 });
 
+test('prewarm route returns a structured retryable 502 without leaking its secret', async () => {
+  const sessionId = 'c5b8c624-7f55-4acf-bbe5-a7ddc634a101';
+  const roomName = `voice_assistant_room_${sessionId}`;
+  const agentName = 'frontdesk-browser-agent-room-failure';
+  const secret = 'room-failure-prewarm-secret';
+  const envNames = [
+    'LIVEAVATAR_PREWARM_SECRET',
+    'LIVEAVATAR_VOICE_SESSION_ID',
+    'LIVEAVATAR_LIVEKIT_ROOM_NAME',
+    'AGENT_NAME',
+    'LIVEKIT_URL',
+    'LIVEKIT_API_KEY',
+    'LIVEKIT_API_SECRET',
+  ];
+  const previous = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
+  const originalConsoleError = console.error;
+  const errorLogs = [];
+  console.error = (...args) => {
+    errorLogs.push(args);
+  };
+  Object.assign(process.env, {
+    LIVEAVATAR_PREWARM_SECRET: secret,
+    LIVEAVATAR_VOICE_SESSION_ID: sessionId,
+    LIVEAVATAR_LIVEKIT_ROOM_NAME: roomName,
+    AGENT_NAME: agentName,
+  });
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
+
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await prewarmRoute(
+        new Request('http://sandbox.example.test/api/session/prewarm', {
+          method: 'POST',
+          headers: { 'x-liveavatar-prewarm-secret': secret },
+        })
+      );
+      const payload = await response.json();
+
+      assert.equal(response.status, 502);
+      assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      assert.equal(payload.phase, 'room');
+      assert.equal(Number.isInteger(payload.timings.totalPrewarmMs), true);
+      assert.equal(Number.isInteger(payload.timings.roomEnsureMs), true);
+      assert.deepEqual(Object.keys(payload.timings).sort(), ['roomEnsureMs', 'totalPrewarmMs']);
+      assert.equal(JSON.stringify(payload).includes(secret), false);
+      assert.equal(JSON.stringify(payload).includes('attributes'), false);
+    }
+    assert.equal(errorLogs.length, 2);
+    assert.equal(
+      errorLogs.every((entry) => entry[0] === 'session prewarm failed'),
+      true
+    );
+    assert.equal(
+      errorLogs.every((entry) => entry[1]?.phase === 'room'),
+      true
+    );
+    assert.equal(JSON.stringify(errorLogs).includes(secret), false);
+  } finally {
+    console.error = originalConsoleError;
+    for (const name of envNames) {
+      if (previous[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = previous[name];
+      }
+    }
+  }
+});
+
+test('prewarm phase errors preserve their original cause', () => {
+  const cause = Object.assign(new Error('livekit request failed'), { code: 'ECONNRESET' });
+  const error = new PrewarmRoomSessionError('room', { totalPrewarmMs: 5, roomEnsureMs: 5 }, cause);
+
+  assert.equal(error.cause, cause);
+});
+
+test('prewarm authorization remains in progress until timed-out work settles', async () => {
+  const key = buildPrewarmUseKey(
+    'settling-session',
+    'voice_assistant_room_settling-session',
+    'frontdesk-browser-agent-settling-session'
+  );
+  let releaseSettlement;
+  const retryReady = new Promise((resolve) => {
+    releaseSettlement = resolve;
+  });
+  const error = new PrewarmRoomSessionError(
+    'room',
+    { totalPrewarmMs: 5, roomEnsureMs: 5 },
+    new Error('room deadline expired'),
+    retryReady
+  );
+
+  assert.equal(beginPrewarmUse(key), 'started');
+  releasePrewarmUseAfterFailure(key, error);
+  assert.equal(beginPrewarmUse(key), 'in_progress');
+
+  releaseSettlement();
+  await retryReady;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(beginPrewarmUse(key), 'started');
+  failPrewarmUse(key);
+});
+
+test('prewarm route allowlists readiness and timings instead of spreading internal results', async () => {
+  const source = await readFile(
+    new URL('../app/api/session/prewarm/route.ts', import.meta.url),
+    'utf8'
+  );
+  const successSource = source.slice(
+    source.indexOf('const result = await prewarmRoomSession'),
+    source.indexOf('} catch (error)')
+  );
+
+  assert.doesNotMatch(successSource, /\.\.\.result/);
+  assert.match(successSource, /readiness:\s*result\.readiness/);
+  assert.match(successSource, /timings:\s*result\.timings/);
+  assert.doesNotMatch(successSource, /workerReadiness:\s*result\.workerReadiness/);
+  assert.doesNotMatch(successSource, /dispatch:\s*result\.dispatch/);
+});
+
 test('missing LiveKit configuration fails before registering a room session', async () => {
   const names = ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
@@ -161,13 +286,15 @@ test('missing LiveKit configuration fails before registering a room session', as
   }
 });
 
-test('regular dispatch keeps the shorter timeout while prewarm gets a larger budget', async () => {
+test('regular dispatch keeps its 8s timeout while prewarm gets the default 45s total budget', async () => {
   const originalNow = Date.now;
   const originalTimeout = process.env.AGENT_DISPATCH_TIMEOUT_MS;
+  const originalPrewarmTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
   let now = 1_000;
   let dispatchCount = 0;
   Date.now = () => now;
   delete process.env.AGENT_DISPATCH_TIMEOUT_MS;
+  delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
 
   const dispatchClient = {
     async createDispatch() {
@@ -226,7 +353,7 @@ test('regular dispatch keeps the shorter timeout while prewarm gets a larger bud
       ),
       /agent dispatch failed/
     );
-    assert.equal(now - prewarmStartedAt, 20_000);
+    assert.equal(now - prewarmStartedAt, 45_000);
   } finally {
     Date.now = originalNow;
     if (originalTimeout === undefined) {
@@ -234,14 +361,23 @@ test('regular dispatch keeps the shorter timeout while prewarm gets a larger bud
     } else {
       process.env.AGENT_DISPATCH_TIMEOUT_MS = originalTimeout;
     }
+    if (originalPrewarmTimeout === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalPrewarmTimeout;
+    }
   }
 });
 
-test('prewarm shares one timeout across worker readiness and dispatch', async () => {
+test('prewarm shares its 45s total budget across worker readiness and dispatch', async () => {
   const originalNow = Date.now;
+  const originalPrewarmTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  const originalWorkerTimeout = process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
   let now = 1_000;
   let workerMaxWaitMs;
   Date.now = () => now;
+  delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
 
   const dispatchClient = {
     async createDispatch() {
@@ -294,8 +430,567 @@ test('prewarm shares one timeout across worker readiness and dispatch', async ()
       /agent dispatch failed/
     );
 
-    assert.equal(workerMaxWaitMs, 20_000);
-    assert.equal(now - startedAt, 20_000);
+    assert.equal(workerMaxWaitMs, 30_000);
+    assert.equal(now - startedAt, 45_000);
+  } finally {
+    Date.now = originalNow;
+    if (originalPrewarmTimeout === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalPrewarmTimeout;
+    }
+    if (originalWorkerTimeout === undefined) {
+      delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = originalWorkerTimeout;
+    }
+  }
+});
+
+test('room 2s plus worker 17s still completes dispatch readiness before the deadline', async () => {
+  const originalNow = Date.now;
+  const originalTotalTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  const originalWorkerTimeout = process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+  let now = 1_000;
+  const startedAt = now;
+  const absoluteDeadline = startedAt + 45_000;
+  const agentName = 'frontdesk-browser-agent-cold-start-model';
+  let roomEnsureStarted = false;
+  let workerMaxWaitMs;
+  Date.now = () => now;
+  delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+
+  const dispatchClient = {
+    async createDispatch() {
+      return { id: 'dispatch-cold-start-model' };
+    },
+    async deleteDispatch() {},
+  };
+  const roomClient = {
+    async listRooms() {
+      if (!roomEnsureStarted) {
+        roomEnsureStarted = true;
+        now += 2_000;
+      }
+      return [{ name: 'voice_assistant_room_cold_start_model' }];
+    },
+    async createRoom({ name }) {
+      return { name };
+    },
+    async listParticipants() {
+      return now >= absoluteDeadline - 1_000 ? readyParticipants(agentName) : [];
+    },
+    async deleteRoom() {},
+  };
+
+  try {
+    const result = await prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_cold_start_model',
+        sessionId: 'cold-start-model',
+        agentName,
+      },
+      {
+        dispatchClient,
+        roomClient,
+        waitForAgentWorkerReady: async (requestedAgentName, options) => {
+          assert.equal(requestedAgentName, agentName);
+          workerMaxWaitMs = options.maxWaitMs;
+          now += 17_000;
+          return {
+            state: 'ready',
+            agentName,
+            workerId: 'AW_cold_start_model',
+            registeredAt: '2026-07-24T00:00:00Z',
+            waitedMs: 17_000,
+          };
+        },
+        dispatchPollMs: 1_000,
+        dispatchRetryMs: 1_000,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      }
+    );
+
+    assert.equal(workerMaxWaitMs, 30_000);
+    assert.equal(now, absoluteDeadline - 1_000);
+    assert.deepEqual(result.timings, {
+      totalPrewarmMs: 44_000,
+      roomEnsureMs: 2_000,
+      workerReadyWaitMs: 17_000,
+      dispatchReadinessMs: 25_000,
+    });
+    assert.deepEqual(result.readiness, {
+      audioParticipantReady: true,
+      visionParticipantReady: true,
+    });
+  } finally {
+    Date.now = originalNow;
+    if (originalTotalTimeout === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalTotalTimeout;
+    }
+    if (originalWorkerTimeout === undefined) {
+      delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = originalWorkerTimeout;
+    }
+  }
+});
+
+test('dispatch deadline never starts participant IO, dispatch creation, or sleep at zero budget', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  const deadline = now + 1_000;
+  let participantReadsAtDeadline = 0;
+  let dispatchCreatesAtDeadline = 0;
+  let sleepsAtDeadline = 0;
+  Date.now = () => now;
+
+  try {
+    await assert.rejects(
+      prewarmRoomSession(
+        {
+          roomName: 'voice_assistant_room_hard_deadline',
+          sessionId: 'hard-deadline',
+          agentName: 'frontdesk-browser-agent-hard-deadline',
+        },
+        {
+          dispatchClient: {
+            async createDispatch() {
+              if (now >= deadline) {
+                dispatchCreatesAtDeadline += 1;
+              }
+              return { id: 'dispatch-hard-deadline' };
+            },
+            async deleteDispatch() {},
+          },
+          roomClient: {
+            async listRooms() {
+              return [{ name: 'voice_assistant_room_hard_deadline' }];
+            },
+            async createRoom({ name }) {
+              return { name };
+            },
+            async listParticipants() {
+              if (now >= deadline) {
+                participantReadsAtDeadline += 1;
+              }
+              return [];
+            },
+            async deleteRoom() {},
+          },
+          waitForAgentWorkerReady: async (requestedAgentName) => ({
+            state: 'ready',
+            agentName: requestedAgentName,
+            workerId: 'AW_hard_deadline',
+            registeredAt: '2026-07-24T00:00:00Z',
+            waitedMs: 0,
+          }),
+          dispatchTimeoutMs: 1_000,
+          dispatchPollMs: 1_000,
+          dispatchRetryMs: 1_000,
+          sleep: async (ms) => {
+            if (now >= deadline) {
+              sleepsAtDeadline += 1;
+            }
+            now += ms;
+          },
+        }
+      ),
+      /prewarm failed during dispatch_readiness/
+    );
+
+    assert.equal(participantReadsAtDeadline, 0);
+    assert.equal(dispatchCreatesAtDeadline, 0);
+    assert.equal(sleepsAtDeadline, 0);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('room timeout cannot create a room after a delayed list operation finishes', async () => {
+  const originalNow = Date.now;
+  Date.now = () => 1_000;
+  let releaseListRooms;
+  let markListRoomsStarted;
+  let createRoomCalls = 0;
+  const listRoomsStarted = new Promise((resolve) => {
+    markListRoomsStarted = resolve;
+  });
+  const listRoomsGate = new Promise((resolve) => {
+    releaseListRooms = resolve;
+  });
+  try {
+    const pending = prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_late_list',
+        sessionId: 'late-list',
+        agentName: 'frontdesk-browser-agent-late-list',
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            throw new Error('dispatch should not start');
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            markListRoomsStarted();
+            await listRoomsGate;
+            return [];
+          },
+          async createRoom({ name }) {
+            createRoomCalls += 1;
+            return { name };
+          },
+          async listParticipants() {
+            return [];
+          },
+          async deleteRoom() {},
+        },
+        dispatchTimeoutMs: 5,
+      }
+    );
+
+    await listRoomsStarted;
+    await assert.rejects(pending, /prewarm failed during room/);
+    releaseListRooms();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(createRoomCalls, 0);
+  } finally {
+    releaseListRooms?.();
+    Date.now = originalNow;
+  }
+});
+
+test('room timeout removes a room whose delayed creation completes after the deadline', async () => {
+  const originalNow = Date.now;
+  Date.now = () => 1_000;
+  let releaseCreateRoom;
+  let markCreateRoomStarted;
+  let deleteRoomCalls = 0;
+  const createRoomStarted = new Promise((resolve) => {
+    markCreateRoomStarted = resolve;
+  });
+  const createRoomGate = new Promise((resolve) => {
+    releaseCreateRoom = resolve;
+  });
+  try {
+    const pending = prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_late_create',
+        sessionId: 'late-create',
+        agentName: 'frontdesk-browser-agent-late-create',
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            throw new Error('dispatch should not start');
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            return [];
+          },
+          async createRoom({ name }) {
+            markCreateRoomStarted();
+            await createRoomGate;
+            return { name };
+          },
+          async listParticipants() {
+            return [];
+          },
+          async deleteRoom() {
+            deleteRoomCalls += 1;
+          },
+        },
+        dispatchTimeoutMs: 5,
+      }
+    );
+
+    await createRoomStarted;
+    await assert.rejects(pending, /prewarm failed during room/);
+    releaseCreateRoom();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(deleteRoomCalls, 1);
+  } finally {
+    releaseCreateRoom?.();
+    Date.now = originalNow;
+  }
+});
+
+test('prewarm total timeout and worker cap honor their environment overrides', async () => {
+  const originalNow = Date.now;
+  const originalTotalTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  const originalWorkerTimeout = process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+  let now = 1_000;
+  let workerMaxWaitMs;
+  let roomEnsureStarted = false;
+  Date.now = () => now;
+  process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = '12000';
+  process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = '7000';
+  const agentName = 'frontdesk-browser-agent-env-budget';
+
+  try {
+    const result = await prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_env_budget',
+        sessionId: 'env-budget',
+        agentName,
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            throw new Error('ready participants should be reused');
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            if (!roomEnsureStarted) {
+              roomEnsureStarted = true;
+              now += 2_000;
+            }
+            return [{ name: 'voice_assistant_room_env_budget' }];
+          },
+          async createRoom({ name }) {
+            return { name };
+          },
+          async listParticipants() {
+            return readyParticipants(agentName);
+          },
+          async deleteRoom() {},
+        },
+        waitForAgentWorkerReady: async (requestedAgentName, options) => {
+          workerMaxWaitMs = options.maxWaitMs;
+          return {
+            state: 'ready',
+            agentName: requestedAgentName,
+            workerId: 'AW_env_budget',
+            registeredAt: '2026-07-24T00:00:00Z',
+            waitedMs: 0,
+          };
+        },
+      }
+    );
+
+    assert.equal(workerMaxWaitMs, 7_000);
+    assert.deepEqual(result.timings, {
+      totalPrewarmMs: 2_000,
+      roomEnsureMs: 2_000,
+      workerReadyWaitMs: 0,
+      dispatchReadinessMs: 0,
+    });
+  } finally {
+    Date.now = originalNow;
+    if (originalTotalTimeout === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalTotalTimeout;
+    }
+    if (originalWorkerTimeout === undefined) {
+      delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = originalWorkerTimeout;
+    }
+  }
+});
+
+test('worker max wait is capped by the total time remaining after room ensure', async () => {
+  const originalNow = Date.now;
+  const originalTotalTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+  const originalWorkerTimeout = process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+  let now = 1_000;
+  let workerMaxWaitMs;
+  let roomEnsureStarted = false;
+  Date.now = () => now;
+  process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = '5000';
+  process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = '7000';
+  const agentName = 'frontdesk-browser-agent-remaining-budget';
+
+  try {
+    await prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_remaining_budget',
+        sessionId: 'remaining-budget',
+        agentName,
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            throw new Error('ready participants should be reused');
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            if (!roomEnsureStarted) {
+              roomEnsureStarted = true;
+              now += 2_000;
+            }
+            return [{ name: 'voice_assistant_room_remaining_budget' }];
+          },
+          async createRoom({ name }) {
+            return { name };
+          },
+          async listParticipants() {
+            return readyParticipants(agentName);
+          },
+          async deleteRoom() {},
+        },
+        waitForAgentWorkerReady: async (requestedAgentName, options) => {
+          workerMaxWaitMs = options.maxWaitMs;
+          return {
+            state: 'ready',
+            agentName: requestedAgentName,
+            workerId: 'AW_remaining_budget',
+            registeredAt: '2026-07-24T00:00:00Z',
+            waitedMs: 0,
+          };
+        },
+      }
+    );
+
+    assert.equal(workerMaxWaitMs, 3_000);
+  } finally {
+    Date.now = originalNow;
+    if (originalTotalTimeout === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalTotalTimeout;
+    }
+    if (originalWorkerTimeout === undefined) {
+      delete process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS;
+    } else {
+      process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS = originalWorkerTimeout;
+    }
+  }
+});
+
+test('prewarm failures identify the active phase and completed timings', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  let roomEnsureStarted = false;
+  Date.now = () => now;
+
+  try {
+    const error = await prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_worker_failure',
+        sessionId: 'worker-failure',
+        agentName: 'frontdesk-browser-agent-worker-failure',
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            throw new Error('dispatch should not start');
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            if (!roomEnsureStarted) {
+              roomEnsureStarted = true;
+              now += 2_000;
+            }
+            return [{ name: 'voice_assistant_room_worker_failure' }];
+          },
+          async createRoom({ name }) {
+            return { name };
+          },
+          async listParticipants() {
+            return [];
+          },
+          async deleteRoom() {},
+        },
+        waitForAgentWorkerReady: async () => {
+          now += 3_000;
+          throw new Error('worker marker failed');
+        },
+      }
+    ).then(
+      () => null,
+      (reason) => reason
+    );
+
+    assert.ok(error instanceof Error);
+    assert.equal(error.phase, 'worker_readiness');
+    assert.match(error.message, /worker marker failed/);
+    assert.deepEqual(error.timings, {
+      totalPrewarmMs: 5_000,
+      roomEnsureMs: 2_000,
+      workerReadyWaitMs: 3_000,
+    });
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('dispatch readiness failures report their phase and all elapsed timings', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  Date.now = () => now;
+
+  try {
+    const error = await prewarmRoomSession(
+      {
+        roomName: 'voice_assistant_room_dispatch_failure',
+        sessionId: 'dispatch-failure',
+        agentName: 'frontdesk-browser-agent-dispatch-failure',
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            return { id: 'dispatch-phase-failure' };
+          },
+          async deleteDispatch() {},
+        },
+        roomClient: {
+          async listRooms() {
+            return [{ name: 'voice_assistant_room_dispatch_failure' }];
+          },
+          async createRoom({ name }) {
+            return { name };
+          },
+          async listParticipants() {
+            return [];
+          },
+          async deleteRoom() {},
+        },
+        waitForAgentWorkerReady: async (requestedAgentName) => ({
+          state: 'skipped',
+          agentName: requestedAgentName,
+          reason: 'not_sandbox',
+          waitedMs: 0,
+        }),
+        dispatchTimeoutMs: 100,
+        dispatchPollMs: 10,
+        dispatchRetryMs: 10,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      }
+    ).then(
+      () => null,
+      (reason) => reason
+    );
+
+    assert.ok(error instanceof Error);
+    assert.equal(error.phase, 'dispatch_readiness');
+    assert.deepEqual(error.timings, {
+      totalPrewarmMs: 100,
+      roomEnsureMs: 0,
+      workerReadyWaitMs: 0,
+      dispatchReadinessMs: 100,
+    });
   } finally {
     Date.now = originalNow;
   }
@@ -434,7 +1129,7 @@ test('a prewarm budget can extend the dispatch during the old deadline check', a
   };
   const roomClient = {
     async listParticipants() {
-      if (now === 9_000 && !deadlineCheckBlocked) {
+      if (now === 8_000 && !deadlineCheckBlocked) {
         deadlineCheckBlocked = true;
         markDeadlineCheckStarted();
         await deadlineCheckGate;
@@ -468,11 +1163,12 @@ test('a prewarm budget can extend the dispatch during the old deadline check', a
       ...dependencies,
       dispatchTimeoutMs: 20_000,
     });
+    const resultsPromise = Promise.allSettled([regularDispatch, prewarmDispatch]);
     releaseDeadlineCheck();
-    const results = await Promise.allSettled([regularDispatch, prewarmDispatch]);
+    const results = await resultsPromise;
 
     assert.equal(dispatchCalls, 1);
-    assert.equal(now, 29_000);
+    assert.equal(now, 28_000);
     assert.equal(
       results.every((result) => result.status === 'rejected'),
       true
@@ -750,4 +1446,29 @@ test('worker readiness respects a caller-owned maximum wait budget', async () =>
   } finally {
     Date.now = originalNow;
   }
+});
+
+test('worker readiness with zero remaining budget does not read or sleep', async () => {
+  let reads = 0;
+  let sleeps = 0;
+
+  await assert.rejects(
+    waitForAgentWorkerReady('frontdesk-browser-agent-no-budget', {
+      readyFile: '/tmp/agent-worker-ready.json',
+      timeoutMs: 100,
+      maxWaitMs: 0,
+      pollMs: 10,
+      readFile: async () => {
+        reads += 1;
+        return '{}';
+      },
+      sleep: async () => {
+        sleeps += 1;
+      },
+    }),
+    /agent worker did not register before prewarm timeout/
+  );
+
+  assert.equal(reads, 0);
+  assert.equal(sleeps, 0);
 });

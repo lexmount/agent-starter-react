@@ -4,9 +4,12 @@ import {
   beginPrewarmUse,
   buildPrewarmUseKey,
   completePrewarmUse,
-  failPrewarmUse,
+  releasePrewarmUseAfterFailure,
 } from '@/app/api/session/prewarm/prewarm-use-guard';
-import { prewarmRoomSession } from '@/app/api/session/session-dispatch-service';
+import {
+  PrewarmRoomSessionError,
+  prewarmRoomSession,
+} from '@/app/api/session/session-dispatch-service';
 import { deriveLiveKitRoomName, isValidConnectionRoomId } from '@/lib/connection-room-id';
 
 export const runtime = 'nodejs';
@@ -58,20 +61,64 @@ export async function POST(request: Request) {
     const result = await prewarmRoomSession({ roomName, sessionId, agentName });
     completePrewarmUse(prewarmUseKey);
     return NextResponse.json(
-      { status: 'prewarmed', roomName, sessionId, agentName, ...result },
+      {
+        status: 'prewarmed',
+        roomName,
+        sessionId,
+        agentName,
+        readiness: result.readiness,
+        timings: result.timings,
+      },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error) {
-    failPrewarmUse(prewarmUseKey);
+    releasePrewarmUseAfterFailure(prewarmUseKey, error);
+    const phase = error instanceof PrewarmRoomSessionError ? error.phase : 'dispatch_readiness';
+    const timings =
+      error instanceof PrewarmRoomSessionError ? error.timings : { totalPrewarmMs: 0 };
+    const cause = error instanceof PrewarmRoomSessionError ? error.cause : error;
+    console.error('session prewarm failed', {
+      phase,
+      roomName,
+      sessionId,
+      agentName,
+      ...safeErrorDiagnostics(cause),
+    });
     return NextResponse.json(
       {
         status: 'error',
         roomName,
         sessionId,
         agentName,
-        error: error instanceof Error ? error.message : String(error),
+        error: `prewarm failed during ${phase}`,
+        phase,
+        timings,
       },
-      { status: 502 }
+      { status: 502, headers: { 'Cache-Control': 'no-store' } }
     );
   }
+}
+
+function safeErrorDiagnostics(error: unknown): {
+  causeName: string;
+  causeCode?: string;
+  causeStack?: string;
+} {
+  const causeName = error instanceof Error ? error.name : typeof error;
+  const rawCode =
+    error && typeof error === 'object' && 'code' in error ? String(error.code || '') : '';
+  const causeCode = /^[A-Za-z0-9_.:-]{1,64}$/.test(rawCode) ? rawCode : undefined;
+  const stackLines =
+    error instanceof Error
+      ? String(error.stack || '')
+          .split('\n')
+          .slice(1, 9)
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('at '))
+      : [];
+  return {
+    causeName,
+    ...(causeCode ? { causeCode } : {}),
+    ...(stackLines.length > 0 ? { causeStack: stackLines.join('\n') } : {}),
+  };
 }

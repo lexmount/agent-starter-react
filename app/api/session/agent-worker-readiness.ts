@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const DEFAULT_READY_TIMEOUT_MS = 20_000;
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_READY_POLL_MS = 200;
 
 type AgentWorkerReadyMarker = {
@@ -49,6 +49,10 @@ export function resolveAgentWorkerReadyFile(env: NodeJS.ProcessEnv = process.env
     : '';
 }
 
+export function resolveAgentWorkerReadyTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  return readPositiveInt(env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
+}
+
 export async function waitForAgentWorkerReady(
   agentName: string,
   options: WaitForAgentWorkerReadyOptions = {}
@@ -58,13 +62,14 @@ export async function waitForAgentWorkerReady(
     return { state: 'skipped', agentName, reason: 'not_sandbox', waitedMs: 0 };
   }
 
-  const configuredTimeoutMs =
-    options.timeoutMs ??
-    readPositiveInt(process.env.LIVEAVATAR_AGENT_WORKER_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
+  const configuredTimeoutMs = options.timeoutMs ?? resolveAgentWorkerReadyTimeoutMs();
   const timeoutMs =
     options.maxWaitMs === undefined
       ? configuredTimeoutMs
       : Math.max(0, Math.min(configuredTimeoutMs, options.maxWaitMs));
+  if (timeoutMs <= 0) {
+    throw new Error(`agent worker did not register before prewarm timeout: ${agentName}`);
+  }
   const pollMs =
     options.pollMs ??
     readPositiveInt(process.env.LIVEAVATAR_AGENT_WORKER_READY_POLL_MS, DEFAULT_READY_POLL_MS);

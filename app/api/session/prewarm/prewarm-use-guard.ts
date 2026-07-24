@@ -38,3 +38,22 @@ export function failPrewarmUse(key: string) {
     prewarmUseStates.delete(key);
   }
 }
+
+export function releasePrewarmUseAfterFailure(key: string, error: unknown): void {
+  const retryReady =
+    error &&
+    typeof error === 'object' &&
+    'retryReady' in error &&
+    error.retryReady &&
+    typeof (error.retryReady as PromiseLike<unknown>).then === 'function'
+      ? (error.retryReady as PromiseLike<unknown>)
+      : undefined;
+  if (!retryReady) {
+    failPrewarmUse(key);
+    return;
+  }
+  void retryReady.then(
+    () => failPrewarmUse(key),
+    () => failPrewarmUse(key)
+  );
+}
