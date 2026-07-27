@@ -14,10 +14,10 @@ export function ScrollArea({
 }: ScrollAreaProps & React.HTMLAttributes<HTMLDivElement>) {
   const scrollContentRef = useRef<HTMLDivElement>(null);
 
-  useAutoScroll(scrollContentRef.current);
+  useAutoScroll(scrollContentRef);
 
   return (
-    <div ref={scrollContentRef} className={cn('overflow-y-scroll scroll-smooth', className)}>
+    <div ref={scrollContentRef} className={cn('overflow-y-scroll', className)}>
       <div>{children}</div>
     </div>
   );
