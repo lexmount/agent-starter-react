@@ -10,9 +10,12 @@ export type AgentParticipantMatchOptions = {
 };
 
 export type ReusableAgentParticipantOptions = AgentParticipantMatchOptions & {
+  requireAgentSessionReady?: boolean;
   requireRoomVideoInputReady?: boolean;
   requireRoomInputParticipantsReady?: boolean;
 };
+
+export const AGENT_SESSION_READY_ATTRIBUTE = 'liveavatar.agent.session_ready';
 
 const ROOM_AUDIO_INPUT_IDENTITY = 'room_audio_input';
 const ROOM_VIDEO_INPUT_IDENTITY = 'room_video_input';
@@ -31,12 +34,13 @@ export function findReusableAgentParticipant(
   options: ReusableAgentParticipantOptions = {}
 ): ParticipantInfo | null {
   const {
+    requireAgentSessionReady = false,
     requireRoomVideoInputReady = false,
     requireRoomInputParticipantsReady = false,
     ...matchOptions
   } = options;
   const expectedAgent = findAgentParticipantInList(participants, agentName, matchOptions);
-  if (!expectedAgent) {
+  if (!expectedAgent || (requireAgentSessionReady && !isAgentSessionReady(expectedAgent))) {
     return null;
   }
 
@@ -58,6 +62,14 @@ export function summarizeRoomInputReadiness(participants: ParticipantInfo[]) {
   return {
     audioParticipantReady: hasActiveParticipant(participants, ROOM_AUDIO_INPUT_IDENTITY),
     visionParticipantReady: hasActiveParticipant(participants, ROOM_VIDEO_INPUT_IDENTITY),
+  };
+}
+
+export function summarizePrewarmReadiness(participants: ParticipantInfo[], agentName: string) {
+  const agent = findAgentParticipantInList(participants, agentName);
+  return {
+    agentSessionReady: agent !== null && isAgentSessionReady(agent),
+    ...summarizeRoomInputReadiness(participants),
   };
 }
 
@@ -112,6 +124,10 @@ function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: str
     isParticipantActive(participant) &&
     readAgentNameAttribute(participant.attributes ?? {}) === agentName
   );
+}
+
+function isAgentSessionReady(participant: ParticipantInfo) {
+  return participant.attributes?.[AGENT_SESSION_READY_ATTRIBUTE] === 'true';
 }
 
 function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {

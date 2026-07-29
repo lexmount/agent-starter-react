@@ -3,7 +3,7 @@ import { type ParticipantInfo } from '@livekit/protocol';
 import {
   type ReusableAgentParticipantOptions,
   findReusableAgentParticipant as findReusableAgentParticipantInList,
-  summarizeRoomInputReadiness,
+  summarizePrewarmReadiness,
 } from '@/lib/session-dispatch-readiness';
 import { resolveLiveKitHttpUrl } from '@/lib/session-stop';
 import {
@@ -186,6 +186,7 @@ async function waitForRequestedRoomSessionReadiness(
 ) {
   const readiness = request.readiness ?? {};
   if (
+    readiness.requireAgentSessionReady !== true &&
     readiness.requireRoomInputParticipantsReady !== true &&
     readiness.requireRoomVideoInputReady !== true
   ) {
@@ -205,7 +206,7 @@ async function waitForRequestedRoomSessionReadiness(
     dependencies.sleep || sleep
   );
   if (!participant) {
-    throw new Error('agent and required room inputs did not become ready');
+    throw new Error('agent session and required room inputs did not become ready');
   }
   throwIfSessionCancelled(session);
   markRoomSessionRunning(session);
@@ -299,7 +300,10 @@ export async function prewarmRoomSession(
         const dispatch = await dispatchRoomSession(
           {
             ...request,
-            readiness: { requireRoomInputParticipantsReady: true },
+            readiness: {
+              requireAgentSessionReady: true,
+              requireRoomInputParticipantsReady: true,
+            },
           },
           {
             ...dependencies,
@@ -345,7 +349,7 @@ export async function prewarmRoomSession(
     room: { name: roomAndClients.room.name },
     workerReadiness,
     dispatch: dispatchAndParticipants.dispatch,
-    readiness: summarizeRoomInputReadiness(dispatchAndParticipants.participants),
+    readiness: summarizePrewarmReadiness(dispatchAndParticipants.participants, request.agentName),
     timings,
   };
 }

@@ -20,6 +20,7 @@ import {
   prewarmRoomSession,
 } from '../app/api/session/session-dispatch-service.ts';
 import { getRoomSessionSnapshot } from '../app/api/session/session-registry.ts';
+import { AGENT_SESSION_READY_ATTRIBUTE } from '../lib/session-dispatch-readiness.ts';
 
 function activeParticipant(identity, attributes = {}) {
   return {
@@ -33,20 +34,55 @@ function activeParticipant(identity, attributes = {}) {
   };
 }
 
-function readyParticipants(agentName, { videoReady = false } = {}) {
+function readyParticipants(agentName, { agentSessionReady = true, videoReady = false } = {}) {
   const videoParticipant = activeParticipant('room_video_input');
   if (videoReady) {
     videoParticipant.tracks = [{ name: 'room_video', type: TrackType.VIDEO, muted: false }];
   }
+  const agentAttributes = { 'lk.agent.name': agentName };
+  if (agentSessionReady) {
+    agentAttributes[AGENT_SESSION_READY_ATTRIBUTE] = 'true';
+  }
   return [
-    activeParticipant('agent-ready', { 'lk.agent.name': agentName }),
+    activeParticipant('agent-ready', agentAttributes),
     activeParticipant('room_audio_input'),
     videoParticipant,
   ];
 }
 
+test('prewarm route is unavailable outside sandbox runtime', async () => {
+  const previousRuntimeMode = process.env.LIVEAVATAR_RUNTIME_MODE;
+  const previousSecret = process.env.LIVEAVATAR_PREWARM_SECRET;
+  process.env.LIVEAVATAR_RUNTIME_MODE = 'local';
+  process.env.LIVEAVATAR_PREWARM_SECRET = 'prewarm-secret';
+  try {
+    const response = await prewarmRoute(
+      new Request('http://local.example.test/api/session/prewarm', {
+        method: 'POST',
+        headers: { 'x-liveavatar-prewarm-secret': 'prewarm-secret' },
+      })
+    );
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { status: 'error', error: 'not found' });
+  } finally {
+    if (previousRuntimeMode === undefined) {
+      delete process.env.LIVEAVATAR_RUNTIME_MODE;
+    } else {
+      process.env.LIVEAVATAR_RUNTIME_MODE = previousRuntimeMode;
+    }
+    if (previousSecret === undefined) {
+      delete process.env.LIVEAVATAR_PREWARM_SECRET;
+    } else {
+      process.env.LIVEAVATAR_PREWARM_SECRET = previousSecret;
+    }
+  }
+});
+
 test('prewarm route rejects requests without the per-sandbox secret', async () => {
   const previous = process.env.LIVEAVATAR_PREWARM_SECRET;
+  const previousRuntimeMode = process.env.LIVEAVATAR_RUNTIME_MODE;
+  process.env.LIVEAVATAR_RUNTIME_MODE = 'sandbox';
   process.env.LIVEAVATAR_PREWARM_SECRET = 'expected-prewarm-secret';
   try {
     const missing = await prewarmRoute(
@@ -66,6 +102,11 @@ test('prewarm route rejects requests without the per-sandbox secret', async () =
       delete process.env.LIVEAVATAR_PREWARM_SECRET;
     } else {
       process.env.LIVEAVATAR_PREWARM_SECRET = previous;
+    }
+    if (previousRuntimeMode === undefined) {
+      delete process.env.LIVEAVATAR_RUNTIME_MODE;
+    } else {
+      process.env.LIVEAVATAR_RUNTIME_MODE = previousRuntimeMode;
     }
   }
 });
@@ -101,6 +142,7 @@ test('prewarm route returns 409 after its server-owned authorization is consumed
     'LIVEAVATAR_PREWARM_SECRET',
     'LIVEAVATAR_VOICE_SESSION_ID',
     'LIVEAVATAR_LIVEKIT_ROOM_NAME',
+    'LIVEAVATAR_RUNTIME_MODE',
     'AGENT_NAME',
   ];
   const previous = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
@@ -108,6 +150,7 @@ test('prewarm route returns 409 after its server-owned authorization is consumed
     LIVEAVATAR_PREWARM_SECRET: secret,
     LIVEAVATAR_VOICE_SESSION_ID: sessionId,
     LIVEAVATAR_LIVEKIT_ROOM_NAME: roomName,
+    LIVEAVATAR_RUNTIME_MODE: 'sandbox',
     AGENT_NAME: agentName,
   });
 
@@ -148,6 +191,7 @@ test('prewarm route returns a structured retryable 502 without leaking its secre
     'LIVEAVATAR_PREWARM_SECRET',
     'LIVEAVATAR_VOICE_SESSION_ID',
     'LIVEAVATAR_LIVEKIT_ROOM_NAME',
+    'LIVEAVATAR_RUNTIME_MODE',
     'AGENT_NAME',
     'LIVEKIT_URL',
     'LIVEKIT_API_KEY',
@@ -163,6 +207,7 @@ test('prewarm route returns a structured retryable 502 without leaking its secre
     LIVEAVATAR_PREWARM_SECRET: secret,
     LIVEAVATAR_VOICE_SESSION_ID: sessionId,
     LIVEAVATAR_LIVEKIT_ROOM_NAME: roomName,
+    LIVEAVATAR_RUNTIME_MODE: 'sandbox',
     AGENT_NAME: agentName,
   });
   delete process.env.LIVEKIT_URL;
@@ -523,6 +568,7 @@ test('room 2s plus worker 17s still completes dispatch readiness before the dead
       dispatchReadinessMs: 25_000,
     });
     assert.deepEqual(result.readiness, {
+      agentSessionReady: true,
       audioParticipantReady: true,
       visionParticipantReady: true,
     });
@@ -1276,11 +1322,12 @@ test('shared dispatch token stays active through per-caller readiness waits', as
   assert.doesNotMatch(readinessSource, /beginRoomSessionDispatch|finishRoomSessionDispatch/);
 });
 
-test('prewarm creates the room and waits for both room input participants', async () => {
+test('prewarm waits for the agent session and both room input participants', async () => {
   const agentName = 'frontdesk-browser-agent-readiness';
   let roomCreated = false;
   let workerReady = false;
   let dispatchCreated = false;
+  let agentSessionReady = false;
   let visionReady = false;
   const dispatchClient = {
     async createDispatch() {
@@ -1302,7 +1349,7 @@ test('prewarm creates the room and waits for both room input participants', asyn
       if (!dispatchCreated) {
         return [];
       }
-      return readyParticipants(agentName).filter(
+      return readyParticipants(agentName, { agentSessionReady }).filter(
         (participant) => visionReady || participant.identity !== 'room_video_input'
       );
     },
@@ -1333,7 +1380,11 @@ test('prewarm creates the room and waits for both room input participants', asyn
       dispatchTimeoutMs: 100,
       dispatchPollMs: 1,
       sleep: async () => {
-        visionReady = true;
+        if (!agentSessionReady) {
+          agentSessionReady = true;
+        } else {
+          visionReady = true;
+        }
       },
     }
   );
@@ -1342,6 +1393,7 @@ test('prewarm creates the room and waits for both room input participants', asyn
   assert.equal(result.workerReadiness.workerId, 'AW_readiness');
   assert.equal(result.dispatch.dispatchId, 'dispatch-readiness');
   assert.deepEqual(result.readiness, {
+    agentSessionReady: true,
     audioParticipantReady: true,
     visionParticipantReady: true,
   });

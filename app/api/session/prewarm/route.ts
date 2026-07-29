@@ -24,6 +24,13 @@ function secretsMatch(actual: string, expected: string): boolean {
 }
 
 export async function POST(request: Request) {
+  if ((process.env.LIVEAVATAR_RUNTIME_MODE || '').trim().toLowerCase() !== 'sandbox') {
+    return NextResponse.json(
+      { status: 'error', error: 'not found' },
+      { status: 404, headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
   const expectedSecret = (process.env.LIVEAVATAR_PREWARM_SECRET || '').trim();
   const actualSecret = (request.headers.get('x-liveavatar-prewarm-secret') || '').trim();
   if (!expectedSecret || !actualSecret || !secretsMatch(actualSecret, expectedSecret)) {

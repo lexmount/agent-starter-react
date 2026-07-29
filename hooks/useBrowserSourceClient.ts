@@ -344,6 +344,36 @@ export function useBrowserSourceClient(
       audioObserverStop: null,
     };
 
+    const handleVideoStartFailure = (error: unknown) => {
+      videoEnabledRef.current = false;
+      setVideoEnabledState(false);
+      const runtime = runtimeRef.current;
+      if (runtime) {
+        runtime.videoEnabled = false;
+      }
+      onVideoError?.(error as Error);
+    };
+
+    if (!appConfig.sandboxId) {
+      try {
+        if (audioEnabledRef.current) {
+          await ensureAudioPublished();
+        }
+      } catch (error) {
+        await stop();
+        throw error;
+      }
+
+      if (videoEnabledRef.current) {
+        try {
+          await ensureVideoPublished();
+        } catch (error) {
+          handleVideoStartFailure(error);
+        }
+      }
+      return;
+    }
+
     // Sandbox sessions target Chromium and keep independent capture concurrent
     // so camera permission does not delay the microphone or agent dispatch.
     const audioStart = audioEnabledRef.current ? ensureAudioPublished() : Promise.resolve();
@@ -359,15 +389,16 @@ export function useBrowserSourceClient(
     }
 
     if (videoResult.status === 'rejected') {
-      videoEnabledRef.current = false;
-      setVideoEnabledState(false);
-      const runtime = runtimeRef.current;
-      if (runtime) {
-        runtime.videoEnabled = false;
-      }
-      onVideoError?.(videoResult.reason as Error);
+      handleVideoStartFailure(videoResult.reason);
     }
-  }, [enabled, ensureAudioPublished, ensureVideoPublished, onVideoError, stop]);
+  }, [
+    appConfig.sandboxId,
+    enabled,
+    ensureAudioPublished,
+    ensureVideoPublished,
+    onVideoError,
+    stop,
+  ]);
 
   const setAudioEnabled = useCallback(
     async (nextEnabled: boolean) => {

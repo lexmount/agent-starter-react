@@ -4,7 +4,9 @@ import { test } from 'node:test';
 const { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } = await import(
   '@livekit/protocol'
 );
-const { findReusableAgentParticipant } = await import('../lib/session-dispatch-readiness.ts');
+const { AGENT_SESSION_READY_ATTRIBUTE, findReusableAgentParticipant } = await import(
+  '../lib/session-dispatch-readiness.ts'
+);
 
 function participant({
   identity,
@@ -99,6 +101,34 @@ test('prewarm readiness requires both room input participants without requiring 
     findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
       requireRoomInputParticipantsReady: true,
     }),
+    agent
+  );
+});
+
+test('prewarm can require the full agent session ready marker', () => {
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  const participants = [
+    agent,
+    participant({ identity: 'room_audio_input' }),
+    participant({ identity: 'room_video_input' }),
+  ];
+  const options = {
+    requireAgentSessionReady: true,
+    requireRoomInputParticipantsReady: true,
+  };
+
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', options),
+    null
+  );
+
+  agent.attributes[AGENT_SESSION_READY_ATTRIBUTE] = 'true';
+  assert.equal(
+    findReusableAgentParticipant(participants, 'frontdesk-browser-agent', options),
     agent
   );
 });

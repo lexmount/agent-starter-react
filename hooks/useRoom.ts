@@ -260,33 +260,39 @@ export function useRoom(appConfig: AppConfig) {
         throw error;
       }
     };
+    const usesManagedRoomInput = browserSourceClient.enabled || appConfig.usesServerRoomInput;
+    const usesSandboxConcurrentStartup = Boolean(appConfig.sandboxId) && usesManagedRoomInput;
 
     try {
       await waitForAgentSessionStop();
       await waitForRoomDisconnected(room);
 
-      if (browserSourceClient.enabled || appConfig.usesServerRoomInput) {
+      if (usesManagedRoomInput) {
         const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_STARTED);
         await room.connect(connectionDetails.serverUrl, connectionDetails.participantToken);
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_FINISHED);
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
         connectedRoomName = room.name;
-        const [localInputResult, dispatchResult] = await Promise.allSettled([
-          startLocalInputOrCancelDispatch(),
-          dispatchAgentSession(),
-        ]);
-        if (localInputResult.status === 'rejected') {
-          if (dispatchResult.status === 'rejected') {
-            console.warn(
-              'Agent dispatch also failed while local input was starting',
-              dispatchResult.reason
-            );
+        if (usesSandboxConcurrentStartup) {
+          const [localInputResult, dispatchResult] = await Promise.allSettled([
+            startLocalInputOrCancelDispatch(),
+            dispatchAgentSession(),
+          ]);
+          if (localInputResult.status === 'rejected') {
+            if (dispatchResult.status === 'rejected') {
+              console.warn(
+                'Agent dispatch also failed while local input was starting',
+                dispatchResult.reason
+              );
+            }
+            throw localInputResult.reason;
           }
-          throw localInputResult.reason;
-        }
-        if (dispatchResult.status === 'rejected') {
-          throw dispatchResult.reason;
+          if (dispatchResult.status === 'rejected') {
+            throw dispatchResult.reason;
+          }
+        } else {
+          await startLocalInput();
         }
       } else {
         await Promise.all([
@@ -301,7 +307,7 @@ export function useRoom(appConfig: AppConfig) {
         ]);
       }
 
-      if (!(browserSourceClient.enabled || appConfig.usesServerRoomInput)) {
+      if (!usesSandboxConcurrentStartup) {
         await dispatchAgentSession();
       }
     } catch (error) {
