@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import { access, open } from 'node:fs/promises';
 import path from 'node:path';
-import { type AgentWorkerState, readAgentWorkerStateFromLog } from '@/lib/agent-worker-readiness';
+import {
+  readAgentWorkerStateFromLog,
+  waitForAgentWorkerAvailable,
+} from '@/lib/agent-worker-readiness';
 import {
   deriveLiveKitRoomName,
   deriveSessionIdFromLiveKitRoomName,
@@ -25,7 +28,8 @@ const AGENT_WORKER_READINESS_TIMEOUT_MS = readPositiveIntEnv(
   10_000
 );
 const AGENT_WORKER_LOG_TAIL_BYTES = readPositiveIntEnv('AGENT_WORKER_LOG_TAIL_BYTES', 256 * 1024);
-const ROOM_INPUT_STOP_TIMEOUT_MS = readPositiveIntEnv('ROOM_INPUT_STOP_TIMEOUT_MS', 3_000);
+// Room-input may use 5s for graceful stop plus 1s for forced stop.
+const ROOM_INPUT_STOP_TIMEOUT_MS = readPositiveIntEnv('ROOM_INPUT_STOP_TIMEOUT_MS', 7_000);
 
 type StopResult = {
   target: string;
@@ -45,7 +49,6 @@ type StopRequestBody = {
   room_name?: string;
   sessionId?: string;
   session_id?: string;
-  wait?: boolean | string | number;
 };
 
 function readPositiveIntEnv(name: string, fallback: number) {
@@ -76,19 +79,6 @@ function readStopEnv(...names: string[]): string {
   return '';
 }
 
-function readStopAgentName(): string {
-  const configuredAgentName = readStopEnv(
-    'AGENT_NAME',
-    'NEXT_PUBLIC_AGENT_NAME',
-    'NEXT_PUBLIC_LEXVOICE_AGENT_NAME'
-  );
-  if (configuredAgentName) {
-    return configuredAgentName;
-  }
-
-  return `lexvoice-${readStopInputSource() || 'browser'}-agent`;
-}
-
 function readStopRoleDevice(...names: string[]): string {
   for (const name of names) {
     const value = process.env[name];
@@ -107,28 +97,6 @@ function usesBrowserOnlyMixedInput(): boolean {
       'browser' &&
     readStopRoleDevice('ROOM_OUTPUT_DEVICE', 'NEXT_PUBLIC_ROOM_OUTPUT_DEVICE') === 'browser'
   );
-}
-
-function requestWaitsForRemoteCleanup(body: StopRequestBody): boolean {
-  const wait = body.wait;
-  if (typeof wait === 'boolean') {
-    return wait;
-  }
-  if (typeof wait === 'number') {
-    return wait !== 0;
-  }
-  if (typeof wait === 'string') {
-    return ['1', 'true', 'yes', 'on'].includes(wait.trim().toLowerCase());
-  }
-  return false;
-}
-
-function shouldDeferRemoteSessionCleanup(body: StopRequestBody): boolean {
-  if (requestWaitsForRemoteCleanup(body)) {
-    return false;
-  }
-  const inputSource = readStopInputSource();
-  return inputSource === 'browser' || (inputSource === 'mixed' && usesBrowserOnlyMixedInput());
 }
 
 function shouldWaitForLocalAgentWorkerReadiness(): boolean {
@@ -167,15 +135,9 @@ function resolveRoomInputStopUrls(): string[] {
   });
 }
 
-function resolveLocalLiveKitServerLogPath(): string {
+function resolveLocalAgentWorkerLogPath(): string {
   const runLogDir = process.env.LEXVOICE_RUN_LOG_DIR?.trim();
-  return runLogDir ? path.join(runLogDir, 'server.log') : '';
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return runLogDir ? path.join(runLogDir, 'live.log') : '';
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -187,12 +149,9 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function readAgentWorkerStateFromServerLog(
-  logPath: string,
-  agentName: string
-): Promise<AgentWorkerState> {
+async function readAgentWorkerStateFromAgentLog(logPath: string) {
   const source = await readFileTail(logPath, AGENT_WORKER_LOG_TAIL_BYTES);
-  return readAgentWorkerStateFromLog(source, agentName);
+  return readAgentWorkerStateFromLog(source);
 }
 
 async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
@@ -214,35 +173,38 @@ async function waitForLocalAgentWorkerReadiness(): Promise<StopResult> {
     return { target: 'agent_worker_readiness', ok: true, skipped: true };
   }
 
-  const logPath = resolveLocalLiveKitServerLogPath();
-  const agentName = readStopAgentName();
+  const logPath = resolveLocalAgentWorkerLogPath();
   if (!logPath || !(await fileExists(logPath))) {
-    return { target: 'agent_worker_readiness', ok: true, skipped: true };
+    return {
+      target: 'agent_worker_readiness',
+      ok: false,
+      error: 'agent worker log unavailable',
+    };
   }
 
-  const deadline = Date.now() + AGENT_WORKER_READINESS_TIMEOUT_MS;
-  while (Date.now() <= deadline) {
-    const state = await readAgentWorkerStateFromServerLog(logPath, agentName);
-    if (state === 'available') {
-      return { target: 'agent_worker_readiness', ok: true };
-    }
-    if (state === 'unknown') {
-      return { target: 'agent_worker_readiness', ok: true, skipped: true };
-    }
-
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      break;
-    }
-    await sleep(Math.min(AGENT_WORKER_READINESS_POLL_MS, remainingMs));
+  const ready = await waitForAgentWorkerAvailable(() => readAgentWorkerStateFromAgentLog(logPath), {
+    timeoutMs: AGENT_WORKER_READINESS_TIMEOUT_MS,
+    pollMs: AGENT_WORKER_READINESS_POLL_MS,
+  });
+  if (ready) {
+    return { target: 'agent_worker_readiness', ok: true };
   }
 
   return {
     target: 'agent_worker_readiness',
-    ok: true,
-    skipped: true,
+    ok: false,
     error: 'timeout',
   };
+}
+
+function isLiveKitRoomNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = 'code' in error ? String(error.code).trim().toLowerCase() : '';
+  const status = 'status' in error ? Number(error.status) : Number.NaN;
+  return code === 'not_found' && status === 404;
 }
 
 async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {
@@ -258,6 +220,10 @@ async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {
     await roomService.deleteRoom(roomName);
     return { target: 'livekit_room', ok: true };
   } catch (error) {
+    if (isLiveKitRoomNotFound(error)) {
+      return { target: 'livekit_room', ok: true, skipped: true, status: 404 };
+    }
+
     return {
       target: 'livekit_room',
       ok: false,
@@ -327,7 +293,6 @@ async function postRoomInputStop(
     return {
       target: 'room_input',
       ok: false,
-      fatal: false,
       status: response.status,
       error: `room-input stop returned HTTP ${response.status}`,
     };
@@ -335,7 +300,6 @@ async function postRoomInputStop(
     return {
       target: 'room_input',
       ok: false,
-      fatal: false,
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
@@ -419,45 +383,6 @@ export async function POST(req: Request) {
 
   const stoppingSession = markRoomSessionStopping(roomName, sessionId);
   const dispatchResult = await cancelPendingDispatches(roomName, stoppingSession.dispatchIds);
-  if (shouldDeferRemoteSessionCleanup(body)) {
-    void runRemoteSessionCleanup(roomName, sessionId, dispatchResult, stoppingSession.dispatchIds)
-      .then(({ failures }) => {
-        if (failures.length > 0) {
-          console.error('deferred agent session stop completed with failures', {
-            roomName,
-            sessionId,
-            failures,
-          });
-        }
-      })
-      .catch((error) => {
-        console.error('deferred agent session stop failed', {
-          roomName,
-          sessionId,
-          error,
-        });
-      });
-
-    return NextResponse.json(
-      {
-        status: 'stopping',
-        deferred: true,
-        roomName,
-        sessionId,
-        results: [
-          {
-            target: 'session_registry',
-            ok: true,
-            dispatch_ids: stoppingSession.dispatchIds,
-          },
-          dispatchResult,
-          { target: 'remote_cleanup', ok: true, status: 202 },
-        ],
-      },
-      { status: 202 }
-    );
-  }
-
   const { results, failures } = await runRemoteSessionCleanup(
     roomName,
     sessionId,

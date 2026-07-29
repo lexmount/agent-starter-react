@@ -24,6 +24,7 @@ interface WelcomeViewProps {
   startDisabled?: boolean;
   startPending?: boolean;
   startPendingLabel?: string;
+  stopError?: string | null;
 }
 
 export const WelcomeView = ({
@@ -32,6 +33,7 @@ export const WelcomeView = ({
   startDisabled = false,
   startPending = false,
   startPendingLabel = 'Starting...',
+  stopError = null,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   return (
@@ -52,6 +54,12 @@ export const WelcomeView = ({
         >
           {startPending ? startPendingLabel : startButtonText}
         </Button>
+
+        {stopError && (
+          <p role="alert" className="text-destructive mt-3 max-w-64 text-sm">
+            Cleanup failed: {stopError}. Start again to retry cleanup.
+          </p>
+        )}
       </section>
 
       <div className="fixed bottom-5 left-0 flex w-full items-center justify-center">

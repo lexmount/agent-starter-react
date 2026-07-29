@@ -212,9 +212,6 @@ export function useRoom(appConfig: AppConfig) {
       await recoverFromStartError(error);
     };
 
-    setIsSessionActive(true);
-    beginFrontendObservabilitySession(room);
-
     const dispatchAgentSession = async () => {
       recordFrontendObservability(FRONTEND_EVENTS.DISPATCH_STARTED);
       dispatchSessionId = sessionId;
@@ -266,6 +263,8 @@ export function useRoom(appConfig: AppConfig) {
     try {
       await waitForAgentSessionStop();
       await waitForRoomDisconnected(room);
+      setIsSessionActive(true);
+      beginFrontendObservabilitySession(room);
 
       if (usesManagedRoomInput) {
         const connectionDetails = await tokenSource.fetch({ agentName: appConfig.agentName });

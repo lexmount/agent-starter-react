@@ -6,7 +6,11 @@ import { useRoomContext } from '@livekit/components-react';
 import { useSession } from '@/components/app/session-provider';
 import { SessionView } from '@/components/app/session-view';
 import { WelcomeView } from '@/components/app/welcome-view';
-import { getAgentSessionStopPending, subscribeAgentSessionStop } from '@/lib/session-stop-client';
+import {
+  getAgentSessionStopError,
+  getAgentSessionStopPending,
+  subscribeAgentSessionStop,
+} from '@/lib/session-stop-client';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(SessionView);
@@ -38,6 +42,11 @@ export function ViewController() {
     subscribeAgentSessionStop,
     getAgentSessionStopPending,
     getAgentSessionStopPending
+  );
+  const stopError = useSyncExternalStore(
+    subscribeAgentSessionStop,
+    getAgentSessionStopError,
+    getAgentSessionStopError
   );
   const isStartDisabled = isSessionActive || stopPending || startPending;
 
@@ -78,6 +87,7 @@ export function ViewController() {
           startDisabled={isStartDisabled}
           startPending={stopPending || startPending}
           startPendingLabel={stopPending ? 'Cleaning up...' : 'Starting...'}
+          stopError={stopError}
         />
       )}
       {/* Session view */}

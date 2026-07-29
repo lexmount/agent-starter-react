@@ -370,6 +370,20 @@ test('filtered audio renderer reports real element playback with backend marker 
   assert.match(source, /canonical backend marker field -> legacy field -> LiveKit sender/);
 });
 
+test('filtered audio renderer ignores stale play completions after a track detaches', async () => {
+  const source = await readFile('components/livekit/filtered-audio-renderer.tsx', 'utf8');
+
+  assert.match(source, /\.then\(\(\) => \{\s*if \(!isCurrentPlayback\(\)\) \{\s*return;\s*\}/);
+  assert.match(
+    source,
+    /\.catch\(\(error: unknown\) => \{\s*if \(!isCurrentPlayback\(\)\) \{\s*return;\s*\}/
+  );
+  assert.match(
+    source,
+    /isCurrentPlayback: \(\) =>\s*activePlaybackSources\.get\(elementKey\)\?\.element === audioElement/
+  );
+});
+
 test('browser source client publishes frontend audio observability events', async () => {
   const source = await readFile('hooks/useBrowserSourceClient.ts', 'utf8');
 

@@ -1,8 +1,11 @@
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { WelcomeView } from '../components/app/welcome-view.tsx';
 
 async function loadSessionStopClientModule({ stopSettleMs = 0 } = {}) {
   globalThis.__LEXVOICE_SESSION_STOP_SETTLE_MS__ = stopSettleMs;
@@ -47,6 +50,100 @@ test('waits for an in-flight agent session stop before continuing', async () => 
     assert.equal(waitResolved, true);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('failed stop stays visible and the next start wait retries the same cleanup before continuing', async () => {
+  const originalFetch = globalThis.fetch;
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  let fetchCount = 0;
+  let releaseRetry;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return { ok: false, status: 502 };
+    }
+    return new Promise((resolve) => {
+      releaseRetry = () => resolve({ ok: true, status: 200 });
+    });
+  };
+
+  try {
+    const {
+      getAgentSessionStopError,
+      getAgentSessionStopPending,
+      requestAgentSessionStop,
+      waitForAgentSessionStop,
+    } = await loadSessionStopClientModule();
+
+    assert.equal(typeof getAgentSessionStopError, 'function');
+    await assert.rejects(requestAgentSessionStop(sessionId), /agent session stop failed: 502/);
+    assert.match(getAgentSessionStopError(), /agent session stop failed: 502/);
+
+    let startGateResolved = false;
+    const startGatePromise = waitForAgentSessionStop().then(() => {
+      startGateResolved = true;
+    });
+    for (let i = 0; i < 8 && fetchCount < 2; i++) {
+      await Promise.resolve();
+    }
+
+    assert.equal(fetchCount, 2);
+    assert.equal(getAgentSessionStopPending(), true);
+    assert.equal(startGateResolved, false);
+    assert.match(getAgentSessionStopError(), /agent session stop failed: 502/);
+
+    releaseRetry();
+    await startGatePromise;
+    assert.equal(getAgentSessionStopPending(), false);
+    assert.equal(getAgentSessionStopError(), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('failed cleanup retry keeps the next start blocked and preserves the latest error', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return { ok: false, status: fetchCount === 1 ? 502 : 503 };
+  };
+
+  try {
+    const { getAgentSessionStopError, requestAgentSessionStop, waitForAgentSessionStop } =
+      await loadSessionStopClientModule();
+
+    await assert.rejects(
+      requestAgentSessionStop('11111111-2222-4333-8444-555555555555'),
+      /agent session stop failed: 502/
+    );
+    await assert.rejects(waitForAgentSessionStop(), /agent session stop failed: 503/);
+
+    assert.equal(fetchCount, 2);
+    assert.match(getAgentSessionStopError(), /agent session stop failed: 503/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('welcome view renders a persistent cleanup failure while allowing a retry attempt', () => {
+  const originalReact = globalThis.React;
+  globalThis.React = React;
+  try {
+    const html = renderToStaticMarkup(
+      React.createElement(WelcomeView, {
+        startButtonText: 'Start call',
+        onStartCall: () => {},
+        stopError: 'Session cleanup failed',
+      })
+    );
+
+    assert.match(html, /role="alert"/);
+    assert.match(html, /Session cleanup failed/);
+    assert.doesNotMatch(html, /disabled=""/);
+  } finally {
+    globalThis.React = originalReact;
   }
 });
 
@@ -268,6 +365,72 @@ test('browser stop does not gate the next start on remote cleanup', async () => 
   }
 });
 
+test('background cleanup without an active session does not consume a failed stop retry', async () => {
+  const originalFetch = globalThis.fetch;
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return {
+      ok: fetchCount > 1,
+      status: fetchCount > 1 ? 200 : 502,
+    };
+  };
+
+  try {
+    const { getAgentSessionStopError, requestAgentSessionStop, waitForAgentSessionStop } =
+      await loadSessionStopClientModule();
+
+    await assert.rejects(requestAgentSessionStop(sessionId), /agent session stop failed: 502/);
+    await requestAgentSessionStop(null, { waitForRemote: false });
+    for (let i = 0; i < 8; i++) {
+      await Promise.resolve();
+    }
+
+    assert.equal(fetchCount, 1);
+    assert.match(getAgentSessionStopError(), /agent session stop failed: 502/);
+
+    await waitForAgentSessionStop();
+    assert.equal(fetchCount, 2);
+    assert.equal(getAgentSessionStopError(), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('background cleanup for the same session does not erase a failed foreground stop', async () => {
+  const originalFetch = globalThis.fetch;
+  const sessionId = '11111111-2222-4333-8444-555555555555';
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return {
+      ok: fetchCount > 1,
+      status: fetchCount > 1 ? 200 : 502,
+    };
+  };
+
+  try {
+    const { getAgentSessionStopError, requestAgentSessionStop, waitForAgentSessionStop } =
+      await loadSessionStopClientModule();
+
+    await assert.rejects(requestAgentSessionStop(sessionId), /agent session stop failed: 502/);
+    await requestAgentSessionStop(sessionId, { waitForRemote: false });
+    for (let i = 0; i < 8; i++) {
+      await Promise.resolve();
+    }
+
+    assert.equal(fetchCount, 2);
+    assert.match(getAgentSessionStopError(), /agent session stop failed: 502/);
+
+    await waitForAgentSessionStop();
+    assert.equal(fetchCount, 3);
+    assert.equal(getAgentSessionStopError(), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('wait-for-remote stop clears active start before remote cleanup settles', async () => {
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
@@ -328,6 +491,30 @@ test('view controller disables start while a session is active', async () => {
     /const isStartDisabled = isSessionActive \|\| stopPending \|\| startPending/
   );
   assert.match(source, /startDisabled=\{isStartDisabled\}/);
+});
+
+test('view controller exposes cleanup failure without disabling the retry attempt', async () => {
+  const source = await readFile(
+    new URL('../components/app/view-controller.tsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /getAgentSessionStopError/);
+  assert.match(source, /stopError=\{stopError\}/);
+  assert.doesNotMatch(source, /const isStartDisabled = [^\n]*stopError/);
+});
+
+test('session start keeps the welcome view active until the cleanup gate succeeds', async () => {
+  const source = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  const startSessionSource = source.match(
+    /const startSession = useCallback\(async \(\) => \{[\s\S]*?\n  }, \[/
+  )?.[0];
+
+  assert.ok(startSessionSource, 'startSession should be defined');
+  assert.ok(
+    startSessionSource.indexOf('await waitForAgentSessionStop();') <
+      startSessionSource.indexOf('setIsSessionActive(true);')
+  );
 });
 
 test('session lifecycle cancels in-flight dispatch before allowing next start', async () => {

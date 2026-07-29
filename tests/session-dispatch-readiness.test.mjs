@@ -4,9 +4,8 @@ import { test } from 'node:test';
 const { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } = await import(
   '@livekit/protocol'
 );
-const { AGENT_SESSION_READY_ATTRIBUTE, findReusableAgentParticipant } = await import(
-  '../lib/session-dispatch-readiness.ts'
-);
+const { AGENT_SESSION_READY_ATTRIBUTE, findReadyAgentParticipant, findReusableAgentParticipant } =
+  await import('../lib/session-dispatch-readiness.ts');
 
 function participant({
   identity,
@@ -28,7 +27,10 @@ test('dispatch reuses an active agent by default without room video input readin
   const agent = participant({
     identity: 'agent-AJ_running',
     kind: ParticipantInfo_Kind.AGENT,
-    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'listening',
+    },
   });
   const participants = [
     agent,
@@ -46,7 +48,10 @@ test('dispatch can require room video input readiness before reusing an agent', 
     participant({
       identity: 'agent-AJ_stale',
       kind: ParticipantInfo_Kind.AGENT,
-      attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+      attributes: {
+        'lk.agent.name': 'frontdesk-browser-agent',
+        'lk.agent.state': 'listening',
+      },
     }),
     participant({
       identity: 'voice_assistant_user_session',
@@ -66,7 +71,10 @@ test('dispatch can reuse an active agent once room video input is publishing', (
   const agent = participant({
     identity: 'agent-AJ_running',
     kind: ParticipantInfo_Kind.AGENT,
-    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'listening',
+    },
   });
   const participants = [
     agent,
@@ -89,7 +97,10 @@ test('prewarm readiness requires both room input participants without requiring 
   const agent = participant({
     identity: 'agent-AJ_running',
     kind: ParticipantInfo_Kind.AGENT,
-    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'listening',
+    },
   });
   const participants = [
     agent,
@@ -138,7 +149,10 @@ test('prewarm readiness rejects a room missing either input participant', () => 
     participant({
       identity: 'agent-AJ_running',
       kind: ParticipantInfo_Kind.AGENT,
-      attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+      attributes: {
+        'lk.agent.name': 'frontdesk-browser-agent',
+        'lk.agent.state': 'listening',
+      },
     }),
     participant({ identity: 'room_video_input' }),
   ];
@@ -167,4 +181,97 @@ test('dispatch does not reuse disconnected agents', () => {
   ];
 
   assert.equal(findReusableAgentParticipant(participants, 'frontdesk-browser-agent'), null);
+});
+
+test('dispatch does not complete while the matching AgentSession is still initializing', () => {
+  const agent = participant({
+    identity: 'agent-AJ_initializing',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'initializing',
+    },
+  });
+
+  assert.equal(findReadyAgentParticipant([agent], 'frontdesk-browser-agent'), null);
+  assert.equal(findReusableAgentParticipant([agent], 'frontdesk-browser-agent'), null);
+});
+
+test('dispatch completes once the matching AgentSession can receive input', () => {
+  for (const state of ['listening', 'thinking', 'speaking']) {
+    const agent = participant({
+      identity: `agent-AJ_${state}`,
+      kind: ParticipantInfo_Kind.AGENT,
+      attributes: {
+        'lk.agent.name': 'frontdesk-browser-agent',
+        'lk.agent.state': state,
+      },
+    });
+
+    assert.equal(findReadyAgentParticipant([agent], 'frontdesk-browser-agent'), agent);
+  }
+});
+
+test('dispatch reads protobuf-normalized LiveKit agent readiness attributes', () => {
+  const agent = participant({
+    identity: 'agent-AJ_listening',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      lkAgentName: 'frontdesk-browser-agent',
+      lkAgentState: 'listening',
+    },
+  });
+
+  assert.equal(findReadyAgentParticipant([agent], 'frontdesk-browser-agent'), agent);
+});
+
+test('dispatch selects a ready matching agent when an initializing match appears first', () => {
+  const initializing = participant({
+    identity: 'agent-AJ_initializing',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      lkAgentName: 'frontdesk-browser-agent',
+      lkAgentState: 'initializing',
+    },
+  });
+  const listening = participant({
+    identity: 'agent-AJ_listening',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      lkAgentName: 'frontdesk-browser-agent',
+      lkAgentState: 'listening',
+    },
+  });
+
+  assert.equal(
+    findReadyAgentParticipant([initializing, listening], 'frontdesk-browser-agent'),
+    listening
+  );
+});
+
+test('prewarm selects the ready matching agent that also carries the session marker', () => {
+  const withoutMarker = participant({
+    identity: 'agent-AJ_listening-old',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'listening',
+    },
+  });
+  const withMarker = participant({
+    identity: 'agent-AJ_listening-new',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      'lk.agent.state': 'listening',
+      [AGENT_SESSION_READY_ATTRIBUTE]: 'true',
+    },
+  });
+
+  assert.equal(
+    findReusableAgentParticipant([withoutMarker, withMarker], 'frontdesk-browser-agent', {
+      requireAgentSessionReady: true,
+    }),
+    withMarker
+  );
 });

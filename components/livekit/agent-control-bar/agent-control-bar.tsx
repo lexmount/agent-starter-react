@@ -122,7 +122,9 @@ export function AgentControlBar({
       onDisconnect?.();
     });
     registerAgentSessionLocalCleanup(localDisconnectPromise);
-    void requestAgentSessionStop(sessionId);
+    void requestAgentSessionStop(sessionId).catch((error) => {
+      console.warn('Failed to stop remote agent session', error);
+    });
   }, [endSession, getCurrentSessionId, onDisconnect]);
 
   const handleRawMicrophoneToggle = useCallback(

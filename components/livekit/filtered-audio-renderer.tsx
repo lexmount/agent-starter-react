@@ -9,7 +9,7 @@ import {
   RoomEvent,
   Track,
 } from 'livekit-client';
-import { useRemoteParticipants, useRoomContext } from '@livekit/components-react';
+import { useRoomContext } from '@livekit/components-react';
 import { startMediaTrackAudioObserver } from '@/lib/frontend-audio-observer';
 import {
   FRONTEND_EVENTS,
@@ -19,6 +19,11 @@ import {
   publishFrontendObservabilityEvent,
 } from '@/lib/observability';
 import type { ObservabilityAttribute } from '@/lib/observability';
+import {
+  bindRemoteParticipantLifecycle,
+  createRemoteAudioTrackLifecycle,
+} from '@/lib/remote-audio-track-lifecycle';
+import type { RemoteAudioTrackEntry } from '@/lib/remote-audio-track-lifecycle';
 
 function debugAudioLog(enabled: boolean | undefined, ...args: unknown[]) {
   if (enabled) {
@@ -51,8 +56,44 @@ interface FilteredAudioRendererProps {
   observabilityEnabled?: boolean;
 }
 
+type AudioTrackLifecycle = ReturnType<
+  typeof createRemoteAudioTrackLifecycle<RemoteTrackPublication>
+>;
+
 function participantSegmentKey(participantIdentity: string) {
   return `participant:${participantIdentity}`;
+}
+
+function normalizeExcludeTrackNames(excludeTrackNames: readonly string[]) {
+  return Array.from(new Set(excludeTrackNames.filter(Boolean))).sort();
+}
+
+function buildRemoteAudioTrackEntry(
+  publication: RemoteTrackPublication,
+  participantIdentity: string
+): RemoteAudioTrackEntry<RemoteTrackPublication> | undefined {
+  if (publication.kind !== Track.Kind.Audio || !publication.track) {
+    return undefined;
+  }
+
+  return {
+    trackSid: publication.trackSid,
+    participantIdentity,
+    trackName: publication.trackName || publication.trackSid,
+    payload: publication,
+  };
+}
+
+function shouldExcludeAudioTrack(
+  entry: RemoteAudioTrackEntry<RemoteTrackPublication>,
+  excludeTrackNames: readonly string[]
+) {
+  return excludeTrackNames.some((excludeName) => {
+    if (!excludeName) {
+      return false;
+    }
+    return entry.trackName.includes(excludeName) || entry.trackSid === excludeName;
+  });
 }
 
 function buildAudioTrackDiagnostics(
@@ -93,6 +134,7 @@ function playAudioElement({
   debugAudio,
   elementKey,
   diagnostics,
+  isCurrentPlayback,
   mediaStreamTrack,
   pendingPlayback,
   recordPlaybackError,
@@ -103,6 +145,7 @@ function playAudioElement({
   debugAudio?: boolean;
   elementKey: string;
   diagnostics: AudioTrackDiagnostics;
+  isCurrentPlayback: () => boolean;
   mediaStreamTrack: MediaStreamTrack;
   pendingPlayback: Map<string, PendingPlayback>;
   recordPlaybackError: (
@@ -119,6 +162,9 @@ function playAudioElement({
 }) {
   const playPromise = audioElement.play();
   if (playPromise === undefined) {
+    if (!isCurrentPlayback()) {
+      return;
+    }
     pendingPlayback.delete(elementKey);
     startPlaybackObserver(elementKey, diagnostics, mediaStreamTrack);
     return;
@@ -126,6 +172,9 @@ function playAudioElement({
 
   playPromise
     .then(() => {
+      if (!isCurrentPlayback()) {
+        return;
+      }
       pendingPlayback.delete(elementKey);
       startPlaybackObserver(elementKey, diagnostics, mediaStreamTrack);
       debugAudioLog(debugAudio, '[FilteredAudioRenderer] 音频播放成功', {
@@ -134,6 +183,9 @@ function playAudioElement({
       });
     })
     .catch((error: unknown) => {
+      if (!isCurrentPlayback()) {
+        return;
+      }
       recordPlaybackError(diagnostics, trigger, error);
       pendingPlayback.set(elementKey, {
         element: audioElement,
@@ -165,13 +217,18 @@ export function FilteredAudioRenderer({
   observabilityEnabled,
 }: FilteredAudioRendererProps) {
   const room = useRoomContext();
-  const participants = useRemoteParticipants();
+  const normalizedExcludeTrackNames = normalizeExcludeTrackNames(excludeTrackNames);
+  const excludeTrackNamesKey = JSON.stringify(normalizedExcludeTrackNames);
+  const audioTrackLifecycleRef = useRef<AudioTrackLifecycle | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pendingPlaybackRef = useRef<Map<string, PendingPlayback>>(new Map());
   const playbackObserverStopsRef = useRef<Map<string, () => void>>(new Map());
   const outputSegmentsRef = useRef<Map<string, Record<string, ObservabilityAttribute>>>(new Map());
   const activePlaybackSourcesRef = useRef<Map<string, PendingPlayback>>(new Map());
   const sharedAudioContextRef = useRef<AudioContext | null>(null);
+  const excludeTrackNamesRef = useRef<readonly string[]>(normalizedExcludeTrackNames);
+  const volumeRef = useRef(volume);
+  const debugAudioRef = useRef(debugAudio);
   const observabilityEnabledRef = useRef(false);
   const recordFrontendObservabilityRef = useRef<
     (name: string, attributes?: Record<string, ObservabilityAttribute>) => void
@@ -189,6 +246,9 @@ export function FilteredAudioRenderer({
     },
     [observabilityEnabled, room]
   );
+  excludeTrackNamesRef.current = normalizedExcludeTrackNames;
+  volumeRef.current = volume;
+  debugAudioRef.current = debugAudio;
   observabilityEnabledRef.current = !!observabilityEnabled;
   recordFrontendObservabilityRef.current = recordFrontendObservability;
 
@@ -337,8 +397,7 @@ export function FilteredAudioRenderer({
       pendingPlayback.delete(elementKey);
     };
 
-    // 清理函数
-    const cleanup = () => {
+    const cleanupPlaybackState = () => {
       Array.from(audioElements.keys()).forEach((elementKey) => removeAudioElement(elementKey));
       pendingPlayback.clear();
       activePlaybackSources.clear();
@@ -347,40 +406,23 @@ export function FilteredAudioRenderer({
       sharedAudioContextRef.current = null;
     };
 
-    // 处理音频轨道订阅
-    const handleAudioTrack = (publication: RemoteTrackPublication, participantIdentity: string) => {
-      if (publication.kind !== Track.Kind.Audio || !publication.track) {
+    const attachAudioTrack = (entry: RemoteAudioTrackEntry<RemoteTrackPublication>) => {
+      const publication = entry.payload;
+      const track = publication.track;
+      if (!track) {
         return;
       }
 
-      const trackName = publication.trackName || publication.trackSid;
-      const elementKey = `${participantIdentity}-${trackName}`;
+      const { participantIdentity, trackName, trackSid: elementKey } = entry;
       const diagnostics = buildAudioTrackDiagnostics(publication, participantIdentity);
-      const mediaStreamTrack = publication.track.mediaStreamTrack;
+      const mediaStreamTrack = track.mediaStreamTrack;
 
-      debugAudioLog(debugAudio, '[FilteredAudioRenderer] 收到音频轨道订阅', diagnostics);
-
-      // 检查是否应该排除此轨道
-      const shouldExclude = excludeTrackNames.some((excludeName) => {
-        if (!excludeName) {
-          return false;
-        }
-        return trackName.includes(excludeName) || publication.trackSid === excludeName;
-      });
-
-      if (shouldExclude) {
-        debugAudioLog(
-          debugAudio,
-          `[FilteredAudioRenderer] 排除音频轨道: ${trackName} (参与者: ${participantIdentity})`,
-          diagnostics
-        );
-
-        // 如果之前有播放这个轨道，现在停止
-        removeAudioElement(elementKey);
-        return;
-      }
-
-      debugAudioLog(debugAudio, '[FilteredAudioRenderer] 准备播放远端音频轨道', diagnostics);
+      debugAudioLog(debugAudioRef.current, '[FilteredAudioRenderer] 收到音频轨道订阅', diagnostics);
+      debugAudioLog(
+        debugAudioRef.current,
+        '[FilteredAudioRenderer] 准备播放远端音频轨道',
+        diagnostics
+      );
 
       // 创建或更新音频元素
       let audioElement = audioElements.get(elementKey);
@@ -390,7 +432,7 @@ export function FilteredAudioRenderer({
         createdAudioElement.setAttribute('playsinline', 'true');
         createdAudioElement.dataset.livekitParticipantIdentity = participantIdentity;
         createdAudioElement.dataset.livekitTrackName = trackName;
-        createdAudioElement.volume = volume;
+        createdAudioElement.volume = volumeRef.current;
         const handleElementPlaybackStopped = () => {
           stopPlaybackObserver(elementKey);
         };
@@ -430,7 +472,7 @@ export function FilteredAudioRenderer({
         audioElement = createdAudioElement;
 
         debugAudioLog(
-          debugAudio,
+          debugAudioRef.current,
           `[FilteredAudioRenderer] 创建音频元素: ${trackName} (参与者: ${participantIdentity})`
         );
       }
@@ -443,19 +485,20 @@ export function FilteredAudioRenderer({
       });
       const mediaStream = new MediaStream([mediaStreamTrack]);
       audioElement.srcObject = mediaStream;
-      audioElement.volume = volume;
+      audioElement.volume = volumeRef.current;
 
       debugAudioLog(
-        debugAudio,
+        debugAudioRef.current,
         `[FilteredAudioRenderer] 准备播放音频轨道: ${trackName} (参与者: ${participantIdentity})`,
         diagnostics
       );
 
       playAudioElement({
         audioElement,
-        debugAudio,
+        debugAudio: debugAudioRef.current,
         elementKey,
         diagnostics,
+        isCurrentPlayback: () => activePlaybackSources.get(elementKey)?.element === audioElement,
         mediaStreamTrack,
         pendingPlayback,
         recordPlaybackError,
@@ -464,13 +507,48 @@ export function FilteredAudioRenderer({
       });
     };
 
+    const detachAudioTrack = (entry: RemoteAudioTrackEntry<RemoteTrackPublication>) => {
+      removeAudioElement(entry.trackSid);
+      debugAudioLog(
+        debugAudioRef.current,
+        `[FilteredAudioRenderer] 停止音频轨道: ${entry.trackName} (参与者: ${entry.participantIdentity})`
+      );
+    };
+
+    const registry = createRemoteAudioTrackLifecycle<RemoteTrackPublication>({
+      attach: attachAudioTrack,
+      detach: detachAudioTrack,
+    });
+    audioTrackLifecycleRef.current = registry;
+
+    const subscribeAudioPublication = (
+      publication: RemoteTrackPublication,
+      participantIdentity: string
+    ) => {
+      const entry = buildRemoteAudioTrackEntry(publication, participantIdentity);
+      if (!entry) {
+        return;
+      }
+      if (shouldExcludeAudioTrack(entry, excludeTrackNamesRef.current)) {
+        registry.unsubscribe(entry.trackSid);
+        debugAudioLog(
+          debugAudioRef.current,
+          `[FilteredAudioRenderer] 排除音频轨道: ${entry.trackName} (参与者: ${participantIdentity})`,
+          buildAudioTrackDiagnostics(publication, participantIdentity)
+        );
+        return;
+      }
+      registry.subscribe(entry);
+    };
+
     const retryPendingPlayback = (trigger: string) => {
       pendingPlayback.forEach(({ element, diagnostics, mediaStreamTrack }, elementKey) => {
         playAudioElement({
           audioElement: element,
-          debugAudio,
+          debugAudio: debugAudioRef.current,
           elementKey,
           diagnostics,
+          isCurrentPlayback: () => activePlaybackSources.get(elementKey)?.element === element,
           mediaStreamTrack,
           pendingPlayback,
           recordPlaybackError,
@@ -499,90 +577,101 @@ export function FilteredAudioRenderer({
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    debugAudioLog(debugAudio, '[FilteredAudioRenderer] 已启用音频播放诊断和用户手势重试');
-
-    // 处理轨道取消订阅
-    const handleTrackUnsubscribed = (
-      publication: RemoteTrackPublication,
-      participantIdentity: string
-    ) => {
-      if (publication.kind !== Track.Kind.Audio) return;
-
-      const trackName = publication.trackName || publication.trackSid;
-      const elementKey = `${participantIdentity}-${trackName}`;
-
-      removeAudioElement(elementKey);
-      debugAudioLog(
-        debugAudio,
-        `[FilteredAudioRenderer] 停止音频轨道: ${trackName} (参与者: ${participantIdentity})`
-      );
-    };
-
-    const participantListenerCleanups: Array<() => void> = [];
+    debugAudioLog(
+      debugAudioRef.current,
+      '[FilteredAudioRenderer] 已启用音频播放诊断和用户手势重试'
+    );
 
     const attachParticipantListeners = (participant: RemoteParticipant) => {
-      participant.audioTrackPublications.forEach((publication) => {
-        if (publication.isSubscribed && publication.track) {
-          handleAudioTrack(publication, participant.identity);
-        }
-      });
-
-      // 监听新的轨道订阅
       const onTrackSubscribed = (track: RemoteTrack, publication: RemoteTrackPublication) => {
         if (track.kind === Track.Kind.Audio) {
-          handleAudioTrack(publication, participant.identity);
+          subscribeAudioPublication(publication, participant.identity);
         }
       };
 
       const onTrackUnsubscribed = (track: RemoteTrack, publication: RemoteTrackPublication) => {
         if (track.kind === Track.Kind.Audio) {
-          handleTrackUnsubscribed(publication, participant.identity);
+          registry.unsubscribe(publication.trackSid);
         }
       };
 
       participant.on(ParticipantEvent.TrackSubscribed, onTrackSubscribed);
       participant.on(ParticipantEvent.TrackUnsubscribed, onTrackUnsubscribed);
 
-      participantListenerCleanups.push(() => {
-        participant.off(ParticipantEvent.TrackSubscribed, onTrackSubscribed);
-        participant.off(ParticipantEvent.TrackUnsubscribed, onTrackUnsubscribed);
-      });
-    };
-
-    // 监听现有参与者的轨道
-    participants.forEach(attachParticipantListeners);
-
-    // 监听参与者变化
-    const onParticipantConnected = (participant: RemoteParticipant) => {
-      attachParticipantListeners(participant);
-    };
-
-    const onParticipantDisconnected = (participant: RemoteParticipant) => {
-      // 清理该参与者的所有音频元素
-      const keysToRemove: string[] = [];
-      audioElements.forEach((_element, key) => {
-        if (key.startsWith(`${participant.identity}-`)) {
-          keysToRemove.push(key);
+      participant.audioTrackPublications.forEach((publication) => {
+        if (publication.isSubscribed && publication.track) {
+          subscribeAudioPublication(publication, participant.identity);
         }
       });
-      keysToRemove.forEach((key) => removeAudioElement(key));
-      outputSegments.delete(participantSegmentKey(participant.identity));
+
+      return () => {
+        participant.off(ParticipantEvent.TrackSubscribed, onTrackSubscribed);
+        participant.off(ParticipantEvent.TrackUnsubscribed, onTrackUnsubscribed);
+      };
     };
 
-    room.on(RoomEvent.ParticipantConnected, onParticipantConnected);
-    room.on(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
+    const stopParticipantLifecycle = bindRemoteParticipantLifecycle({
+      attachParticipant: attachParticipantListeners,
+      listParticipants: () => room.remoteParticipants.values(),
+      observeConnected: (listener) => {
+        room.on(RoomEvent.Connected, listener);
+        return () => room.off(RoomEvent.Connected, listener);
+      },
+      observeDisconnected: (listener) => {
+        room.on(RoomEvent.Disconnected, listener);
+        return () => room.off(RoomEvent.Disconnected, listener);
+      },
+      observeParticipantConnected: (listener) => {
+        room.on(RoomEvent.ParticipantConnected, listener);
+        return () => room.off(RoomEvent.ParticipantConnected, listener);
+      },
+      observeParticipantDisconnected: (listener) => {
+        room.on(RoomEvent.ParticipantDisconnected, listener);
+        return () => room.off(RoomEvent.ParticipantDisconnected, listener);
+      },
+      onParticipantDisconnected: (participant) => {
+        registry.disconnect(participant.identity);
+        outputSegments.delete(participantSegmentKey(participant.identity));
+      },
+      onRoomDisconnected: () => {
+        registry.close();
+        cleanupPlaybackState();
+      },
+    });
 
     return () => {
-      cleanup();
+      stopParticipantLifecycle();
       window.removeEventListener('pointerdown', handleUserGesture, { capture: true });
       window.removeEventListener('keydown', handleUserGesture, { capture: true });
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      room.off(RoomEvent.ParticipantConnected, onParticipantConnected);
-      room.off(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
-      participantListenerCleanups.forEach((cleanupListener) => cleanupListener());
+      if (audioTrackLifecycleRef.current === registry) {
+        audioTrackLifecycleRef.current = null;
+      }
+      registry.close();
+      cleanupPlaybackState();
     };
-  }, [room, participants, excludeTrackNames, volume, debugAudio]);
+  }, [room]);
+
+  useEffect(() => {
+    if (!room) return;
+    const registry = audioTrackLifecycleRef.current;
+    if (!registry) return;
+
+    const entries: RemoteAudioTrackEntry<RemoteTrackPublication>[] = [];
+    room.remoteParticipants.forEach((participant) => {
+      participant.audioTrackPublications.forEach((publication) => {
+        if (!publication.isSubscribed || !publication.track) {
+          return;
+        }
+        const entry = buildRemoteAudioTrackEntry(publication, participant.identity);
+        if (entry && !shouldExcludeAudioTrack(entry, excludeTrackNamesRef.current)) {
+          entries.push(entry);
+        }
+      });
+    });
+    registry.reconcile(entries);
+  }, [room, excludeTrackNamesKey]);
 
   // 更新音量
   useEffect(() => {

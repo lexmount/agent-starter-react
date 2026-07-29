@@ -16,7 +16,13 @@ type AgentSessionStopOptions = {
   waitForRemote?: boolean;
 };
 
+type FailedAgentSessionStop = {
+  sessionId: string;
+  error: string;
+};
+
 let activeStart: ActiveAgentSession | null = null;
+let failedAgentSessionStop: FailedAgentSessionStop | null = null;
 
 function readStopSettleMs(): number {
   const globals = globalThis as typeof globalThis & {
@@ -41,13 +47,34 @@ function normalize(value: string | null | undefined): string {
   return value?.trim() ?? '';
 }
 
+function notifyStopListeners() {
+  stopListeners.forEach((listener) => listener());
+}
+
 function setStopRequestPending(nextPending: boolean) {
   if (stopRequestPending === nextPending) {
     return;
   }
 
   stopRequestPending = nextPending;
-  stopListeners.forEach((listener) => listener());
+  notifyStopListeners();
+}
+
+function setFailedAgentSessionStop(sessionId: string, error: unknown) {
+  failedAgentSessionStop = {
+    sessionId,
+    error: error instanceof Error ? error.message : String(error),
+  };
+  notifyStopListeners();
+}
+
+function clearFailedAgentSessionStop(sessionId: string) {
+  if (failedAgentSessionStop?.sessionId !== sessionId) {
+    return;
+  }
+
+  failedAgentSessionStop = null;
+  notifyStopListeners();
 }
 
 function beginStopRequestPending() {
@@ -91,11 +118,16 @@ async function sendAgentSessionStopAndSettle(
 ): Promise<void> {
   try {
     await sendAgentSessionStop(sessionId, options);
+    clearFailedAgentSessionStop(sessionId);
+  } catch (error) {
+    setFailedAgentSessionStop(sessionId, error);
+    throw error;
   } finally {
     endStopRequestPending();
-    await waitForAgentWorkerSettle();
-    clearActiveAgentSession(sessionId);
   }
+
+  await waitForAgentWorkerSettle();
+  clearActiveAgentSession(sessionId);
 }
 
 function sendAgentSessionStopInBackground(
@@ -108,14 +140,29 @@ function sendAgentSessionStopInBackground(
   clearActiveAgentSession(sessionId);
 }
 
-export function waitForAgentSessionStop(): Promise<void> {
-  return pendingStopPromise
-    .catch(() => undefined)
-    .then(() => pendingStartPromise.catch(() => undefined));
+export async function waitForAgentSessionStop(): Promise<void> {
+  try {
+    await pendingStopPromise;
+  } catch (error) {
+    if (!failedAgentSessionStop) {
+      throw error;
+    }
+  }
+
+  const failedStop = failedAgentSessionStop;
+  if (failedStop) {
+    await requestAgentSessionStop(failedStop.sessionId);
+  }
+
+  await pendingStartPromise.catch(() => undefined);
 }
 
 export function getAgentSessionStopPending(): boolean {
   return stopRequestPending;
+}
+
+export function getAgentSessionStopError(): string | null {
+  return failedAgentSessionStop?.error ?? null;
 }
 
 export function subscribeAgentSessionStop(listener: () => void): () => void {
@@ -214,8 +261,15 @@ export async function requestAgentSessionStop(
   sessionId?: string | null,
   options: AgentSessionStopOptions = {}
 ): Promise<void> {
-  const normalizedSessionId = normalize(sessionId) || activeStart?.sessionId || '';
+  const fallbackSessionId =
+    options.waitForRemote === false
+      ? activeStart?.sessionId
+      : failedAgentSessionStop?.sessionId || activeStart?.sessionId;
+  const normalizedSessionId = normalize(sessionId) || fallbackSessionId || '';
   if (!normalizedSessionId) {
+    if (options.waitForRemote === false) {
+      return;
+    }
     return waitForAgentSessionStop();
   }
 
@@ -223,16 +277,15 @@ export async function requestAgentSessionStop(
   clearActiveAgentSession(normalizedSessionId);
   if (options.waitForRemote === false) {
     sendAgentSessionStopInBackground(normalizedSessionId, options);
-    return waitForAgentSessionStop();
+    return;
   }
 
   beginStopRequestPending();
   const stopPromise = pendingStopPromise
     .catch(() => undefined)
     .then(() => sendAgentSessionStopAndSettle(normalizedSessionId, options));
-  pendingStopPromise = stopPromise
-    .catch(() => undefined)
-    .then(() => pendingStartPromise.catch(() => undefined));
+  pendingStopPromise = stopPromise.then(() => pendingStartPromise.catch(() => undefined));
+  void pendingStopPromise.catch(() => undefined);
   return stopPromise;
 }
 

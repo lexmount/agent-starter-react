@@ -19,6 +19,7 @@ export const AGENT_SESSION_READY_ATTRIBUTE = 'liveavatar.agent.session_ready';
 
 const ROOM_AUDIO_INPUT_IDENTITY = 'room_audio_input';
 const ROOM_VIDEO_INPUT_IDENTITY = 'room_video_input';
+const READY_AGENT_STATES = new Set(['listening', 'thinking', 'speaking']);
 
 function readRoomInputVideoTrackName() {
   return (
@@ -39,8 +40,13 @@ export function findReusableAgentParticipant(
     requireRoomInputParticipantsReady = false,
     ...matchOptions
   } = options;
-  const expectedAgent = findAgentParticipantInList(participants, agentName, matchOptions);
-  if (!expectedAgent || (requireAgentSessionReady && !isAgentSessionReady(expectedAgent))) {
+  const expectedAgent = findAgentParticipantForReadiness(
+    participants,
+    agentName,
+    matchOptions,
+    requireAgentSessionReady
+  );
+  if (!expectedAgent) {
     return null;
   }
 
@@ -68,9 +74,17 @@ export function summarizeRoomInputReadiness(participants: ParticipantInfo[]) {
 export function summarizePrewarmReadiness(participants: ParticipantInfo[], agentName: string) {
   const agent = findAgentParticipantInList(participants, agentName);
   return {
-    agentSessionReady: agent !== null && isAgentSessionReady(agent),
+    agentSessionReady: agent !== null && hasAgentSessionReadyMarker(agent),
     ...summarizeRoomInputReadiness(participants),
   };
+}
+
+export function findReadyAgentParticipant(
+  participants: ParticipantInfo[],
+  agentName: string,
+  options: AgentParticipantMatchOptions = {}
+): ParticipantInfo | null {
+  return findAgentParticipantForReadiness(participants, agentName, options, false);
 }
 
 export function findAgentParticipantInList(
@@ -91,6 +105,33 @@ export function findAgentParticipantInList(
   // Local LiveKit may omit agent attributes; fresh per-session rooms keep this fallback bounded.
   const anonymousLiveKitAgents = participants.filter(isAnonymousLiveKitAgentParticipant);
   return anonymousLiveKitAgents.length === 1 ? anonymousLiveKitAgents[0] : null;
+}
+
+function findAgentParticipantForReadiness(
+  participants: ParticipantInfo[],
+  agentName: string,
+  options: AgentParticipantMatchOptions,
+  requireSessionReadyMarker: boolean
+) {
+  const expectedAgents = participants.filter((participant) =>
+    isExpectedAgentParticipant(participant, agentName)
+  );
+  const readyExpectedAgent = expectedAgents.find((participant) =>
+    isAgentReady(participant, requireSessionReadyMarker)
+  );
+  if (readyExpectedAgent) {
+    return readyExpectedAgent;
+  }
+  if (expectedAgents.length > 0 || !options.allowAnonymousLiveKitAgentFallback) {
+    return null;
+  }
+
+  const readyAnonymousAgents = participants.filter(
+    (participant) =>
+      isAnonymousLiveKitAgentParticipant(participant) &&
+      isAgentReady(participant, requireSessionReadyMarker)
+  );
+  return readyAnonymousAgents.length === 1 ? readyAnonymousAgents[0] : null;
 }
 
 function hasReadyRoomVideoInput(participants: ParticipantInfo[]) {
@@ -126,8 +167,28 @@ function isExpectedAgentParticipant(participant: ParticipantInfo, agentName: str
   );
 }
 
-function isAgentSessionReady(participant: ParticipantInfo) {
+function hasAgentSessionReadyMarker(participant: ParticipantInfo) {
   return participant.attributes?.[AGENT_SESSION_READY_ATTRIBUTE] === 'true';
+}
+
+function hasReadyLiveKitAgentState(participant: ParticipantInfo) {
+  const attributes = participant.attributes ?? {};
+  const state = (
+    attributes['lk.agent.state'] ||
+    attributes['lk.agent_state'] ||
+    attributes.lkAgentState ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+  return READY_AGENT_STATES.has(state);
+}
+
+function isAgentReady(participant: ParticipantInfo, requireSessionReadyMarker: boolean) {
+  if (requireSessionReadyMarker) {
+    return hasAgentSessionReadyMarker(participant);
+  }
+  return hasAgentSessionReadyMarker(participant) || hasReadyLiveKitAgentState(participant);
 }
 
 function isAnonymousLiveKitAgentParticipant(participant: ParticipantInfo) {
