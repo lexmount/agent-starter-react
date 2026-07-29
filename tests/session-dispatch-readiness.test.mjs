@@ -4,8 +4,12 @@ import { test } from 'node:test';
 const { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } = await import(
   '@livekit/protocol'
 );
-const { AGENT_SESSION_READY_ATTRIBUTE, findReadyAgentParticipant, findReusableAgentParticipant } =
-  await import('../lib/session-dispatch-readiness.ts');
+const {
+  AGENT_SESSION_READY_ATTRIBUTE,
+  findReadyAgentParticipant,
+  findReusableAgentParticipant,
+  summarizePrewarmReadiness,
+} = await import('../lib/session-dispatch-readiness.ts');
 
 function participant({
   identity,
@@ -273,5 +277,27 @@ test('prewarm selects the ready matching agent that also carries the session mar
       requireAgentSessionReady: true,
     }),
     withMarker
+  );
+});
+
+test('prewarm summary reports the marked matching agent after an older unmarked match', () => {
+  const withoutMarker = participant({
+    identity: 'agent-AJ_old',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  const withMarker = participant({
+    identity: 'agent-AJ_new',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: {
+      'lk.agent.name': 'frontdesk-browser-agent',
+      [AGENT_SESSION_READY_ATTRIBUTE]: 'true',
+    },
+  });
+
+  assert.equal(
+    summarizePrewarmReadiness([withoutMarker, withMarker], 'frontdesk-browser-agent')
+      .agentSessionReady,
+    true
   );
 });

@@ -72,9 +72,14 @@ export function summarizeRoomInputReadiness(participants: ParticipantInfo[]) {
 }
 
 export function summarizePrewarmReadiness(participants: ParticipantInfo[], agentName: string) {
-  const agent = findAgentParticipantInList(participants, agentName);
+  const agent = findAgentParticipantForReadiness(
+    participants,
+    agentName,
+    { allowAnonymousLiveKitAgentFallback: true },
+    true
+  );
   return {
-    agentSessionReady: agent !== null && hasAgentSessionReadyMarker(agent),
+    agentSessionReady: agent !== null,
     ...summarizeRoomInputReadiness(participants),
   };
 }
