@@ -125,7 +125,18 @@ export class MediaGateExecutor {
     this.controllerIdentity = controllerIdentity;
     this.closedBlocker = 'lease_missing';
     this.device.close();
-    return this.enqueue(() => this.publishSnapshot(controllerIdentity, null, null));
+    return this.enqueue(async () => {
+      try {
+        await this.publishSnapshot(controllerIdentity, null, null);
+      } catch (error) {
+        if (this.controllerIdentity === controllerIdentity) {
+          this.controllerIdentity = null;
+          this.resetCommandOrdering();
+          this.invalidateAndClose('controller_disconnected', true);
+        }
+        throw error;
+      }
+    });
   }
 
   handleCommand(controllerIdentity: string, command: MediaControlCommand): Promise<void> {

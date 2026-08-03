@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 const { RoomEvent } = await import('livekit-client');
 const { LiveKitMediaGateAdapter } = await import('../lib/livekit-media-gate.ts');
+const { MediaGateExecutor } = await import('../lib/media-gate-executor.ts');
 const { MEDIA_CONTROL_TOPIC, MEDIA_STATE_TOPIC } = await import('../lib/media-control-protocol.ts');
 
 const textEncoder = new TextEncoder();
@@ -424,6 +425,59 @@ test('controller disconnect closes through executor, clears the pin, and permits
     ['disconnectController', first.identity],
     ['bindController', second.identity],
   ]);
+});
+
+test('a failed late controller bind rolls back and permits a replacement controller', async () => {
+  const room = new FakeRoom();
+  const errors = [];
+  const adapter = new LiveKitMediaGateAdapter({
+    room,
+    agentName: 'frontdesk-browser-agent',
+    onError: (error) => errors.push(error),
+  });
+  const executor = new MediaGateExecutor({
+    targetIdentity: 'browser-edge',
+    device: {
+      close() {},
+      async open() {},
+      snapshot() {
+        return {
+          captureActive: true,
+          trackPublished: true,
+          trackMuted: true,
+        };
+      },
+    },
+    publishState: adapter.publishState,
+    uuid: () => 'state-epoch-1',
+    nowUnixMs: () => 1_000,
+    nowMonotonicMs: () => 1_000,
+    scheduler: {
+      setTimeout: () => 1,
+      clearTimeout() {},
+    },
+    maxOpenLeaseMs: 1_000,
+  });
+  await adapter.start(executor);
+
+  const failedPublish = deferred();
+  room.publishGate = failedPublish;
+  const first = namedAgent('agent-first');
+  room.connectParticipant(first);
+  failedPublish.reject(new Error('initial state publish failed'));
+  await adapter.drain();
+
+  room.publishGate = null;
+  room.disconnectParticipant(first);
+  const second = namedAgent('agent-second');
+  room.connectParticipant(second);
+  await adapter.drain();
+
+  assert.match(errors[0]?.message ?? '', /initial state publish failed/);
+  assert.deepEqual(
+    room.published.map(({ options }) => options.destinationIdentities),
+    [[first.identity], [second.identity]]
+  );
 });
 
 test('controller disconnect is not blocked behind stuck command work', async () => {
