@@ -394,6 +394,7 @@ export function useBrowserSourceClient(
           if (audioGate) {
             const gateStop = audioGate.adapter.stop();
             const executorStop = audioGate.executor.stop();
+            // Privacy closure is synchronous; listener teardown may finish afterward.
             audioGate.device.close();
             await gateStop;
             await executorStop;
@@ -463,6 +464,8 @@ export function useBrowserSourceClient(
         const adapter = new LiveKitMediaGateAdapter({
           room,
           agentName,
+          // Existing LexVoice agents may omit lk.agent.name. The adapter accepts this
+          // only when exactly one anonymous agent exists, then pins that controller.
           allowAnonymousLiveKitAgentFallback: true,
           onError: (error) => console.warn('[browser-audio] media gate event failed', error),
         });

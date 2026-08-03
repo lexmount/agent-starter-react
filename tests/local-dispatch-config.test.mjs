@@ -37,6 +37,17 @@ test('frontend keeps explicit AGENT_NAME as an override', async () => {
   assert.equal(resolveAgentNameForInputSource('generic', 'custom-agent'), 'custom-agent');
 });
 
+test('frontend restores a derived agent name after a blank sandbox override', async () => {
+  const { resolveAgentNameForInputSource } = await loadAppConfigModule();
+  const utilsSource = await readFile('lib/utils.ts', 'utf8');
+
+  assert.equal(resolveAgentNameForInputSource('browser', '   '), 'lexvoice-browser-agent');
+  assert.match(
+    utilsSource,
+    /config\.agentName = resolveAgentNameForInputSource\(config\.inputSource, config\.agentName\)/
+  );
+});
+
 test('frontend exposes the server-owned voice session id to dispatch callers', async () => {
   const previousEnv = { ...process.env };
 
