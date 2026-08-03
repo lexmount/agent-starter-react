@@ -11,7 +11,16 @@ import {
   createLocalVideoTrack,
 } from 'livekit-client';
 import type { AppConfig } from '@/app-config';
+import { BrowserAudioGateDevice } from '@/lib/browser-audio-gate-device';
+import {
+  detachCurrentRuntime,
+  isCurrentRuntime,
+  replaceRuntimeAudioBinding,
+  runOwnedRuntimeStart,
+} from '@/lib/browser-source-runtime-lifecycle';
 import { startMediaTrackVadObserver } from '@/lib/frontend-vad-observer';
+import { LiveKitMediaGateAdapter } from '@/lib/livekit-media-gate';
+import { MediaGateExecutor } from '@/lib/media-gate-executor';
 import {
   FRONTEND_EVENTS,
   OBSERVABILITY_ATTRS,
@@ -23,6 +32,7 @@ const BROWSER_VIDEO_TRACK_NAME = 'browser_video_track';
 const DEFAULT_BROWSER_MEDIA_STREAM_NAME = 'browser_input';
 const BROWSER_VIDEO_DEFAULT_ENABLED = true;
 const BROWSER_VIDEO_STATS_INTERVAL_MS = 5000;
+const BROWSER_MEDIA_GATE_MAX_OPEN_LEASE_MS = 3000;
 const BROWSER_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,
@@ -40,6 +50,15 @@ interface BrowserSourceRuntime {
   videoStatsTimer: number | null;
   previousVideoStats: BrowserVideoStatsSnapshot | null;
   audioObserverStop: (() => Promise<void>) | null;
+  audioPublishPromise: Promise<void> | null;
+  audioGate: BrowserAudioGateRuntime | null;
+  stopPromise: Promise<void> | null;
+}
+
+interface BrowserAudioGateRuntime {
+  device: BrowserAudioGateDevice;
+  executor: MediaGateExecutor;
+  adapter: LiveKitMediaGateAdapter;
 }
 
 interface BrowserVideoStatsSnapshot {
@@ -115,148 +134,197 @@ export function useBrowserSourceClient(
     [appConfig.observabilityEnabled, room]
   );
 
-  const ensureAudioPublished = useCallback(async () => {
-    const runtime = runtimeRef.current;
-    if (!audioConfigured || !runtime || runtime.audioTrack || !runtime.audioEnabled) {
-      return;
-    }
-
-    const vadAttributes: Record<string, string | number | boolean | null> = {
-      [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'input',
-      [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
-      [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
-      [OBSERVABILITY_ATTRS.TRACK_SID]: null,
-      [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
-    };
-    const audioTrack = await createLocalAudioTrack(
-      buildAudioCaptureOptions(audioDeviceIdRef.current)
-    );
-    const captureTrack = audioTrack.mediaStreamTrack;
-    audioTrack.mediaStreamTrack.enabled = runtime.audioEnabled;
-
-    try {
-      const publication = await room.localParticipant.publishTrack(audioTrack, {
-        name: BROWSER_AUDIO_TRACK_NAME,
-        source: Track.Source.Microphone,
-        stream: browserMediaStreamName,
-      });
-      runtime.audioTrack = audioTrack;
-      runtime.audioPublication = publication;
-      runtime.audioObserverStop = null;
-      vadAttributes[OBSERVABILITY_ATTRS.TRACK_SID] = publication.trackSid || null;
-      recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_PUBLISHED, {
-        [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
-        [OBSERVABILITY_ATTRS.TRACK_SID]: publication.trackSid || null,
-        [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
-      });
-      if (appConfig.observabilityEnabled) {
-        void startMediaTrackVadObserver({
-          mediaStreamTrack: captureTrack,
-          onSpeechStart: (event) => {
-            recordFrontendObservability(
-              FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_STARTED,
-              {
-                ...vadAttributes,
-                [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
-                [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
-              },
-              { wallTimeUnixMs: event.timestampMs }
-            );
-          },
-          onSpeechEnd: (event) => {
-            recordFrontendObservability(
-              FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_ENDED,
-              {
-                ...vadAttributes,
-                [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
-                [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
-                [OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS]: event.audioDurationMs ?? null,
-              },
-              { wallTimeUnixMs: event.timestampMs }
-            );
-          },
-        })
-          .then((observer) => {
-            if (runtime.audioTrack === audioTrack) {
-              runtime.audioObserverStop = observer.stop;
-              return;
-            }
-            observer.stop();
-          })
-          .catch((error) => {
-            if (runtime.audioTrack !== audioTrack) {
-              return;
-            }
-            console.warn('[browser-audio] VAD observer unavailable', error);
-            recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE, {
-              [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
-              [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
-              [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
-                error instanceof Error ? error.message : String(error),
-            });
-          });
+  const ensureAudioPublished = useCallback(
+    async (runtime: BrowserSourceRuntime) => {
+      if (
+        !audioConfigured ||
+        !isCurrentRuntime(runtimeRef, runtime) ||
+        runtime.audioTrack ||
+        !runtime.audioEnabled
+      ) {
+        return;
       }
-    } catch (error) {
-      audioTrack.stop();
-      throw error;
-    }
-  }, [
-    appConfig.observabilityEnabled,
-    audioConfigured,
-    browserMediaStreamName,
-    recordFrontendObservability,
-    room,
-  ]);
+      if (runtime.audioPublishPromise) {
+        await runtime.audioPublishPromise;
+        return;
+      }
 
-  const ensureVideoPublished = useCallback(async () => {
-    const runtime = runtimeRef.current;
-    if (!videoConfigured || !runtime || runtime.videoTrack || !runtime.videoEnabled) {
-      return;
-    }
+      const publishPromise = (async () => {
+        const vadAttributes: Record<string, string | number | boolean | null> = {
+          [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_DIRECTION]: 'input',
+          [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
+          [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+          [OBSERVABILITY_ATTRS.TRACK_SID]: null,
+          [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
+        };
+        const audioTrack = await createLocalAudioTrack(
+          buildAudioCaptureOptions(audioDeviceIdRef.current)
+        );
+        const captureTrack = audioTrack.mediaStreamTrack;
+        audioTrack.mediaStreamTrack.enabled = false;
 
-    const videoTrack = await createLocalVideoTrack({
-      facingMode: 'user',
-      frameRate: { ideal: browserVideoFrameRate, max: browserVideoFrameRate },
-      resolution: {
-        width: browserVideoWidth,
-        height: browserVideoHeight,
-        frameRate: browserVideoFrameRate,
-      },
-    });
-    videoTrack.mediaStreamTrack.enabled = runtime.videoEnabled;
+        try {
+          await audioTrack.mute();
+          if (runtimeRef.current !== runtime || !runtime.audioEnabled) {
+            audioTrack.stop();
+            return;
+          }
+          const publication = await room.localParticipant.publishTrack(audioTrack, {
+            name: BROWSER_AUDIO_TRACK_NAME,
+            source: Track.Source.Microphone,
+            stream: browserMediaStreamName,
+          });
+          if (runtimeRef.current !== runtime || !runtime.audioEnabled) {
+            await room.localParticipant.unpublishTrack(audioTrack, true).catch(() => undefined);
+            audioTrack.stop();
+            return;
+          }
+          runtime.audioTrack = audioTrack;
+          runtime.audioPublication = publication;
+          runtime.audioObserverStop = null;
+          vadAttributes[OBSERVABILITY_ATTRS.TRACK_SID] = publication.trackSid || null;
+          recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_PUBLISHED, {
+            [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+            [OBSERVABILITY_ATTRS.TRACK_SID]: publication.trackSid || null,
+            [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
+          });
+          if (appConfig.observabilityEnabled) {
+            void startMediaTrackVadObserver({
+              mediaStreamTrack: captureTrack,
+              onSpeechStart: (event) => {
+                recordFrontendObservability(
+                  FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_STARTED,
+                  {
+                    ...vadAttributes,
+                    [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
+                    [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
+                  },
+                  { wallTimeUnixMs: event.timestampMs }
+                );
+              },
+              onSpeechEnd: (event) => {
+                recordFrontendObservability(
+                  FRONTEND_EVENTS.BROWSER_AUDIO_VAD_SPEECH_ENDED,
+                  {
+                    ...vadAttributes,
+                    [OBSERVABILITY_ATTRS.VAD_PROVIDER]: event.provider,
+                    [OBSERVABILITY_ATTRS.VAD_MODEL]: event.model,
+                    [OBSERVABILITY_ATTRS.VAD_AUDIO_DURATION_MS]: event.audioDurationMs ?? null,
+                  },
+                  { wallTimeUnixMs: event.timestampMs }
+                );
+              },
+            })
+              .then((observer) => {
+                if (runtime.audioTrack === audioTrack) {
+                  runtime.audioObserverStop = observer.stop;
+                  return;
+                }
+                void observer.stop();
+              })
+              .catch((error) => {
+                if (runtime.audioTrack !== audioTrack) {
+                  return;
+                }
+                console.warn('[browser-audio] VAD observer unavailable', error);
+                recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE, {
+                  [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+                  [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_PROBE]: 'vad-web',
+                  [OBSERVABILITY_ATTRS.FRONTEND_AUDIO_ERROR]:
+                    error instanceof Error ? error.message : String(error),
+                });
+              });
+          }
+        } catch (error) {
+          audioTrack.mediaStreamTrack.enabled = false;
+          void audioTrack.mute().catch(() => undefined);
+          audioTrack.stop();
+          throw error;
+        }
+      })();
+      runtime.audioPublishPromise = publishPromise;
+      try {
+        await publishPromise;
+      } finally {
+        if (runtime.audioPublishPromise === publishPromise) {
+          runtime.audioPublishPromise = null;
+        }
+      }
+    },
+    [
+      appConfig.observabilityEnabled,
+      audioConfigured,
+      browserMediaStreamName,
+      recordFrontendObservability,
+      room,
+    ]
+  );
 
-    try {
-      const publication = await room.localParticipant.publishTrack(videoTrack, {
-        name: BROWSER_VIDEO_TRACK_NAME,
-        source: Track.Source.Camera,
-        stream: browserMediaStreamName,
-        simulcast: false,
-        degradationPreference: 'maintain-resolution',
-        videoEncoding: {
-          maxBitrate: browserVideoMaxBitrate,
-          maxFramerate: browserVideoFrameRate,
+  const ensureVideoPublished = useCallback(
+    async (runtime: BrowserSourceRuntime) => {
+      if (
+        !videoConfigured ||
+        !isCurrentRuntime(runtimeRef, runtime) ||
+        runtime.videoTrack ||
+        !runtime.videoEnabled
+      ) {
+        return;
+      }
+
+      const videoTrack = await createLocalVideoTrack({
+        facingMode: 'user',
+        frameRate: { ideal: browserVideoFrameRate, max: browserVideoFrameRate },
+        resolution: {
+          width: browserVideoWidth,
+          height: browserVideoHeight,
+          frameRate: browserVideoFrameRate,
         },
       });
-      runtime.videoTrack = videoTrack;
-      runtime.videoPublication = publication;
-      setVideoTrackState(videoTrack);
-      if (browserVideoStatsEnabled) {
-        startBrowserVideoStatsLogging(runtime, videoTrack, publication, room);
+      videoTrack.mediaStreamTrack.enabled = runtime.videoEnabled;
+      if (!isCurrentRuntime(runtimeRef, runtime)) {
+        videoTrack.stop();
+        return;
       }
-    } catch (error) {
-      videoTrack.stop();
-      throw error;
-    }
-  }, [
-    browserMediaStreamName,
-    browserVideoFrameRate,
-    browserVideoHeight,
-    browserVideoMaxBitrate,
-    browserVideoStatsEnabled,
-    browserVideoWidth,
-    room,
-    videoConfigured,
-  ]);
+
+      try {
+        const publication = await room.localParticipant.publishTrack(videoTrack, {
+          name: BROWSER_VIDEO_TRACK_NAME,
+          source: Track.Source.Camera,
+          stream: browserMediaStreamName,
+          simulcast: false,
+          degradationPreference: 'maintain-resolution',
+          videoEncoding: {
+            maxBitrate: browserVideoMaxBitrate,
+            maxFramerate: browserVideoFrameRate,
+          },
+        });
+        if (!isCurrentRuntime(runtimeRef, runtime)) {
+          await room.localParticipant.unpublishTrack(videoTrack, true).catch(() => undefined);
+          videoTrack.stop();
+          return;
+        }
+        runtime.videoTrack = videoTrack;
+        runtime.videoPublication = publication;
+        setVideoTrackState(videoTrack);
+        if (browserVideoStatsEnabled) {
+          startBrowserVideoStatsLogging(runtime, videoTrack, publication, room);
+        }
+      } catch (error) {
+        videoTrack.stop();
+        throw error;
+      }
+    },
+    [
+      browserMediaStreamName,
+      browserVideoFrameRate,
+      browserVideoHeight,
+      browserVideoMaxBitrate,
+      browserVideoStatsEnabled,
+      browserVideoWidth,
+      room,
+      videoConfigured,
+    ]
+  );
 
   const unpublishAudio = useCallback(
     async (runtime: BrowserSourceRuntime) => {
@@ -290,7 +358,7 @@ export function useBrowserSourceClient(
       stopBrowserVideoStatsLogging(runtime);
       runtime.videoTrack = null;
       runtime.videoPublication = null;
-      setVideoTrackState(null);
+      setVideoTrackState((currentTrack) => (currentTrack === track ? null : currentTrack));
       if (!track) return;
 
       await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
@@ -299,20 +367,39 @@ export function useBrowserSourceClient(
     [room]
   );
 
-  const stop = useCallback(async () => {
-    const runtime = runtimeRef.current;
-    runtimeRef.current = null;
-    if (!runtime) return;
+  const stopRuntime = useCallback(
+    async (runtime: BrowserSourceRuntime) => {
+      if (!runtime.stopPromise) {
+        runtime.stopPromise = (async () => {
+          const audioGate = runtime.audioGate;
+          if (audioGate) {
+            const gateStop = audioGate.adapter.stop();
+            const executorStop = audioGate.executor.stop();
+            audioGate.device.close();
+            await gateStop;
+            await executorStop;
+            runtime.audioGate = null;
+          }
+          await Promise.all([unpublishAudio(runtime), unpublishVideo(runtime)]);
+        })();
+      }
+      await runtime.stopPromise;
+    },
+    [unpublishAudio, unpublishVideo]
+  );
 
-    await Promise.all([unpublishAudio(runtime), unpublishVideo(runtime)]);
-  }, [unpublishAudio, unpublishVideo]);
+  const stop = useCallback(async () => {
+    const runtime = detachCurrentRuntime(runtimeRef);
+    if (!runtime) return;
+    await stopRuntime(runtime);
+  }, [stopRuntime]);
 
   const start = useCallback(async () => {
     if (!enabled || runtimeRef.current) {
       return;
     }
 
-    runtimeRef.current = {
+    const runtime: BrowserSourceRuntime = {
       audioTrack: null,
       videoTrack: null,
       audioPublication: null,
@@ -323,31 +410,83 @@ export function useBrowserSourceClient(
       videoStatsTimer: null,
       previousVideoStats: null,
       audioObserverStop: null,
+      audioPublishPromise: null,
+      audioGate: null,
+      stopPromise: null,
     };
+    runtimeRef.current = runtime;
 
-    try {
-      if (audioEnabledRef.current) {
-        await ensureAudioPublished();
-      }
-    } catch (error) {
-      await stop();
-      throw error;
-    }
-
-    if (videoEnabledRef.current) {
-      try {
-        await ensureVideoPublished();
-      } catch (error) {
-        videoEnabledRef.current = false;
-        setVideoEnabledState(false);
-        const runtime = runtimeRef.current;
-        if (runtime) {
-          runtime.videoEnabled = false;
+    await runOwnedRuntimeStart(runtimeRef, runtime, stopRuntime, async (stage) => {
+      if (audioConfigured) {
+        const agentName = appConfig.agentName?.trim();
+        if (!agentName) {
+          throw new Error('agentName is required for browser audio media control');
         }
-        onVideoError?.(error as Error);
+        const device = new BrowserAudioGateDevice({
+          getBinding: () =>
+            runtime.audioTrack && runtime.audioPublication
+              ? { track: runtime.audioTrack, publication: runtime.audioPublication }
+              : null,
+          ensurePublishedClosed: async (signal) => {
+            if (signal.aborted) throw new DOMException('browser audio open aborted', 'AbortError');
+            await ensureAudioPublished(runtime);
+            if (signal.aborted) throw new DOMException('browser audio open aborted', 'AbortError');
+          },
+        });
+        const adapter = new LiveKitMediaGateAdapter({
+          room,
+          agentName,
+          allowAnonymousLiveKitAgentFallback: true,
+          onError: (error) => console.warn('[browser-audio] media gate event failed', error),
+        });
+        const executor = new MediaGateExecutor({
+          targetIdentity: room.localParticipant.identity,
+          device,
+          publishState: adapter.publishState,
+          uuid: () => window.crypto.randomUUID(),
+          nowUnixMs: () => Date.now(),
+          nowMonotonicMs: () => performance.now(),
+          scheduler: {
+            setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+            clearTimeout: (handle) => window.clearTimeout(handle as number),
+          },
+          maxOpenLeaseMs: BROWSER_MEDIA_GATE_MAX_OPEN_LEASE_MS,
+        });
+        const audioGate = { device, executor, adapter };
+        runtime.audioGate = audioGate;
+
+        await stage(() => audioGate.executor.start());
+        if (!audioEnabledRef.current) {
+          await stage(() => audioGate.executor.setUserMuted(true));
+        } else {
+          await stage(() => ensureAudioPublished(runtime));
+        }
+        await stage(() => audioGate.executor.reconcileDevice());
+        await stage(() => audioGate.adapter.start(audioGate.executor));
       }
-    }
-  }, [enabled, ensureAudioPublished, ensureVideoPublished, onVideoError, stop]);
+
+      if (videoEnabledRef.current) {
+        try {
+          await stage(() => ensureVideoPublished(runtime));
+        } catch (error) {
+          if (!isCurrentRuntime(runtimeRef, runtime)) throw error;
+          videoEnabledRef.current = false;
+          setVideoEnabledState(false);
+          runtime.videoEnabled = false;
+          onVideoError?.(error as Error);
+        }
+      }
+    });
+  }, [
+    appConfig.agentName,
+    audioConfigured,
+    enabled,
+    ensureAudioPublished,
+    ensureVideoPublished,
+    onVideoError,
+    room,
+    stopRuntime,
+  ]);
 
   const setAudioEnabled = useCallback(
     async (nextEnabled: boolean) => {
@@ -355,55 +494,36 @@ export function useBrowserSourceClient(
         return;
       }
       setAudioPending(true);
-      const previousEnabled = audioEnabledRef.current;
       const runtime = runtimeRef.current;
-      const previousRuntimeEnabled = runtime?.audioEnabled;
-      const previousAudioTrack = runtime?.audioTrack ?? null;
+      audioEnabledRef.current = nextEnabled;
+      setAudioEnabledState(nextEnabled);
+      if (runtime) runtime.audioEnabled = nextEnabled;
+
       try {
-        audioEnabledRef.current = nextEnabled;
-        setAudioEnabledState(nextEnabled);
-
         if (!runtime) return;
-
-        runtime.audioEnabled = nextEnabled;
-        if (nextEnabled) {
-          if (runtime.audioTrack) {
-            syncTrackEnabled(runtime.audioTrack, true);
-            await runtime.audioTrack.unmute();
-            recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNMUTED, {
-              [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
-            });
-          } else {
-            await ensureAudioPublished();
-          }
-        } else if (runtime.audioTrack) {
-          syncTrackEnabled(runtime.audioTrack, false);
-          await runtime.audioTrack.mute();
+        const audioGate = runtime.audioGate;
+        const executor = audioGate?.executor;
+        if (!nextEnabled) {
+          audioGate?.device.close();
+          const muted = executor?.setUserMuted(true) ?? Promise.resolve();
           recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_MUTED, {
             [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
           });
+          await muted;
+          return;
         }
-      } catch (error) {
-        audioEnabledRef.current = previousEnabled;
-        setAudioEnabledState(previousEnabled);
-        if (runtime && previousRuntimeEnabled !== undefined) {
-          runtime.audioEnabled = previousRuntimeEnabled;
-          if (
-            !previousRuntimeEnabled &&
-            runtime.audioTrack &&
-            runtime.audioTrack !== previousAudioTrack
-          ) {
-            await unpublishAudio(runtime);
-          } else {
-            syncTrackEnabled(runtime.audioTrack, previousRuntimeEnabled);
-          }
+
+        await executor?.setUserMuted(false);
+        if (audioGate && !audioGate.device.snapshot().trackMuted) {
+          recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_TRACK_UNMUTED, {
+            [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+          });
         }
-        throw error;
       } finally {
         setAudioPending(false);
       }
     },
-    [audioConfigured, ensureAudioPublished, recordFrontendObservability, unpublishAudio]
+    [audioConfigured, recordFrontendObservability]
   );
 
   const setAudioDeviceId = useCallback(
@@ -422,16 +542,23 @@ export function useBrowserSourceClient(
       audioDeviceIdRef.current = nextDeviceId;
       const runtime = runtimeRef.current;
       try {
-        if (runtime?.audioEnabled) {
-          await unpublishAudio(runtime);
-          await ensureAudioPublished();
+        if (runtime) {
+          const audioGate = runtime.audioGate;
+          await replaceRuntimeAudioBinding(runtime, {
+            close: () => audioGate?.device.close(),
+            unpublish: () => unpublishAudio(runtime),
+            reconcile: () => audioGate?.executor.reconcileDevice() ?? Promise.resolve(),
+            ensurePublished: () => ensureAudioPublished(runtime),
+            hasBinding: () => runtime.audioTrack !== null,
+          });
         }
       } catch (error) {
         audioDeviceIdRef.current = previousDeviceId;
         if (runtime?.audioEnabled && !runtime.audioTrack) {
-          await ensureAudioPublished().catch((restoreError) => {
+          await ensureAudioPublished(runtime).catch((restoreError) => {
             console.warn('[browser-audio] failed to restore previous input device', restoreError);
           });
+          await runtime.audioGate?.executor.reconcileDevice().catch(() => undefined);
         }
         throw error;
       } finally {
@@ -459,7 +586,7 @@ export function useBrowserSourceClient(
 
         runtime.videoEnabled = nextEnabled;
         if (nextEnabled) {
-          await ensureVideoPublished();
+          await ensureVideoPublished(runtime);
           if (runtime.videoTrack) {
             runtime.videoTrack.mediaStreamTrack.enabled = true;
             await runtime.videoTrack.unmute();
