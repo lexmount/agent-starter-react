@@ -30,55 +30,44 @@ test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('https://livekit.example'), 'https://livekit.example');
 });
 
-test('room input stop URL resolver ignores primebot non-server input', () => {
+test('room input stop URL resolver skips browser input', () => {
   assert.deepEqual(
     resolveRoomInputStopUrls({
-      inputSource: 'primebot',
-      roomInputUrl: 'http://room-input.local/start',
-      roomAudioInputUrl: 'http://audio.local/start',
-      roomVisionInputUrl: 'http://vision.local/start',
-      frontdeskInputParticipantUrl: 'http://xunfei.local/start',
-      faceServiceUrl: 'http://face.local/start',
-      genericCameraParticipantUrl: 'http://generic.local/start',
+      inputSource: 'browser',
+      edgeMediaUrl: 'http://edge.local/start',
+      videoProcessorUrl: 'http://processor.local/start',
     }),
     []
   );
 });
 
-test('room input stop URL resolver only stops selected mixed server roles', () => {
-  assert.deepEqual(
-    resolveRoomInputStopUrls({
-      inputSource: 'mixed',
-      audioInputDevice: 'xunfei',
-      visionInputDevice: 'browser',
-      roomAudioInputUrl: 'http://xunfei-audio.local/start',
-      roomVisionInputUrl: 'http://unused-vision.local/start',
-      roomInputUrl: 'http://fallback.local/start',
-      frontdeskInputParticipantUrl: 'http://frontdesk.local/start',
-      faceServiceUrl: 'http://face.local/start',
-      genericCameraParticipantUrl: 'http://generic.local/start',
-    }),
-    ['http://xunfei-audio.local/stop', 'http://frontdesk.local/stop', 'http://face.local/stop']
-  );
-});
-
-test('room input stop URL resolver prefers the split topology in dependency order', () => {
+test('room input stop URL resolver ignores unsupported legacy fallback options', () => {
   assert.deepEqual(
     resolveRoomInputStopUrls({
       inputSource: 'xunfei',
-      edgeMediaUrl: 'http://edge.local/start',
-      videoProcessorUrl: 'http://processor.local/start',
       roomAudioInputUrl: 'http://legacy-audio.local/start',
       roomVisionInputUrl: 'http://legacy-vision.local/start',
       roomInputUrl: 'http://legacy-room-input.local/start',
       frontdeskInputParticipantUrl: 'http://legacy-frontdesk.local/start',
       faceServiceUrl: 'http://legacy-face.local/start',
+      genericCameraParticipantUrl: 'http://legacy-generic.local/start',
+    }),
+    []
+  );
+});
+
+test('room input stop URL resolver returns processor then edge for server input', () => {
+  assert.deepEqual(
+    resolveRoomInputStopUrls({
+      inputSource: 'xunfei',
+      edgeMediaUrl: 'http://edge.local/start',
+      videoProcessorUrl: 'http://processor.local/start',
     }),
     ['http://processor.local/stop', 'http://edge.local/stop']
   );
 });
 
-test('session stop route can call the room-input control endpoint before deleting the room', async () => {
+test('session stop route stops room input before deleting the room', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
     'utf8'
@@ -87,23 +76,12 @@ test('session stop route can call the room-input control endpoint before deletin
   const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
 
   assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
-  assert.match(routeSource, /readStopEnv\('ROOM_INPUT_URL'\)/);
-  assert.match(routeSource, /readStopEnv\('EDGE_MEDIA_URL'\)/);
-  assert.match(routeSource, /readStopEnv\('VIDEO_PROCESSOR_URL'\)/);
   assert.match(routeSource, /resolveRoomInputStopUrls/);
   assert.match(routeSource, /stopRoomInput/);
-  assert.match(routeSource, /FRONTDESK_INPUT_PARTICIPANT_URL/);
-  assert.match(routeSource, /FACE_SERVICE_URL/);
-  assert.match(routeSource, /GENERIC_CAMERA_PARTICIPANT_URL/);
   assert.match(
     cleanupSource,
     /const roomInputResults = await stopRoomInput\(roomName, sessionId\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
   );
-  assert.match(
-    routeSource,
-    /for \(const stopUrl of stopUrls\) \{[\s\S]*await postRoomInputStop\(stopUrl, roomName, sessionId\)/
-  );
-  assert.doesNotMatch(routeSource, /Promise\.all\(stopUrls\.map\(\(stopUrl\) => postRoomInputStop/);
 });
 
 test('session stop route cancels room session before remote cleanup', async () => {

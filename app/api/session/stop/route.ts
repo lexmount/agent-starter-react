@@ -158,14 +158,8 @@ function resolveRoomInputStopUrls(): string[] {
       'ROOM_VISION_INPUT_DEVICE',
       'NEXT_PUBLIC_ROOM_VISION_INPUT_DEVICE'
     ),
-    edgeMediaUrl: readStopEnv('EDGE_MEDIA_URL'),
     videoProcessorUrl: readStopEnv('VIDEO_PROCESSOR_URL'),
-    roomAudioInputUrl: readStopEnv('ROOM_AUDIO_INPUT_URL'),
-    roomVisionInputUrl: readStopEnv('ROOM_VISION_INPUT_URL'),
-    roomInputUrl: readStopEnv('ROOM_INPUT_URL'),
-    frontdeskInputParticipantUrl: readStopEnv('FRONTDESK_INPUT_PARTICIPANT_URL'),
-    faceServiceUrl: readStopEnv('FACE_SERVICE_URL'),
-    genericCameraParticipantUrl: readStopEnv('GENERIC_CAMERA_PARTICIPANT_URL'),
+    edgeMediaUrl: readStopEnv('EDGE_MEDIA_URL'),
   });
 }
 

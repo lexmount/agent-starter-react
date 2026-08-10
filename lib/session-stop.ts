@@ -6,19 +6,8 @@ export interface ResolveRoomInputStopUrlsOptions {
   inputSource?: string | null;
   audioInputDevice?: string | null;
   visionInputDevice?: string | null;
-  edgeMediaUrl?: string | null;
   videoProcessorUrl?: string | null;
-  /**
-   * Room-input control URLs are configured as base endpoint paths. The
-   * normalizer intentionally strips query/hash fragments when switching
-   * between /start and /stop so stop calls do not inherit start-only params.
-   */
-  roomAudioInputUrl?: string | null;
-  roomVisionInputUrl?: string | null;
-  roomInputUrl?: string | null;
-  frontdeskInputParticipantUrl?: string | null;
-  faceServiceUrl?: string | null;
-  genericCameraParticipantUrl?: string | null;
+  edgeMediaUrl?: string | null;
 }
 
 export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | undefined {
@@ -83,14 +72,8 @@ export function resolveRoomInputStopUrls({
   inputSource,
   audioInputDevice,
   visionInputDevice,
-  edgeMediaUrl,
   videoProcessorUrl,
-  roomAudioInputUrl,
-  roomVisionInputUrl,
-  roomInputUrl,
-  frontdeskInputParticipantUrl,
-  faceServiceUrl,
-  genericCameraParticipantUrl,
+  edgeMediaUrl,
 }: ResolveRoomInputStopUrlsOptions): string[] {
   const {
     audioInputDevice: resolvedAudioInputDevice,
@@ -101,39 +84,16 @@ export function resolveRoomInputStopUrls({
     visionInputDevice,
   });
 
-  const urls = new Set<string>();
-  const selectedServerDevices = new Set<string>();
-
-  if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
-    selectedServerDevices.add(resolvedAudioInputDevice);
-  }
-  if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
-    selectedServerDevices.add(resolvedVisionInputDevice);
-  }
-  if (selectedServerDevices.size === 0) {
+  const usesServerInput =
+    usesServerRoomInputDevice(resolvedAudioInputDevice) ||
+    usesServerRoomInputDevice(resolvedVisionInputDevice);
+  if (!usesServerInput) {
     return [];
   }
 
-  if (edgeMediaUrl || videoProcessorUrl) {
-    addRoomInputStopUrl(urls, videoProcessorUrl);
-    addRoomInputStopUrl(urls, edgeMediaUrl);
-    return [...urls];
-  }
-
-  if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
-    addRoomInputStopUrl(urls, roomAudioInputUrl || roomInputUrl);
-  }
-  if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
-    addRoomInputStopUrl(urls, roomVisionInputUrl || roomInputUrl);
-  }
-
-  if (selectedServerDevices.has('xunfei')) {
-    addRoomInputStopUrl(urls, frontdeskInputParticipantUrl);
-    addRoomInputStopUrl(urls, faceServiceUrl);
-  }
-  if (selectedServerDevices.has('generic')) {
-    addRoomInputStopUrl(urls, genericCameraParticipantUrl);
-  }
+  const urls = new Set<string>();
+  addRoomInputStopUrl(urls, videoProcessorUrl);
+  addRoomInputStopUrl(urls, edgeMediaUrl);
 
   return [...urls];
 }
