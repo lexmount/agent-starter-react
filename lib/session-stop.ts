@@ -68,6 +68,17 @@ export function normalizeRoomInputControlUrl(
   }
 }
 
+export async function executeRoomInputStopsSequentially<T>(
+  stopUrls: readonly string[],
+  stop: (stopUrl: string) => Promise<T>
+): Promise<T[]> {
+  const results: T[] = [];
+  for (const stopUrl of stopUrls) {
+    results.push(await stop(stopUrl));
+  }
+  return results;
+}
+
 export function resolveRoomInputStopUrls({
   inputSource,
   audioInputDevice,

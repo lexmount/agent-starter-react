@@ -9,6 +9,7 @@ import {
   isValidConnectionRoomId,
 } from '@/lib/connection-room-id';
 import {
+  executeRoomInputStopsSequentially,
   resolveRoomInputStopUrls as resolveConfiguredRoomInputStopUrls,
   resolveLiveKitHttpUrl,
 } from '@/lib/session-stop';
@@ -342,11 +343,9 @@ async function stopRoomInput(roomName: string, sessionId: string): Promise<StopR
     return [{ target: 'room_input', ok: true, skipped: true }];
   }
 
-  const results: StopResult[] = [];
-  for (const stopUrl of stopUrls) {
-    results.push(await postRoomInputStop(stopUrl, roomName, sessionId));
-  }
-  return results;
+  return executeRoomInputStopsSequentially(stopUrls, (stopUrl) =>
+    postRoomInputStop(stopUrl, roomName, sessionId)
+  );
 }
 
 async function runRemoteSessionCleanup(

@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { readAgentWorkerStateFromLog } from '../lib/agent-worker-readiness.ts';
-import { resolveLiveKitHttpUrl, resolveRoomInputStopUrls } from '../lib/session-stop.ts';
+import {
+  executeRoomInputStopsSequentially,
+  resolveLiveKitHttpUrl,
+  resolveRoomInputStopUrls,
+} from '../lib/session-stop.ts';
 
 test('parses the latest target agent worker state from LiveKit server logs', () => {
   const source = [
@@ -41,21 +45,6 @@ test('room input stop URL resolver skips browser input', () => {
   );
 });
 
-test('room input stop URL resolver ignores unsupported legacy fallback options', () => {
-  assert.deepEqual(
-    resolveRoomInputStopUrls({
-      inputSource: 'xunfei',
-      roomAudioInputUrl: 'http://legacy-audio.local/start',
-      roomVisionInputUrl: 'http://legacy-vision.local/start',
-      roomInputUrl: 'http://legacy-room-input.local/start',
-      frontdeskInputParticipantUrl: 'http://legacy-frontdesk.local/start',
-      faceServiceUrl: 'http://legacy-face.local/start',
-      genericCameraParticipantUrl: 'http://legacy-generic.local/start',
-    }),
-    []
-  );
-});
-
 test('room input stop URL resolver returns processor then edge for server input', () => {
   assert.deepEqual(
     resolveRoomInputStopUrls({
@@ -67,6 +56,37 @@ test('room input stop URL resolver returns processor then edge for server input'
   );
 });
 
+test('room input stop executor waits for each stop before starting the next', async () => {
+  const processorUrl = 'http://processor.local/stop';
+  const edgeUrl = 'http://edge.local/stop';
+  const events = [];
+  let releaseProcessorStop = () => {};
+  const processorStopPending = new Promise((resolve) => {
+    releaseProcessorStop = resolve;
+  });
+
+  const execution = executeRoomInputStopsSequentially([processorUrl, edgeUrl], async (stopUrl) => {
+    events.push(`start:${stopUrl}`);
+    if (stopUrl === processorUrl) {
+      await processorStopPending;
+    }
+    events.push(`finish:${stopUrl}`);
+    return stopUrl;
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(events, [`start:${processorUrl}`]);
+
+  releaseProcessorStop();
+  assert.deepEqual(await execution, [processorUrl, edgeUrl]);
+  assert.deepEqual(events, [
+    `start:${processorUrl}`,
+    `finish:${processorUrl}`,
+    `start:${edgeUrl}`,
+    `finish:${edgeUrl}`,
+  ]);
+});
+
 test('session stop route stops room input before deleting the room', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
@@ -74,10 +94,18 @@ test('session stop route stops room input before deleting the room', async () =>
   );
 
   const cleanupSource = routeSource.match(/async function runRemoteSessionCleanup[\s\S]*?\n}/)?.[0];
+  const stopUrlResolverSource = routeSource.match(
+    /function resolveRoomInputStopUrls[\s\S]*?\n}/
+  )?.[0];
+  const stopRoomInputSource = routeSource.match(/async function stopRoomInput[\s\S]*?\n}/)?.[0];
 
   assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
-  assert.match(routeSource, /resolveRoomInputStopUrls/);
-  assert.match(routeSource, /stopRoomInput/);
+  assert.ok(stopUrlResolverSource, 'resolveRoomInputStopUrls should be defined');
+  assert.match(stopUrlResolverSource, /videoProcessorUrl: readStopEnv\('VIDEO_PROCESSOR_URL'\)/);
+  assert.match(stopUrlResolverSource, /edgeMediaUrl: readStopEnv\('EDGE_MEDIA_URL'\)/);
+  assert.equal((stopUrlResolverSource.match(/readStopEnv\(/g) ?? []).length, 2);
+  assert.ok(stopRoomInputSource, 'stopRoomInput should be defined');
+  assert.match(stopRoomInputSource, /executeRoomInputStopsSequentially\(stopUrls,/);
   assert.match(
     cleanupSource,
     /const roomInputResults = await stopRoomInput\(roomName, sessionId\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
