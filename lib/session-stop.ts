@@ -6,6 +6,8 @@ export interface ResolveRoomInputStopUrlsOptions {
   inputSource?: string | null;
   audioInputDevice?: string | null;
   visionInputDevice?: string | null;
+  edgeMediaUrl?: string | null;
+  videoProcessorUrl?: string | null;
   /**
    * Room-input control URLs are configured as base endpoint paths. The
    * normalizer intentionally strips query/hash fragments when switching
@@ -81,6 +83,8 @@ export function resolveRoomInputStopUrls({
   inputSource,
   audioInputDevice,
   visionInputDevice,
+  edgeMediaUrl,
+  videoProcessorUrl,
   roomAudioInputUrl,
   roomVisionInputUrl,
   roomInputUrl,
@@ -102,14 +106,25 @@ export function resolveRoomInputStopUrls({
 
   if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
     selectedServerDevices.add(resolvedAudioInputDevice);
-    addRoomInputStopUrl(urls, roomAudioInputUrl || roomInputUrl);
   }
   if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
     selectedServerDevices.add(resolvedVisionInputDevice);
-    addRoomInputStopUrl(urls, roomVisionInputUrl || roomInputUrl);
   }
   if (selectedServerDevices.size === 0) {
     return [];
+  }
+
+  if (edgeMediaUrl || videoProcessorUrl) {
+    addRoomInputStopUrl(urls, videoProcessorUrl);
+    addRoomInputStopUrl(urls, edgeMediaUrl);
+    return [...urls];
+  }
+
+  if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
+    addRoomInputStopUrl(urls, roomAudioInputUrl || roomInputUrl);
+  }
+  if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
+    addRoomInputStopUrl(urls, roomVisionInputUrl || roomInputUrl);
   }
 
   if (selectedServerDevices.has('xunfei')) {

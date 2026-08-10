@@ -15,6 +15,15 @@ test('parses the latest target agent worker state from LiveKit server logs', () 
   assert.equal(readAgentWorkerStateFromLog(source, 'missing-agent'), 'unknown');
 });
 
+test('parses the latest local worker capacity state from the agent log', () => {
+  const source = [
+    'worker is at full capacity, marking as unavailable',
+    'worker is below capacity, marking as available',
+  ].join('\n');
+
+  assert.equal(readAgentWorkerStateFromLog(source, 'frontdesk-agent'), 'available');
+});
+
 test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('ws://localhost:7818'), 'http://localhost:7818');
   assert.equal(resolveLiveKitHttpUrl('wss://livekit.example'), 'https://livekit.example');
@@ -53,6 +62,22 @@ test('room input stop URL resolver only stops selected mixed server roles', () =
   );
 });
 
+test('room input stop URL resolver prefers the split topology in dependency order', () => {
+  assert.deepEqual(
+    resolveRoomInputStopUrls({
+      inputSource: 'xunfei',
+      edgeMediaUrl: 'http://edge.local/start',
+      videoProcessorUrl: 'http://processor.local/start',
+      roomAudioInputUrl: 'http://legacy-audio.local/start',
+      roomVisionInputUrl: 'http://legacy-vision.local/start',
+      roomInputUrl: 'http://legacy-room-input.local/start',
+      frontdeskInputParticipantUrl: 'http://legacy-frontdesk.local/start',
+      faceServiceUrl: 'http://legacy-face.local/start',
+    }),
+    ['http://processor.local/stop', 'http://edge.local/stop']
+  );
+});
+
 test('session stop route can call the room-input control endpoint before deleting the room', async () => {
   const routeSource = await readFile(
     new URL('../app/api/session/stop/route.ts', import.meta.url),
@@ -63,6 +88,8 @@ test('session stop route can call the room-input control endpoint before deletin
 
   assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
   assert.match(routeSource, /readStopEnv\('ROOM_INPUT_URL'\)/);
+  assert.match(routeSource, /readStopEnv\('EDGE_MEDIA_URL'\)/);
+  assert.match(routeSource, /readStopEnv\('VIDEO_PROCESSOR_URL'\)/);
   assert.match(routeSource, /resolveRoomInputStopUrls/);
   assert.match(routeSource, /stopRoomInput/);
   assert.match(routeSource, /FRONTDESK_INPUT_PARTICIPANT_URL/);
@@ -72,6 +99,11 @@ test('session stop route can call the room-input control endpoint before deletin
     cleanupSource,
     /const roomInputResults = await stopRoomInput\(roomName, sessionId\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
   );
+  assert.match(
+    routeSource,
+    /for \(const stopUrl of stopUrls\) \{[\s\S]*await postRoomInputStop\(stopUrl, roomName, sessionId\)/
+  );
+  assert.doesNotMatch(routeSource, /Promise\.all\(stopUrls\.map\(\(stopUrl\) => postRoomInputStop/);
 });
 
 test('session stop route cancels room session before remote cleanup', async () => {
@@ -125,7 +157,8 @@ test('session stop route waits for local agent worker readiness before finishing
   assert.ok(cleanupSource, 'runRemoteSessionCleanup should be defined');
   assert.match(routeSource, /function waitForLocalAgentWorkerReadiness/);
   assert.match(routeSource, /process\.env\.LEXVOICE_RUN_LOG_DIR/);
-  assert.match(routeSource, /server\.log/);
+  assert.match(routeSource, /live\.log/);
+  assert.doesNotMatch(routeSource, /path\.join\(runLogDir, 'server\.log'\)/);
   assert.match(routeSource, /AGENT_WORKER_READINESS_TIMEOUT_MS/);
   assert.match(routeSource, /readFileTail\(logPath/);
   assert.doesNotMatch(routeSource, /readFile\(logPath,\s*'utf8'\)/);
