@@ -66,6 +66,23 @@ test('room input stop URL resolver returns processor then edge for server input'
   );
 });
 
+test('mixed input keeps the complete split topology when either role uses server input', () => {
+  for (const roleDevices of [
+    { audioInputDevice: 'xunfei', visionInputDevice: 'browser' },
+    { audioInputDevice: 'browser', visionInputDevice: 'generic' },
+  ]) {
+    assert.deepEqual(
+      resolveRoomInputStopUrls({
+        inputSource: 'mixed',
+        ...roleDevices,
+        edgeMediaUrl: 'http://edge.local/start',
+        videoProcessorUrl: 'http://processor.local/start',
+      }),
+      ['http://processor.local/stop', 'http://edge.local/stop']
+    );
+  }
+});
+
 test('room input stop URL resolver rejects incomplete split media configuration', () => {
   for (const options of [
     {},

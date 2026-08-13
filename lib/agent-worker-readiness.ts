@@ -9,6 +9,7 @@ export function readAgentWorkerStateFromLog(source: string, agentName: string): 
   const agentNamePattern = new RegExp(`"agentName"\\s*:\\s*"${escapeRegExp(agentName)}"`);
   const availablePattern = /"status"\s*:\s*"WS_AVAILABLE"/;
   const unavailablePattern = /"status"\s*:\s*"WS_FULL"/;
+  // The run-scoped live.log contains one local worker; these SDK capacity lines omit agentName.
   const localAvailablePattern = /worker is below capacity, marking as available/;
   const localUnavailablePattern = /worker is at full capacity, marking as unavailable/;
 
