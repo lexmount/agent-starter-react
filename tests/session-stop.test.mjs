@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import { POST as stopSession } from '../app/api/session/stop/route.ts';
 import { readAgentWorkerStateFromLog } from '../lib/agent-worker-readiness.ts';
 import {
   executeRoomInputStopsSequentially,
   resolveLiveKitHttpUrl,
   resolveRoomInputStopUrls,
 } from '../lib/session-stop.ts';
+
+function restoreEnv(previousEnv) {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) {
+      delete process.env[key];
+    }
+  }
+  Object.assign(process.env, previousEnv);
+}
 
 test('parses the latest target agent worker state from LiveKit server logs', () => {
   const source = [
@@ -54,6 +64,78 @@ test('room input stop URL resolver returns processor then edge for server input'
     }),
     ['http://processor.local/stop', 'http://edge.local/stop']
   );
+});
+
+test('room input stop URL resolver rejects incomplete split media configuration', () => {
+  for (const options of [
+    {},
+    { videoProcessorUrl: 'http://processor.local/start' },
+    { edgeMediaUrl: 'http://edge.local/start' },
+  ]) {
+    assert.throws(
+      () => resolveRoomInputStopUrls({ inputSource: 'xunfei', ...options }),
+      /VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL are required/
+    );
+  }
+});
+
+test('room input stop URL resolver rejects duplicate split media endpoints', () => {
+  assert.throws(
+    () =>
+      resolveRoomInputStopUrls({
+        inputSource: 'xunfei',
+        videoProcessorUrl: 'http://media.local/start',
+        edgeMediaUrl: 'http://media.local/stop',
+      }),
+    /must resolve to distinct stop endpoints/
+  );
+});
+
+test('session stop reports invalid split media configuration and continues room cleanup', async () => {
+  const previousEnv = { ...process.env };
+
+  process.env.INPUT_SOURCE = 'xunfei';
+  delete process.env.VIDEO_PROCESSOR_URL;
+  delete process.env.EDGE_MEDIA_URL;
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
+  delete process.env.LEXVOICE_RUN_LOG_DIR;
+
+  try {
+    const response = await stopSession(
+      new Request('http://localhost/api/session/stop', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: '00000000-0000-4000-8000-000000000020',
+          wait: true,
+        }),
+      })
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.equal(payload.status, 'partial');
+    assert.deepEqual(
+      payload.results.find((result) => result.target === 'room_input_configuration'),
+      {
+        target: 'room_input_configuration',
+        ok: false,
+        fatal: true,
+        error: 'VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL are required for server room input',
+      }
+    );
+    assert.deepEqual(
+      payload.results.find((result) => result.target === 'livekit_room'),
+      {
+        target: 'livekit_room',
+        ok: true,
+        skipped: true,
+      }
+    );
+  } finally {
+    restoreEnv(previousEnv);
+  }
 });
 
 test('room input stop executor waits for each stop before starting the next', async () => {

@@ -24,13 +24,6 @@ export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | unde
   return normalized;
 }
 
-function addRoomInputStopUrl(urls: Set<string>, rawUrl?: string | null): void {
-  const stopUrl = normalizeRoomInputControlUrl(rawUrl || '', 'stop');
-  if (stopUrl) {
-    urls.add(stopUrl);
-  }
-}
-
 export function normalizeRoomInputControlUrl(
   rawUrl: string,
   action: RoomInputControlAction
@@ -102,9 +95,16 @@ export function resolveRoomInputStopUrls({
     return [];
   }
 
-  const urls = new Set<string>();
-  addRoomInputStopUrl(urls, videoProcessorUrl);
-  addRoomInputStopUrl(urls, edgeMediaUrl);
+  const videoProcessorStopUrl = normalizeRoomInputControlUrl(videoProcessorUrl || '', 'stop');
+  const edgeMediaStopUrl = normalizeRoomInputControlUrl(edgeMediaUrl || '', 'stop');
+  if (!videoProcessorStopUrl || !edgeMediaStopUrl) {
+    throw new Error('VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL are required for server room input');
+  }
+  if (videoProcessorStopUrl === edgeMediaStopUrl) {
+    throw new Error(
+      'VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL must resolve to distinct stop endpoints'
+    );
+  }
 
-  return [...urls];
+  return [videoProcessorStopUrl, edgeMediaStopUrl];
 }

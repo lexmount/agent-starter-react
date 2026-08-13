@@ -338,7 +338,19 @@ async function postRoomInputStop(
 }
 
 async function stopRoomInput(roomName: string, sessionId: string): Promise<StopResult[]> {
-  const stopUrls = resolveRoomInputStopUrls();
+  let stopUrls: string[];
+  try {
+    stopUrls = resolveRoomInputStopUrls();
+  } catch (error) {
+    return [
+      {
+        target: 'room_input_configuration',
+        ok: false,
+        fatal: true,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    ];
+  }
   if (stopUrls.length === 0) {
     return [{ target: 'room_input', ok: true, skipped: true }];
   }
