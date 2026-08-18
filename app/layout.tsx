@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { ApplyThemeScript, ThemeToggle } from '@/components/app/theme-toggle';
+import '@lexmount/agentwidget-sdk/styles.css';
+import { ApplyThemeScript } from '@/components/app/theme-toggle';
 import { cn, getAppConfig, getStyles } from '@/lib/utils';
+import '@/styles/agentwidget-frontdesk.css';
 import '@/styles/globals.css';
 
 const metadataBaseUrl =
@@ -30,12 +32,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         <meta name="description" content={pageDescription} />
         <ApplyThemeScript />
       </head>
-      <body className="overflow-x-hidden">
-        {children}
-        <div className="group fixed bottom-0 left-1/2 z-50 mb-2 -translate-x-1/2">
-          <ThemeToggle className="translate-y-20 transition-transform delay-150 duration-300 group-hover:translate-y-0" />
-        </div>
-      </body>
+      <body className="overflow-x-hidden">{children}</body>
     </html>
   );
 }

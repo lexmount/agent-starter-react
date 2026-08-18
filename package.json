@@ -18,6 +18,7 @@
     "debug:status": "node scripts/toggle-debug.js"
   },
   "dependencies": {
+    "@lexmount/agentwidget-sdk": "git+https://github.com/lexmount/agent-uilib.git#996976ea8c4a2de515943a6d5138e385c6f6cd50",
     "@livekit/components-react": "^2.9.15",
     "@livekit/protocol": "^1.40.0",
     "@phosphor-icons/react": "^2.1.8",

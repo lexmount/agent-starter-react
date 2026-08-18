@@ -36,13 +36,7 @@ function requiresRoomVideoInputReady(appConfig: AppConfig) {
 export function useRoom(appConfig: AppConfig) {
   const aborted = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
-  const room = useMemo(
-    () =>
-      new Room({
-        reconnectPolicy: { nextRetryDelayInMs: () => null },
-      }),
-    []
-  );
+  const room = useMemo(() => new Room(), []);
   const [isSessionActive, setIsSessionActive] = useState(false);
   const handleBrowserVideoError = useCallback((error: Error) => {
     toastAlert({
@@ -215,6 +209,7 @@ export function useRoom(appConfig: AppConfig) {
     setIsSessionActive(true);
     beginFrontendObservabilitySession(room);
 
+    let hasDispatchedAgentSession = false;
     const dispatchAgentSession = async () => {
       recordFrontendObservability(FRONTEND_EVENTS.DISPATCH_STARTED);
       dispatchSessionId = sessionId;
@@ -225,6 +220,7 @@ export function useRoom(appConfig: AppConfig) {
       });
       registerAgentSessionDispatch(room.name, sessionId, dispatchPromise);
       await dispatchPromise;
+      hasDispatchedAgentSession = true;
       recordFrontendObservability(FRONTEND_EVENTS.DISPATCH_FINISHED);
       await flushFrontendObservabilityEvents({
         enabled: !!appConfig.observabilityEnabled,
@@ -245,7 +241,6 @@ export function useRoom(appConfig: AppConfig) {
       }
 
       if (appConfig.usesServerRoomInput) {
-        await room.localParticipant.setMicrophoneEnabled(false);
         return;
       }
 
@@ -292,6 +287,9 @@ export function useRoom(appConfig: AppConfig) {
             throw dispatchResult.reason;
           }
         } else {
+          if (appConfig.usesServerRoomInput) {
+            await dispatchAgentSession();
+          }
           await startLocalInput();
         }
       } else {
@@ -307,7 +305,7 @@ export function useRoom(appConfig: AppConfig) {
         ]);
       }
 
-      if (!usesSandboxConcurrentStartup) {
+      if (!usesSandboxConcurrentStartup && !hasDispatchedAgentSession) {
         await dispatchAgentSession();
       }
     } catch (error) {

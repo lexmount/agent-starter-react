@@ -135,7 +135,7 @@ export function resolveInputDeviceConfig({
     usesServerRoomInput,
     supportsScreenShare: usesBrowserRawVideoInput ? false : APP_CONFIG_DEFAULTS.supportsScreenShare,
     showDefaultCameraPreview: usesBrowserRawVideoInput
-      ? false
+      ? !usesServerRoomInput
       : (APP_CONFIG_DEFAULTS.showDefaultCameraPreview ?? true),
   };
 }
@@ -193,8 +193,8 @@ export function buildDefaultVideoTracks(
   ];
 }
 
-export function getDefaultVideoTrack(): string {
-  return ROOM_INPUT_VIDEO_TRACK_NAME;
+export function getDefaultVideoTrack(isBrowserInput = false): string {
+  return isBrowserInput ? BROWSER_VIDEO_TRACK_NAME : ROOM_INPUT_VIDEO_TRACK_NAME;
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {

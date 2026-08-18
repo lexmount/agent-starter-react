@@ -187,7 +187,7 @@ export function getClientConfigFromEnv(): AppConfig {
       inputDeviceConfig.usesBrowserRawVideoInput,
       inputDeviceConfig.usesServerRoomInput
     ),
-    defaultVideoTrack: getDefaultVideoTrack(),
+    defaultVideoTrack: getDefaultVideoTrack(inputDeviceConfig.usesBrowserRawVideoInput),
     browserMediaStreamName:
       readEnv(
         'BROWSER_MEDIA_STREAM_NAME',

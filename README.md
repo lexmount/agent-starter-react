@@ -14,11 +14,11 @@ Also available for:
 ### Features:
 
 - Real-time voice interaction with LiveKit Agents
+- AgentWidget surfaces delivered from Codex, MCP, or another host agent
 - Camera video streaming support
 - Screen sharing capabilities
 - Audio visualization and level monitoring
 - Virtual avatar integration
-- Light/dark theme switching with system preference detection
 - Customizable branding, colors, and UI text via configuration
 
 This template is built with Next.js and is free for you to use or modify as you see fit.
@@ -90,6 +90,29 @@ And open http://localhost:3000 in your browser.
 
 You'll also need a LiveKit server and an agent worker. In integrated workspaces,
 those are normally provided by the LexVoice project.
+
+### AgentWidget AI frontdesk
+
+The main page composes AgentWidget presentation over the existing
+`SessionProvider` and its one LiveKit room. It does not create a second LexVoice
+connection. A host tool publishes an established result to:
+
+```text
+POST /api/agentwidget/spawn
+Authorization: Bearer $AGENTWIDGET_HOST_TOKEN
+x-agentwidget-channel-id: <high-entropy channel id>
+```
+
+Open the UI with the same channel as
+`?agentwidgetChannel=<high-entropy channel id>`. The browser subscribes to the
+surface stream and renders the SDK Catalog; it never receives the host token.
+Set `AGENTWIDGET_HOST_TOKEN` on the Next.js server. Unknown result shapes also
+require the server-side `AGENTWIDGET_COMPOSER_*` variables documented by the
+AgentWidget SDK.
+
+Surface delivery is currently process-local, like the session lifecycle API.
+Deploy `/api/agentwidget/*` on one Next.js instance or with sticky routing until
+the channel hub is replaced by shared pub/sub.
 
 ## Configuration
 
