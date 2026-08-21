@@ -56,14 +56,12 @@ test('agent session dispatch can require authoritative session readiness', async
 
     await requestAgentSessionDispatch('agent-a', '11111111-2222-4333-8444-555555555555', {
       requireAgentSessionReady: true,
-      requireRoomVideoInputReady: true,
     });
 
     assert.deepEqual(postedBody, {
       agentName: 'agent-a',
       sessionId: '11111111-2222-4333-8444-555555555555',
       requireAgentSessionReady: true,
-      requireRoomVideoInputReady: true,
     });
   } finally {
     globalThis.fetch = originalFetch;
