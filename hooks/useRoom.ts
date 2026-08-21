@@ -212,7 +212,6 @@ export function useRoom(appConfig: AppConfig) {
       await recoverFromStartError(error);
     };
 
-    setIsSessionActive(true);
     beginFrontendObservabilitySession(room);
 
     const dispatchAgentSession = async () => {
@@ -220,6 +219,8 @@ export function useRoom(appConfig: AppConfig) {
       dispatchSessionId = sessionId;
       const signal = beginAgentSessionStart(room.name, sessionId);
       const dispatchPromise = requestAgentSessionDispatch(appConfig.agentName, sessionId, {
+        requireAgentSessionReady: usesManagedRoomInput,
+        requireRoomInputParticipantsReady: usesManagedRoomInput,
         requireRoomVideoInputReady: requiresRoomVideoInputReady(appConfig),
         signal,
       });
@@ -310,6 +311,7 @@ export function useRoom(appConfig: AppConfig) {
       if (!usesSandboxConcurrentStartup) {
         await dispatchAgentSession();
       }
+      setIsSessionActive(true);
     } catch (error) {
       await handleStartError(error);
     }
