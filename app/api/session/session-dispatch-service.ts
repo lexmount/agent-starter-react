@@ -302,7 +302,6 @@ export async function prewarmRoomSession(
             ...request,
             readiness: {
               requireAgentSessionReady: true,
-              requireRoomInputParticipantsReady: true,
             },
           },
           {

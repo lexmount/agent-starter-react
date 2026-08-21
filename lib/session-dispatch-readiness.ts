@@ -16,6 +16,7 @@ export type ReusableAgentParticipantOptions = AgentParticipantMatchOptions & {
 };
 
 export const AGENT_SESSION_READY_ATTRIBUTE = 'liveavatar.agent.session_ready';
+// livekit-server-sdk maps protobuf attribute keys to camelCase object keys.
 const AGENT_SESSION_READY_ATTRIBUTE_CAMEL = 'liveavatarAgentSessionReady';
 
 const ROOM_AUDIO_INPUT_IDENTITY = 'room_audio_input';
