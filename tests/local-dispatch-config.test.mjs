@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const { usesBothServerRoomInputParticipants } = await import('../lib/input-device-config.ts');
-
 async function loadAppConfigModule() {
   return import('../app-config.ts');
 }
@@ -136,13 +134,6 @@ test('frontend resolves mixed xunfei audio with browser vision role devices', as
   assert.equal(config.usesServerRoomInput, true);
   assert.equal(config.supportsScreenShare, false);
   assert.equal(config.showDefaultCameraPreview, false);
-});
-
-test('room participant readiness follows the configured server-owned inputs', () => {
-  assert.equal(usesBothServerRoomInputParticipants('xunfei', 'generic'), true);
-  assert.equal(usesBothServerRoomInputParticipants('xunfei', 'browser'), false);
-  assert.equal(usesBothServerRoomInputParticipants('browser', 'generic'), false);
-  assert.equal(usesBothServerRoomInputParticipants('browser', 'browser'), false);
 });
 
 test('frontend normalizes invalid mixed output devices to the base role input device', async () => {

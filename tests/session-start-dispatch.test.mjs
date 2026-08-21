@@ -179,8 +179,6 @@ test('session dispatch route only accepts anonymous LiveKit agent fallback after
   assert.match(routeSource, /require_room_video_input_ready/);
   assert.match(routeSource, /requireAgentSessionReady/);
   assert.match(routeSource, /require_agent_session_ready/);
-  assert.match(routeSource, /requireRoomInputParticipantsReady/);
-  assert.match(routeSource, /require_room_input_participants_ready/);
   assert.match(readinessSource, /type AgentParticipantMatchOptions/);
   assert.match(readinessSource, /type ReusableAgentParticipantOptions/);
   assert.match(readinessSource, /allowAnonymousLiveKitAgentFallback/);
@@ -216,10 +214,6 @@ test('start call dispatches the agent with a cancellable room session id', async
     /requireRoomVideoInputReady: requiresRoomVideoInputReady\(appConfig\)/
   );
   assert.match(useRoomSource, /requireAgentSessionReady: usesManagedRoomInput/);
-  assert.match(
-    useRoomSource,
-    /requireRoomInputParticipantsReady: usesBothServerRoomInputParticipants\(/
-  );
   assert.match(useRoomSource, /await Promise\.allSettled\(\[/);
   assert.ok(
     useRoomSource.lastIndexOf('setIsSessionActive(true)') >

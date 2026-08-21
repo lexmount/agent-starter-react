@@ -1,7 +1,6 @@
 type DispatchOptions = {
   signal?: AbortSignal;
   requireAgentSessionReady?: boolean;
-  requireRoomInputParticipantsReady?: boolean;
   requireRoomVideoInputReady?: boolean;
 };
 
@@ -30,9 +29,6 @@ export async function requestAgentSessionDispatch(
       agentName: normalizedAgentName,
       sessionId: normalizedSessionId,
       ...(options.requireAgentSessionReady ? { requireAgentSessionReady: true } : {}),
-      ...(options.requireRoomInputParticipantsReady
-        ? { requireRoomInputParticipantsReady: true }
-        : {}),
       ...(options.requireRoomVideoInputReady ? { requireRoomVideoInputReady: true } : {}),
     }),
     signal: options.signal,

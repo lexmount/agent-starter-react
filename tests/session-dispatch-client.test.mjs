@@ -43,7 +43,7 @@ test('agent session dispatch sends only canonical session id to Next API', async
   }
 });
 
-test('agent session dispatch can require managed room input readiness', async () => {
+test('agent session dispatch can require authoritative session readiness', async () => {
   const originalFetch = globalThis.fetch;
   let postedBody;
   globalThis.fetch = async (_url, init) => {
@@ -56,7 +56,6 @@ test('agent session dispatch can require managed room input readiness', async ()
 
     await requestAgentSessionDispatch('agent-a', '11111111-2222-4333-8444-555555555555', {
       requireAgentSessionReady: true,
-      requireRoomInputParticipantsReady: true,
       requireRoomVideoInputReady: true,
     });
 
@@ -64,7 +63,6 @@ test('agent session dispatch can require managed room input readiness', async ()
       agentName: 'agent-a',
       sessionId: '11111111-2222-4333-8444-555555555555',
       requireAgentSessionReady: true,
-      requireRoomInputParticipantsReady: true,
       requireRoomVideoInputReady: true,
     });
   } finally {

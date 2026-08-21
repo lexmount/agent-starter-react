@@ -6,10 +6,7 @@ import { useBrowserSourceClient } from '@/hooks/useBrowserSourceClient';
 import { getVoiceSessionId, resetVoiceSessionId } from '@/lib/browser-room-session';
 import { readConnectionDetailsResponse } from '@/lib/connection-details-response';
 import { isValidConnectionRoomId } from '@/lib/connection-room-id';
-import {
-  usesBothServerRoomInputParticipants,
-  usesServerRoomInputDevice,
-} from '@/lib/input-device-config';
+import { usesServerRoomInputDevice } from '@/lib/input-device-config';
 import {
   FRONTEND_EVENTS,
   beginFrontendObservabilitySession,
@@ -223,10 +220,6 @@ export function useRoom(appConfig: AppConfig) {
       const signal = beginAgentSessionStart(room.name, sessionId);
       const dispatchPromise = requestAgentSessionDispatch(appConfig.agentName, sessionId, {
         requireAgentSessionReady: usesManagedRoomInput,
-        requireRoomInputParticipantsReady: usesBothServerRoomInputParticipants(
-          appConfig.audioInputDevice,
-          appConfig.visionInputDevice
-        ),
         requireRoomVideoInputReady: requiresRoomVideoInputReady(appConfig),
         signal,
       });

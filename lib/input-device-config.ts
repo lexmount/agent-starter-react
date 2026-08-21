@@ -42,16 +42,6 @@ export function usesServerRoomInputDevice(inputDevice: string): boolean {
   return SERVER_ROOM_INPUT_DEVICES.has(inputDevice);
 }
 
-export function usesBothServerRoomInputParticipants(
-  audioInputDevice?: string | null,
-  visionInputDevice?: string | null
-): boolean {
-  return (
-    usesServerRoomInputDevice(audioInputDevice || '') &&
-    usesServerRoomInputDevice(visionInputDevice || '')
-  );
-}
-
 export function resolveRoleInputDevices({
   inputSource,
   audioInputDevice,
