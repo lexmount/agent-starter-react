@@ -216,7 +216,11 @@ test('start call dispatches the agent with a cancellable room session id', async
     /requireRoomVideoInputReady: requiresRoomVideoInputReady\(appConfig\)/
   );
   assert.match(useRoomSource, /requireAgentSessionReady: usesManagedRoomInput/);
-  assert.match(useRoomSource, /requireRoomInputParticipantsReady: usesManagedRoomInput/);
+  assert.match(
+    useRoomSource,
+    /requireRoomInputParticipantsReady: usesBothServerRoomInputParticipants\(/
+  );
+  assert.match(useRoomSource, /await Promise\.allSettled\(\[/);
   assert.ok(
     useRoomSource.lastIndexOf('setIsSessionActive(true)') >
       useRoomSource.lastIndexOf('await dispatchAgentSession()'),

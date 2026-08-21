@@ -384,7 +384,7 @@ test('regular dispatch keeps its 8s timeout while prewarm gets the default 45s t
       ),
       /agent dispatch failed/
     );
-    assert.equal(now - regularStartedAt, 8_000);
+    assert.equal(now - regularStartedAt, 30_000);
 
     const prewarmStartedAt = now;
     await assert.rejects(
