@@ -68,6 +68,30 @@ If you replace the custom connection details endpoint, it must echo the requeste
 `sessionId` and derive the same room name so dispatch and stop calls coordinate
 with the connected room.
 
+Integrated Generic configuration belongs to the LexVoice unified Mac startup authority.
+Do not add integrated Generic settings to this repository's `.env.example` or `.env.local`.
+The LexVoice lifecycle injects the server-only settings into this Next.js process.
+
+The endpoint POSTs its fixed device ID, stable instance UUID, hostname, and
+route-discovered private IPv4 to
+`/api/endpoint/connectivity` every 10 seconds using the
+`X-Endpoint-Connectivity-Token` header. The Next.js owner writes per-instance
+mode-0600 records under a mode-0700 directory and expires them after 45 seconds.
+One current instance may change address; zero, multiple, expired, malformed, or
+out-of-CIDR leases fail closed. The registry is shared by same-host workers and
+survives a Next.js restart; multi-host Next.js deployment is explicitly unsupported.
+Generic has no static `EDGE_MEDIA_URL` authority: only server code may resolve
+the current lease and it fixes the control target scheme, port, and paths.
+
+For a Generic Start Call, the Agent joins first. The server then resolves one
+active lease, reclaims stale endpoint state, and sends one authenticated start
+request with a 15-minute `room_audio_input` token. Dispatch succeeds only after
+the exact unmuted tracks are present: `room_audio_input/room_audio`,
+`room_audio_input/room_video_raw`, and `room_video_input/room_video`. Stop Call
+resolves the current lease, stops the processor and endpoint, cancels dispatch
+work, and deletes the Room. The browser cannot supply a device target or either
+server token.
+
 ### LiveAvatar Gateway Deployments
 
 Sandbox-backed public deployments are owned by the LexVoice repository. Set
@@ -83,7 +107,7 @@ server directly:
 
 ```bash
 pnpm install
-pnpm dev
+pnpm exec next dev --hostname 0.0.0.0 --port 3000
 ```
 
 And open http://localhost:3000 in your browser.

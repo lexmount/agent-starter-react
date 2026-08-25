@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
+import { cleanupFailedGenericRoomSession } from '../app/api/session/generic-session-dispatch.ts';
 import { POST as stopSession } from '../app/api/session/stop/route.ts';
 import { readAgentWorkerStateFromLog } from '../lib/agent-worker-readiness.ts';
+import {
+  loadGenericEndpointLeaseConfig,
+  renewGenericEndpointLease,
+} from '../lib/generic-endpoint-lease.ts';
 import {
   executeRoomInputStopsSequentially,
   resolveLiveKitHttpUrl,
@@ -155,6 +162,125 @@ test('session stop reports invalid split media configuration and continues room 
   }
 });
 
+test('Generic stop uses the current lease target and ignores static EDGE_MEDIA_URL', async () => {
+  const previousEnv = { ...process.env };
+  const previousFetch = globalThis.fetch;
+  const registryDir = await mkdtemp(path.join(tmpdir(), 'generic-stop-lease-'));
+  const calls = [];
+  Object.assign(process.env, {
+    INPUT_SOURCE: 'generic',
+    VIDEO_PROCESSOR_URL: 'http://127.0.0.1:8014/start',
+    EDGE_MEDIA_URL: 'http://attacker.invalid:9999/start',
+    GENERIC_EDGE_MEDIA_DEVICE_ID: 'generic-orin',
+    GENERIC_EDGE_MEDIA_ALLOWED_CIDRS: '10.2.0.0/16',
+    GENERIC_ENDPOINT_REGISTRY_DIR: registryDir,
+    EDGE_MEDIA_CONTROL_TOKEN: 'control-secret',
+  });
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
+  delete process.env.LEXVOICE_RUN_LOG_DIR;
+  await renewGenericEndpointLease(
+    {
+      deviceId: 'generic-orin',
+      instanceId: '11111111-2222-4333-8444-555555555555',
+      hostname: 'orin',
+      address: '10.2.2.199',
+    },
+    loadGenericEndpointLeaseConfig(process.env)
+  );
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response('{}', { status: 200 });
+  };
+
+  try {
+    const response = await stopSession(
+      new Request('http://localhost/api/session/stop', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: '00000000-0000-4000-8000-000000000021',
+          wait: true,
+        }),
+      })
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.status, 'stopped');
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      ['http://127.0.0.1:8014/stop', 'http://10.2.2.199:8013/stop']
+    );
+    assert.equal(calls[1].init.headers['X-Lexvoice-Control-Token'], 'control-secret');
+    assert.equal(
+      calls.some((call) => call.url.includes('attacker.invalid')),
+      false
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreEnv(previousEnv);
+    await rm(registryDir, { recursive: true });
+  }
+});
+
+test('failed Generic startup cleanup stops cloud input without re-resolving Edge', async () => {
+  const previousEnv = { ...process.env };
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  Object.assign(process.env, {
+    INPUT_SOURCE: 'generic',
+    VIDEO_PROCESSOR_URL: 'http://127.0.0.1:8014/start',
+  });
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
+  delete process.env.LEXVOICE_RUN_LOG_DIR;
+  delete process.env.GENERIC_ENDPOINT_REGISTRY_DIR;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response('{}', { status: 200 });
+  };
+
+  try {
+    await cleanupFailedGenericRoomSession(
+      'voice_assistant_room_00000000-0000-4000-8000-000000000022',
+      '00000000-0000-4000-8000-000000000022'
+    );
+    assert.deepEqual(calls, ['http://127.0.0.1:8014/stop']);
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreEnv(previousEnv);
+  }
+});
+
+test('failed Generic startup treats an unconfirmed cloud input stop as material', async () => {
+  const previousEnv = { ...process.env };
+  const previousFetch = globalThis.fetch;
+  Object.assign(process.env, {
+    INPUT_SOURCE: 'generic',
+    VIDEO_PROCESSOR_URL: 'http://127.0.0.1:8014/start',
+  });
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
+  delete process.env.LEXVOICE_RUN_LOG_DIR;
+  globalThis.fetch = async () => new Response('{}', { status: 503 });
+
+  try {
+    await assert.rejects(
+      cleanupFailedGenericRoomSession(
+        'voice_assistant_room_00000000-0000-4000-8000-000000000023',
+        '00000000-0000-4000-8000-000000000023'
+      ),
+      /cloud cleanup could not be confirmed/
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreEnv(previousEnv);
+  }
+});
+
 test('room input stop executor waits for each stop before starting the next', async () => {
   const processorUrl = 'http://processor.local/stop';
   const edgeUrl = 'http://edge.local/stop';
@@ -202,12 +328,13 @@ test('session stop route stops room input before deleting the room', async () =>
   assert.ok(stopUrlResolverSource, 'resolveRoomInputStopUrls should be defined');
   assert.match(stopUrlResolverSource, /videoProcessorUrl: readStopEnv\('VIDEO_PROCESSOR_URL'\)/);
   assert.match(stopUrlResolverSource, /edgeMediaUrl: readStopEnv\('EDGE_MEDIA_URL'\)/);
-  assert.equal((stopUrlResolverSource.match(/readStopEnv\(/g) ?? []).length, 2);
+  assert.match(stopUrlResolverSource, /isGenericEndpointPairingEnabled/);
   assert.ok(stopRoomInputSource, 'stopRoomInput should be defined');
   assert.match(stopRoomInputSource, /executeRoomInputStopsSequentially\(stopUrls,/);
+  assert.match(stopRoomInputSource, /stopGenericEdgeMedia/);
   assert.match(
     cleanupSource,
-    /const roomInputResults = await stopRoomInput\(roomName, sessionId\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
+    /const roomInputResults = await stopRoomInput\(roomName, sessionId, options\);[\s\S]*const liveKitRoomResult = await deleteLiveKitRoom\(roomName\);/
   );
 });
 
@@ -248,7 +375,7 @@ test('session stop route deletes the LiveKit room after the dispatch barrier', a
   );
 
   assert.match(routeSource, /await waitForPendingDispatches\(roomName, sessionId\)/);
-  assert.match(routeSource, /await stopRoomInput\(roomName, sessionId\)/);
+  assert.match(routeSource, /await stopRoomInput\(roomName, sessionId, options\)/);
   assert.match(routeSource, /deleteLiveKitRoom\(roomName\)/);
 });
 

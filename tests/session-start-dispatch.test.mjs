@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
+const { formatSessionDispatchError, runSessionDispatch } = await import(
+  '../app/api/session/generic-session-dispatch.ts'
+);
+
 test('connection details route does not dispatch agents while generating tokens', async () => {
   const routeSource = await readFile(
     new URL('../app/api/connection-details/route.ts', import.meta.url),
@@ -64,6 +68,108 @@ test('session dispatch route retries explicit agent dispatch after the browser j
     routeSource,
     /const roomName = sessionId \? deriveLiveKitRoomName\(sessionId\) : requestedRoomName/
   );
+});
+
+test('Generic dispatch is selected only by server config and performs Agent then dynamic Edge pairing', async () => {
+  const events = [];
+  const result = await runSessionDispatch(
+    {
+      roomName: 'voice_assistant_room_session-1',
+      sessionId: 'session-1',
+      agentName: 'lexvoice-generic-agent',
+      requireRoomVideoInputReady: false,
+      endpointUrl: 'http://attacker.invalid:9999/start',
+      disablePairing: true,
+    },
+    {
+      environment: {
+        INPUT_SOURCE: 'generic',
+        LIVEKIT_URL: 'ws://localhost:7818',
+        LIVEKIT_BROWSER_URL: '  ws://10.2.77.108:7818  ',
+      },
+      dispatchAgent: async () => {
+        events.push('agent');
+        return { agentParticipant: { identity: 'agent-joined' } };
+      },
+      resolveTarget: async () => {
+        events.push('lease');
+        return {
+          startUrl: 'http://10.2.2.199:8013/start',
+          stopUrl: 'http://10.2.2.199:8013/stop',
+          controlToken: 'secret',
+          deviceId: 'generic-orin',
+          address: '10.2.2.199',
+        };
+      },
+      pairEndpoint: async (request, target) => {
+        events.push(`edge:${target.address}:${request.controlSenderIdentity}:${request.roomUrl}`);
+        return { deviceId: target.deviceId, address: target.address };
+      },
+    }
+  );
+
+  assert.deepEqual(events, [
+    'agent',
+    'lease',
+    'edge:10.2.2.199:agent-joined:ws://10.2.77.108:7818',
+  ]);
+  assert.equal(result.edge.address, '10.2.2.199');
+});
+
+test('Generic endpoint pairing falls back to the internal LiveKit URL', async () => {
+  let pairedRoomUrl;
+  await runSessionDispatch(
+    {
+      roomName: 'voice_assistant_room_session-fallback',
+      sessionId: 'session-fallback',
+      agentName: 'lexvoice-generic-agent',
+    },
+    {
+      environment: { INPUT_SOURCE: 'generic', LIVEKIT_URL: '  ws://localhost:7818  ' },
+      dispatchAgent: async () => ({ agentParticipant: { identity: 'agent-joined' } }),
+      resolveTarget: async () => ({
+        startUrl: 'http://10.2.2.199:8013/start',
+        stopUrl: 'http://10.2.2.199:8013/stop',
+        controlToken: 'secret',
+        deviceId: 'generic-orin',
+        address: '10.2.2.199',
+      }),
+      pairEndpoint: async (request, target) => {
+        pairedRoomUrl = request.roomUrl;
+        return { deviceId: target.deviceId, address: target.address };
+      },
+    }
+  );
+
+  assert.equal(pairedRoomUrl, 'ws://localhost:7818');
+});
+
+test('browser dispatch never resolves or controls a Generic endpoint', async () => {
+  const result = await runSessionDispatch(
+    {
+      roomName: 'voice_assistant_room_session-2',
+      sessionId: 'session-2',
+      agentName: 'lexvoice-browser-agent',
+      endpointUrl: 'http://10.2.2.199:8013/start',
+    },
+    {
+      environment: { INPUT_SOURCE: 'browser' },
+      dispatchAgent: async () => ({ agentParticipant: { identity: 'agent-browser' } }),
+      resolveTarget: async () => assert.fail('browser must not resolve an endpoint lease'),
+      pairEndpoint: async () => assert.fail('browser must not control an endpoint'),
+    }
+  );
+
+  assert.equal(result.agentParticipant.identity, 'agent-browser');
+});
+
+test('Generic dispatch errors are fixed and do not expose server paths or credentials', () => {
+  const message = formatSessionDispatchError(new Error('/owner/lease/control-secret room-token'), {
+    INPUT_SOURCE: 'generic',
+  });
+
+  assert.equal(message, 'Generic session startup failed');
+  assert.doesNotMatch(message, /owner|secret|token/);
 });
 
 test('session dispatch retry backs off between repeated attempts', async () => {

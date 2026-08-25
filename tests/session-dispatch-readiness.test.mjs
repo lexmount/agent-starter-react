@@ -7,6 +7,9 @@ const { ParticipantInfo_Kind, ParticipantInfo_State, TrackType } = await import(
 const { AGENT_SESSION_READY_ATTRIBUTE, findReusableAgentParticipant } = await import(
   '../lib/session-dispatch-readiness.ts'
 );
+const { waitForExistingRoomSessionReadiness } = await import(
+  '../app/api/session/session-dispatch-service.ts'
+);
 
 function participant({
   identity,
@@ -85,7 +88,7 @@ test('dispatch can reuse an active agent once room video input is publishing', (
   );
 });
 
-test('prewarm readiness requires both room input participants without requiring a video frame', () => {
+test('room input readiness requires the exact active unmuted audio, raw-video, and processed-video tracks', () => {
   const agent = participant({
     identity: 'agent-AJ_running',
     kind: ParticipantInfo_Kind.AGENT,
@@ -93,16 +96,105 @@ test('prewarm readiness requires both room input participants without requiring 
   });
   const participants = [
     agent,
-    participant({ identity: 'room_audio_input' }),
-    participant({ identity: 'room_video_input' }),
+    participant({
+      identity: 'room_audio_input',
+      tracks: [
+        { name: 'room_audio', type: TrackType.AUDIO, muted: false },
+        { name: 'room_video_raw', type: TrackType.VIDEO, muted: false },
+      ],
+    }),
+    participant({
+      identity: 'room_video_input',
+      tracks: [{ name: 'room_video', type: TrackType.VIDEO, muted: false }],
+    }),
   ];
 
   assert.equal(
     findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
-      requireRoomInputParticipantsReady: true,
+      requireExactRoomInputTracksReady: true,
     }),
     agent
   );
+});
+
+test('exact Generic readiness keeps room_video fixed despite legacy track configuration', () => {
+  const previous = process.env.NEXT_PUBLIC_ROOM_VISION_TRACK_NAME;
+  process.env.NEXT_PUBLIC_ROOM_VISION_TRACK_NAME = 'configured_other_video';
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  const participants = [
+    agent,
+    participant({
+      identity: 'room_audio_input',
+      tracks: [
+        { name: 'room_audio', type: TrackType.AUDIO, muted: false },
+        { name: 'room_video_raw', type: TrackType.VIDEO, muted: false },
+      ],
+    }),
+    participant({
+      identity: 'room_video_input',
+      tracks: [{ name: 'room_video', type: TrackType.VIDEO, muted: false }],
+    }),
+  ];
+
+  try {
+    assert.equal(
+      findReusableAgentParticipant(participants, 'frontdesk-browser-agent', {
+        requireExactRoomInputTracksReady: true,
+      }),
+      agent
+    );
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_ROOM_VISION_TRACK_NAME;
+    else process.env.NEXT_PUBLIC_ROOM_VISION_TRACK_NAME = previous;
+  }
+});
+
+test('room input readiness rejects active participants with missing, muted, or misnamed tracks', () => {
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'frontdesk-browser-agent' },
+  });
+  for (const roomInputs of [
+    [participant({ identity: 'room_audio_input' }), participant({ identity: 'room_video_input' })],
+    [
+      participant({
+        identity: 'room_audio_input',
+        tracks: [
+          { name: 'room_audio', type: TrackType.AUDIO, muted: true },
+          { name: 'room_video_raw', type: TrackType.VIDEO, muted: false },
+        ],
+      }),
+      participant({
+        identity: 'room_video_input',
+        tracks: [{ name: 'room_video', type: TrackType.VIDEO, muted: false }],
+      }),
+    ],
+    [
+      participant({
+        identity: 'room_audio_input',
+        tracks: [
+          { name: 'room_audio', type: TrackType.AUDIO, muted: false },
+          { name: 'wrong_raw_video', type: TrackType.VIDEO, muted: false },
+        ],
+      }),
+      participant({
+        identity: 'room_video_input',
+        tracks: [{ name: 'room_video', type: TrackType.VIDEO, muted: false }],
+      }),
+    ],
+  ]) {
+    assert.equal(
+      findReusableAgentParticipant([agent, ...roomInputs], 'frontdesk-browser-agent', {
+        requireExactRoomInputTracksReady: true,
+      }),
+      null
+    );
+  }
 });
 
 test('prewarm can require the full agent session ready marker', () => {
@@ -167,4 +259,67 @@ test('dispatch does not reuse disconnected agents', () => {
   ];
 
   assert.equal(findReusableAgentParticipant(participants, 'frontdesk-browser-agent'), null);
+});
+
+test('post-Edge readiness polls exact tracks without creating another Agent dispatch', async () => {
+  const agent = participant({
+    identity: 'agent-AJ_running',
+    kind: ParticipantInfo_Kind.AGENT,
+    attributes: { 'lk.agent.name': 'lexvoice-generic-agent' },
+  });
+  const ready = [
+    agent,
+    participant({
+      identity: 'room_audio_input',
+      tracks: [
+        { name: 'room_audio', type: TrackType.AUDIO, muted: false },
+        { name: 'room_video_raw', type: TrackType.VIDEO, muted: false },
+      ],
+    }),
+    participant({
+      identity: 'room_video_input',
+      tracks: [{ name: 'room_video', type: TrackType.VIDEO, muted: false }],
+    }),
+  ];
+  const participantSnapshots = [[agent], ready];
+  let sleeps = 0;
+
+  const result = await waitForExistingRoomSessionReadiness(
+    {
+      roomName: 'room-1',
+      agentName: 'lexvoice-generic-agent',
+    },
+    {
+      roomClient: {
+        listParticipants: async () => participantSnapshots.shift(),
+      },
+      timeoutMs: 1_000,
+      pollMs: 1,
+      sleep: async () => {
+        sleeps += 1;
+      },
+    }
+  );
+
+  assert.deepEqual(result, { identity: 'agent-AJ_running' });
+  assert.equal(sleeps, 1);
+});
+
+test('post-Edge readiness observes cancellation while polling', async () => {
+  let cancelled = false;
+  await assert.rejects(
+    waitForExistingRoomSessionReadiness(
+      { roomName: 'room-1', agentName: 'lexvoice-generic-agent' },
+      {
+        roomClient: { listParticipants: async () => [] },
+        timeoutMs: 1_000,
+        pollMs: 1,
+        sleep: async () => {
+          cancelled = true;
+        },
+        isCancelled: () => cancelled,
+      }
+    ),
+    /cancelled/
+  );
 });

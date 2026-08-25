@@ -41,6 +41,14 @@ type DispatchDependencies = {
   ) => Promise<AgentWorkerReadiness>;
 };
 
+type ExistingRoomReadinessDependencies = {
+  roomClient?: Pick<RoomServiceClient, 'listParticipants'>;
+  timeoutMs?: number;
+  pollMs?: number;
+  sleep?: (ms: number) => Promise<unknown>;
+  isCancelled?: () => boolean;
+};
+
 export type DispatchRoomSessionRequest = {
   roomName: string;
   sessionId: string;
@@ -177,6 +185,35 @@ export async function dispatchRoomSession(
   }
 }
 
+export async function waitForExistingRoomSessionReadiness(
+  request: { roomName: string; agentName: string },
+  dependencies: ExistingRoomReadinessDependencies = {}
+) {
+  const roomClient = dependencies.roomClient ?? resolveRoomClient();
+  const deadline =
+    Date.now() +
+    (dependencies.timeoutMs ??
+      readPositiveIntEnv('GENERIC_EDGE_MEDIA_READY_TIMEOUT_MS', DEFAULT_PREWARM_TOTAL_TIMEOUT_MS));
+  const pollMs = dependencies.pollMs ?? readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200);
+  const sleepFn = dependencies.sleep ?? sleep;
+
+  while (Date.now() < deadline) {
+    if (dependencies.isCancelled?.()) {
+      throw new Error('Generic endpoint readiness wait was cancelled');
+    }
+    const participants = await roomClient.listParticipants(request.roomName);
+    const participant = findReusableAgentParticipantInList(participants, request.agentName, {
+      allowAnonymousLiveKitAgentFallback: true,
+      requireExactRoomInputTracksReady: true,
+    });
+    if (participant) {
+      return summarizeAgentParticipant(participant);
+    }
+    await sleepFn(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+  }
+  throw new Error('Generic endpoint media readiness timeout');
+}
+
 async function waitForRequestedRoomSessionReadiness(
   request: DispatchRoomSessionRequest,
   dependencies: DispatchDependencies,
@@ -188,7 +225,8 @@ async function waitForRequestedRoomSessionReadiness(
   if (
     readiness.requireAgentSessionReady !== true &&
     readiness.requireRoomInputParticipantsReady !== true &&
-    readiness.requireRoomVideoInputReady !== true
+    readiness.requireRoomVideoInputReady !== true &&
+    readiness.requireExactRoomInputTracksReady !== true
   ) {
     return dispatch;
   }
@@ -409,6 +447,16 @@ function resolveClients(dependencies: DispatchDependencies): {
       dependencies.dispatchClient || new AgentDispatchClient(liveKitHttpUrl, apiKey, apiSecret),
     roomClient: dependencies.roomClient || new RoomServiceClient(liveKitHttpUrl, apiKey, apiSecret),
   };
+}
+
+function resolveRoomClient(): Pick<RoomServiceClient, 'listParticipants'> {
+  const liveKitHttpUrl = resolveLiveKitHttpUrl(process.env.LIVEKIT_URL);
+  const apiKey = process.env.LIVEKIT_API_KEY;
+  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  if (!liveKitHttpUrl || !apiKey || !apiSecret) {
+    throw new Error('LiveKit API configuration is required');
+  }
+  return new RoomServiceClient(liveKitHttpUrl, apiKey, apiSecret);
 }
 
 async function ensureLiveKitRoom(

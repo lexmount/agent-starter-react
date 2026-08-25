@@ -16,14 +16,15 @@ type ConnectionDetails = {
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
+const LIVEKIT_BROWSER_URL = process.env.LIVEKIT_BROWSER_URL?.trim() || LIVEKIT_URL?.trim();
 
 // don't cache the results
 export const revalidate = 0;
 
 export async function POST(req: Request) {
   try {
-    if (LIVEKIT_URL === undefined) {
-      throw new Error('LIVEKIT_URL is not defined');
+    if (LIVEKIT_BROWSER_URL === undefined) {
+      throw new Error('LIVEKIT_BROWSER_URL and LIVEKIT_URL are not defined');
     }
     if (API_KEY === undefined) {
       throw new Error('LIVEKIT_API_KEY is not defined');
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
 
     // Return connection details
     const data: ConnectionDetails = {
-      serverUrl: LIVEKIT_URL,
+      serverUrl: LIVEKIT_BROWSER_URL,
       sessionId,
       roomName,
       participantToken: participantToken,

@@ -89,3 +89,55 @@ test('connection details route logs issued token with canonical session identity
   assert.match(routeSource, /roomName/);
   assert.match(routeSource, /participantIdentity/);
 });
+
+test('connection details advertise the explicit browser LiveKit URL without Host derivation', async () => {
+  process.env.LIVEKIT_BROWSER_URL = 'ws://10.2.77.108:7818';
+  process.env.LIVEKIT_URL = 'ws://127.0.0.1:7818';
+  const { POST } = await import(
+    new URL(
+      '../app/api/connection-details/route.ts?browser-url-contract',
+      import.meta.url
+    ).href
+  );
+
+  const response = await POST(
+    new Request('http://attacker.example/api/connection-details', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        host: 'attacker.example',
+        'x-forwarded-host': 'forwarded-attacker.example',
+      },
+      body: '{}',
+    })
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.serverUrl, 'ws://10.2.77.108:7818');
+  const routeSource = await readFile(
+    new URL('../app/api/connection-details/route.ts', import.meta.url),
+    'utf8'
+  );
+  assert.doesNotMatch(routeSource, /headers\.get\(['"](?:host|x-forwarded-host)['"]\)/i);
+});
+
+test('connection details fall back to internal LiveKit URL for standalone localhost', async () => {
+  delete process.env.LIVEKIT_BROWSER_URL;
+  process.env.LIVEKIT_URL = 'ws://localhost:7818';
+  const { POST } = await import(
+    new URL('../app/api/connection-details/route.ts?localhost-fallback', import.meta.url).href
+  );
+
+  const response = await POST(
+    new Request('http://localhost/api/connection-details', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.serverUrl, 'ws://localhost:7818');
+});

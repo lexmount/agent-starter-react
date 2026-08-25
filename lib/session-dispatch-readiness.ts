@@ -13,6 +13,7 @@ export type ReusableAgentParticipantOptions = AgentParticipantMatchOptions & {
   requireAgentSessionReady?: boolean;
   requireRoomVideoInputReady?: boolean;
   requireRoomInputParticipantsReady?: boolean;
+  requireExactRoomInputTracksReady?: boolean;
 };
 
 export const AGENT_SESSION_READY_ATTRIBUTE = 'liveavatar.agent.session_ready';
@@ -37,10 +38,14 @@ export function findReusableAgentParticipant(
     requireAgentSessionReady = false,
     requireRoomVideoInputReady = false,
     requireRoomInputParticipantsReady = false,
+    requireExactRoomInputTracksReady = false,
     ...matchOptions
   } = options;
   const expectedAgent = findAgentParticipantInList(participants, agentName, matchOptions);
   if (!expectedAgent || (requireAgentSessionReady && !isAgentSessionReady(expectedAgent))) {
+    return null;
+  }
+  if (requireExactRoomInputTracksReady && !hasExactReadyRoomInputTracks(participants)) {
     return null;
   }
 
@@ -111,6 +116,34 @@ function hasReadyRoomVideoInput(participants: ParticipantInfo[]) {
 function hasReadyRoomInputParticipants(participants: ParticipantInfo[]) {
   const readiness = summarizeRoomInputReadiness(participants);
   return readiness.audioParticipantReady && readiness.visionParticipantReady;
+}
+
+function hasExactReadyRoomInputTracks(participants: ParticipantInfo[]) {
+  return (
+    hasReadyRoomAudioInput(participants) &&
+    participants.some(
+      (participant) =>
+        isParticipantActive(participant) &&
+        participant.identity === ROOM_VIDEO_INPUT_IDENTITY &&
+        hasReadyTrack(participant, 'room_video', TrackType.VIDEO)
+    )
+  );
+}
+
+function hasReadyRoomAudioInput(participants: ParticipantInfo[]) {
+  return participants.some(
+    (participant) =>
+      isParticipantActive(participant) &&
+      participant.identity === ROOM_AUDIO_INPUT_IDENTITY &&
+      hasReadyTrack(participant, 'room_audio', TrackType.AUDIO) &&
+      hasReadyTrack(participant, 'room_video_raw', TrackType.VIDEO)
+  );
+}
+
+function hasReadyTrack(participant: ParticipantInfo, name: string, type: TrackType) {
+  return (participant.tracks ?? []).some(
+    (track) => track.name === name && track.type === type && track.muted !== true
+  );
 }
 
 function hasActiveParticipant(participants: ParticipantInfo[], identity: string) {

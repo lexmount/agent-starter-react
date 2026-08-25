@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import {
   RoomSessionCancelledError,
-  dispatchRoomSession,
-} from '@/app/api/session/session-dispatch-service';
+  formatSessionDispatchError,
+  runSessionDispatch,
+} from '@/app/api/session/generic-session-dispatch';
 import {
   deriveLiveKitRoomName,
   deriveSessionIdFromLiveKitRoomName,
@@ -52,14 +53,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const dispatch = await dispatchRoomSession({
+    const dispatch = await runSessionDispatch({
       roomName,
       sessionId,
       agentName,
-      readiness: {
-        requireRoomVideoInputReady:
-          body.requireRoomVideoInputReady === true || body.require_room_video_input_ready === true,
-      },
+      requireRoomVideoInputReady:
+        body.requireRoomVideoInputReady === true || body.require_room_video_input_ready === true,
     });
     return NextResponse.json({ status: 'dispatched', roomName, agentName, sessionId, dispatch });
   } catch (error) {
@@ -75,7 +74,7 @@ export async function POST(req: Request) {
         roomName,
         agentName,
         sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: formatSessionDispatchError(error),
       },
       { status: 502 }
     );

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { PaperPlaneRightIcon, SpinnerIcon } from '@phosphor-icons/react/dist/ssr';
+import { toastAlert } from '@/components/livekit/alert-toast';
 import { Button } from '@/components/livekit/button';
+import { ChatSendTimeoutError, sendChatMessageWithTimeout } from '@/lib/chat-send';
 
 const MOTION_PROPS = {
   variants: {
@@ -26,7 +28,7 @@ const MOTION_PROPS = {
 interface ChatInputProps {
   chatOpen: boolean;
   isAgentAvailable?: boolean;
-  onSend?: (message: string) => void;
+  onSend?: (message: string) => Promise<unknown> | unknown;
 }
 
 export function ChatInput({
@@ -43,10 +45,17 @@ export function ChatInput({
 
     try {
       setIsSending(true);
-      await onSend(message);
+      await sendChatMessageWithTimeout(onSend, message);
       setMessage('');
     } catch (error) {
       console.error(error);
+      toastAlert({
+        title: 'Message could not be sent',
+        description:
+          error instanceof ChatSendTimeoutError
+            ? 'Sending timed out. Check the connection and try again.'
+            : 'The message was not sent. Please try again.',
+      });
     } finally {
       setIsSending(false);
     }

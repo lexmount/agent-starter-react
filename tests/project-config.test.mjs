@@ -26,6 +26,35 @@ test('README matches the documented LexVoice environment source', async () => {
   assert.doesNotMatch(readme, /copy `\.env\.example`/i);
 });
 
+test('integrated Generic configuration is delegated to LexVoice', async () => {
+  const readme = await readFile('README.md', 'utf8');
+  const envExample = await readFile('.env.example', 'utf8');
+
+  for (const name of [
+    'INPUT_SOURCE',
+    'AGENT_NAME',
+    'LIVEKIT_URL',
+    'LIVEKIT_API_KEY',
+    'LIVEKIT_API_SECRET',
+    'VIDEO_PROCESSOR_URL',
+    'ENDPOINT_CONNECTIVITY_TOKEN',
+    'EDGE_MEDIA_CONTROL_TOKEN',
+    'GENERIC_EDGE_MEDIA_DEVICE_ID',
+    'GENERIC_EDGE_MEDIA_ALLOWED_CIDRS',
+    'GENERIC_ENDPOINT_REGISTRY_DIR',
+  ]) {
+    assert.doesNotMatch(envExample, new RegExp(`^${name}=`, 'm'));
+  }
+
+  assert.match(readme, /Generic configuration.*LexVoice unified Mac startup/i);
+  assert.match(readme, /do not add.*\.env\.example.*\.env\.local/i);
+  assert.doesNotMatch(readme, /For Generic endpoint discovery, configure the server-only/);
+  assert.match(readme, /Agent joins first/);
+  assert.match(readme, /room_audio_input.*room_audio/);
+  assert.match(readme, /room_audio_input.*room_video_raw/);
+  assert.match(readme, /room_video_input.*room_video/);
+});
+
 test('avatar filtering excludes the current room video input identity', async () => {
   const source = await readFile('hooks/useSmartVoiceAssistant.ts', 'utf8');
 

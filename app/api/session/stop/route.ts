@@ -10,9 +10,17 @@ import {
 } from '@/lib/connection-room-id';
 import {
   executeRoomInputStopsSequentially,
+  normalizeRoomInputControlUrl,
   resolveRoomInputStopUrls as resolveConfiguredRoomInputStopUrls,
   resolveLiveKitHttpUrl,
 } from '@/lib/session-stop';
+import {
+  isGenericEndpointPairingEnabled,
+  requestGenericEdgeControl,
+  resolveGenericEdgeTargetSnapshot,
+  stopGenericEdgeMedia,
+} from '../generic-edge-media-pairing';
+import { consumeGenericFailedStartCleanupRequest } from '../generic-failed-start-cleanup';
 import {
   markRoomSessionStopped,
   markRoomSessionStopping,
@@ -147,6 +155,17 @@ function shouldStopRoomInput(): boolean {
 function resolveRoomInputStopUrls(): string[] {
   if (!shouldStopRoomInput()) {
     return [];
+  }
+
+  if (isGenericEndpointPairingEnabled()) {
+    const processorStopUrl = normalizeRoomInputControlUrl(
+      readStopEnv('VIDEO_PROCESSOR_URL'),
+      'stop'
+    );
+    if (!processorStopUrl) {
+      throw new Error('VIDEO_PROCESSOR_URL is required for Generic room input');
+    }
+    return [processorStopUrl];
   }
 
   return resolveConfiguredRoomInputStopUrls({
@@ -337,7 +356,11 @@ async function postRoomInputStop(
   }
 }
 
-async function stopRoomInput(roomName: string, sessionId: string): Promise<StopResult[]> {
+async function stopRoomInput(
+  roomName: string,
+  sessionId: string,
+  options: { includeGenericEdge?: boolean } = {}
+): Promise<StopResult[]> {
   let stopUrls: string[];
   try {
     stopUrls = resolveRoomInputStopUrls();
@@ -355,19 +378,42 @@ async function stopRoomInput(roomName: string, sessionId: string): Promise<StopR
     return [{ target: 'room_input', ok: true, skipped: true }];
   }
 
-  return executeRoomInputStopsSequentially(stopUrls, (stopUrl) =>
+  const results = await executeRoomInputStopsSequentially(stopUrls, (stopUrl) =>
     postRoomInputStop(stopUrl, roomName, sessionId)
   );
+  if (!isGenericEndpointPairingEnabled() || options.includeGenericEdge === false) {
+    return results;
+  }
+
+  try {
+    await stopGenericEdgeMedia(
+      { roomName, sessionId },
+      {
+        resolveTarget: resolveGenericEdgeTargetSnapshot,
+        requestControl: requestGenericEdgeControl,
+      }
+    );
+    results.push({ target: 'generic_edge_media', ok: true, status: 200 });
+  } catch {
+    results.push({
+      target: 'generic_edge_media',
+      ok: false,
+      fatal: true,
+      error: 'Generic endpoint cleanup could not be confirmed',
+    });
+  }
+  return results;
 }
 
 async function runRemoteSessionCleanup(
   roomName: string,
   sessionId: string,
   dispatchResult: StopResult,
-  dispatchIds: string[]
+  dispatchIds: string[],
+  options: { includeGenericEdge?: boolean } = {}
 ): Promise<{ results: StopResult[]; failures: StopResult[] }> {
   const dispatchBarrierResult = await waitForPendingDispatches(roomName, sessionId);
-  const roomInputResults = await stopRoomInput(roomName, sessionId);
+  const roomInputResults = await stopRoomInput(roomName, sessionId, options);
   const liveKitRoomResult = await deleteLiveKitRoom(roomName);
   const agentWorkerReadinessResult = await waitForLocalAgentWorkerReadiness();
   const cleanupResults = [
@@ -403,6 +449,7 @@ async function runRemoteSessionCleanup(
 }
 
 export async function POST(req: Request) {
+  const isGenericFailedStartCleanup = consumeGenericFailedStartCleanupRequest(req);
   let body: StopRequestBody;
   try {
     body = await req.json();
@@ -470,7 +517,8 @@ export async function POST(req: Request) {
     roomName,
     sessionId,
     dispatchResult,
-    stoppingSession.dispatchIds
+    stoppingSession.dispatchIds,
+    { includeGenericEdge: !isGenericFailedStartCleanup }
   );
   return NextResponse.json(
     {
