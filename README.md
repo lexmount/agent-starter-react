@@ -107,7 +107,7 @@ server directly:
 
 ```bash
 pnpm install
-pnpm exec next dev --hostname 0.0.0.0 --port 3000
+pnpm dev
 ```
 
 And open http://localhost:3000 in your browser.

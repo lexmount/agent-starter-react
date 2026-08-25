@@ -381,6 +381,33 @@ test('production coordinator awaits cloud cleanup after a post-Agent pairing fai
   assert.deepEqual(events, ['agent', 'lease', 'edge', 'cloud-cleanup']);
 });
 
+test('production coordinator cleans the Agent Room when dispatch fails after a partial create', async () => {
+  const events = [];
+  await assert.rejects(
+    coordinateGenericRoomSession(
+      {
+        roomUrl: 'ws://livekit.test',
+        roomName: 'room-1',
+        sessionId: 'session-1',
+        agentName: 'lexvoice-generic-agent',
+      },
+      {
+        dispatchAgent: async () => {
+          events.push('agent');
+          throw new Error('dispatch response lost');
+        },
+        resolveTarget: async () => assert.fail('lease must not resolve after dispatch failure'),
+        pairEndpoint: async () => assert.fail('Edge must not start after dispatch failure'),
+        cleanupSession: async () => {
+          events.push('cloud-cleanup');
+        },
+      }
+    ),
+    /dispatch response lost/
+  );
+  assert.deepEqual(events, ['agent', 'cloud-cleanup']);
+});
+
 test('production coordinator cleans the Agent Room when lease resolution fails closed', async () => {
   const events = [];
   await assert.rejects(

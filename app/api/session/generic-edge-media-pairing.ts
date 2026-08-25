@@ -222,8 +222,8 @@ export async function coordinateGenericRoomSession(
   request: GenericSessionCoordinatorRequest,
   dependencies: GenericSessionCoordinatorDependencies
 ) {
-  const dispatch = await dependencies.dispatchAgent();
   try {
+    const dispatch = await dependencies.dispatchAgent();
     const controlSenderIdentity = dispatch.agentParticipant?.identity?.trim();
     if (!controlSenderIdentity) {
       throw new Error('Generic session Agent participant is unavailable');

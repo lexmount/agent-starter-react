@@ -94,10 +94,7 @@ test('connection details advertise the explicit browser LiveKit URL without Host
   process.env.LIVEKIT_BROWSER_URL = 'ws://10.2.77.108:7818';
   process.env.LIVEKIT_URL = 'ws://127.0.0.1:7818';
   const { POST } = await import(
-    new URL(
-      '../app/api/connection-details/route.ts?browser-url-contract',
-      import.meta.url
-    ).href
+    new URL('../app/api/connection-details/route.ts?browser-url-contract', import.meta.url).href
   );
 
   const response = await POST(
