@@ -309,6 +309,9 @@ export function getClientConfigFromEnv(): AppConfig {
       APP_CONFIG_DEFAULTS.observabilityEnabled ?? false,
       'OBSERVABILITY_ENABLED'
     ),
+    activityIntelligencePublicUrl:
+      readEnv('ACTIVITY_INTELLIGENCE_PUBLIC_URL', 'NEXT_PUBLIC_ACTIVITY_INTELLIGENCE_PUBLIC_URL') ||
+      undefined,
   };
 }
 

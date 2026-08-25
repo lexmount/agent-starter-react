@@ -58,6 +58,7 @@ export interface AppConfig {
   debugAudio?: boolean;
   debugVideo?: boolean;
   observabilityEnabled?: boolean;
+  activityIntelligencePublicUrl?: string;
 
   // 全局调试配置
   enableGlobalDebug?: boolean; // 全局调试开关，控制所有调试信息的显示
@@ -243,6 +244,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   debugAudio: false,
   debugVideo: false,
   observabilityEnabled: false,
+  activityIntelligencePublicUrl: undefined,
 
   // 全局调试配置
   enableGlobalDebug: process.env.NEXT_PUBLIC_ENABLE_GLOBAL_DEBUG === 'true' || false, // 全局调试开关

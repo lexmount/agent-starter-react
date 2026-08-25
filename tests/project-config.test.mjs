@@ -55,3 +55,28 @@ test('client config reads frontend observability from OBSERVABILITY_ENABLED only
     }
   }
 });
+
+test('client config exposes the activity public view URL to LexVoice', () => {
+  const previous = process.env.ACTIVITY_INTELLIGENCE_PUBLIC_URL;
+  const previousPublic = process.env.NEXT_PUBLIC_ACTIVITY_INTELLIGENCE_PUBLIC_URL;
+  try {
+    delete process.env.ACTIVITY_INTELLIGENCE_PUBLIC_URL;
+    process.env.NEXT_PUBLIC_ACTIVITY_INTELLIGENCE_PUBLIC_URL = 'http://public.example/pulse';
+    assert.equal(
+      getClientConfigFromEnv().activityIntelligencePublicUrl,
+      'http://public.example/pulse'
+    );
+
+    process.env.ACTIVITY_INTELLIGENCE_PUBLIC_URL = 'http://server.example/pulse';
+    assert.equal(
+      getClientConfigFromEnv().activityIntelligencePublicUrl,
+      'http://server.example/pulse'
+    );
+  } finally {
+    if (previous === undefined) delete process.env.ACTIVITY_INTELLIGENCE_PUBLIC_URL;
+    else process.env.ACTIVITY_INTELLIGENCE_PUBLIC_URL = previous;
+    if (previousPublic === undefined)
+      delete process.env.NEXT_PUBLIC_ACTIVITY_INTELLIGENCE_PUBLIC_URL;
+    else process.env.NEXT_PUBLIC_ACTIVITY_INTELLIGENCE_PUBLIC_URL = previousPublic;
+  }
+});

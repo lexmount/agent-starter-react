@@ -2,6 +2,7 @@
 
 import { StartAudio } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
+import { ActivityPanel } from '@/components/app/activity-panel';
 import { SessionProvider } from '@/components/app/session-provider';
 import { ViewController } from '@/components/app/view-controller';
 import { AudioFilterDebug } from '@/components/livekit/audio-filter-debug';
@@ -28,6 +29,7 @@ export function App({ appConfig }: AppProps) {
         excludeTrackNames={appConfig.excludeAudioTracks}
         show={appConfig.showAudioFilterDebug}
       />
+      <ActivityPanel publicUrl={appConfig.activityIntelligencePublicUrl} />
       <Toaster />
     </SessionProvider>
   );

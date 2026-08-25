@@ -149,6 +149,11 @@ input source as `lexvoice-${INPUT_SOURCE}-agent`; an explicit `AGENT_NAME`
 always wins. Standalone deployments that do not run a matching agent worker
 should set `AGENT_NAME` to the worker name they expect to dispatch.
 
+Set `ACTIVITY_INTELLIGENCE_PUBLIC_URL` in the LexVoice repository `.env` to
+show the “团队动态” entry in the voice UI. The URL must point to Activity
+Intelligence's aggregate `/public` page; the embedded surface intentionally
+excludes names, personal arrival times, and unobserved-member details.
+
 Vision-related frontend variables use the `*_VISION_*` names. The older
 `*_VIDEO_*` names are still accepted as migration fallbacks, but new
 configuration should use the current names:
