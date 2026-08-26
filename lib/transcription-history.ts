@@ -12,7 +12,7 @@ export function mergeTranscriptionHistory(
   current: TextStreamData[],
   maxEntries = DEFAULT_TRANSCRIPTION_HISTORY_SIZE
 ): TextStreamData[] {
-  if (current.length === 0) return [];
+  if (current.length === 0) return previous;
 
   const byStreamId = new Map(previous.map((entry) => [entry.streamInfo.id, entry]));
   current.forEach((entry) => byStreamId.set(entry.streamInfo.id, entry));

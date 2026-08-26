@@ -80,6 +80,10 @@ export function useChatMessages(
   const [transcriptionHistory, setTranscriptionHistory] = useState<TextStreamData[]>([]);
 
   useEffect(() => {
+    setTranscriptionHistory([]);
+  }, [room.name]);
+
+  useEffect(() => {
     setTranscriptionHistory((previous) => mergeTranscriptionHistory(previous, transcriptions));
   }, [transcriptions]);
 
