@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Room } from 'livekit-client';
 import {
   type ReceivedChatMessage,
@@ -9,7 +9,6 @@ import {
 } from '@livekit/components-react';
 import { type AppConfig } from '@/app-config';
 import { isRenderableChatMessage } from '@/lib/chat-message-filter';
-import { mergeTranscriptionHistory } from '@/lib/transcription-history';
 
 function transcriptionToChatMessage(
   textStream: TextStreamData,
@@ -77,15 +76,10 @@ export function useChatMessages(
   const chat = useChat();
   const room = useRoomContext();
   const transcriptions: TextStreamData[] = useTranscriptions();
-  const [transcriptionHistory, setTranscriptionHistory] = useState<TextStreamData[]>([]);
-
-  useEffect(() => {
-    setTranscriptionHistory((previous) => mergeTranscriptionHistory(previous, transcriptions));
-  }, [transcriptions]);
 
   const mergedTranscriptions = useMemo(() => {
     // 处理转录消息
-    const transcriptionMessages = transcriptionHistory.map((transcription) =>
+    const transcriptionMessages = transcriptions.map((transcription) =>
       transcriptionToChatMessage(transcription, room, config)
     );
 
@@ -118,7 +112,7 @@ export function useChatMessages(
     ].filter(isRenderableChatMessage);
 
     return merged.sort((a, b) => a.timestamp - b.timestamp);
-  }, [transcriptionHistory, chat.chatMessages, room, config]);
+  }, [transcriptions, chat.chatMessages, room, config]);
 
   return mergedTranscriptions;
 }
