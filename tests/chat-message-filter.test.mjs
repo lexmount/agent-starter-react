@@ -54,3 +54,11 @@ test('transcription history updates partial text without duplicating one stream'
   assert.equal(history.length, 1);
   assert.equal(history[0].text, '我查一下。');
 });
+
+test('transcription history survives a transient empty snapshot', () => {
+  const preamble = transcription('stream-1', 'speech-1', 100, '我查一下。');
+
+  const history = mergeTranscriptionHistory([preamble], []);
+
+  assert.deepEqual(history, [preamble]);
+});
