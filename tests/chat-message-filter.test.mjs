@@ -5,14 +5,17 @@ import { test } from 'node:test';
 const { isRenderableChatMessage } = await import('../lib/chat-message-filter.ts');
 const { mergeTranscriptionHistory } = await import('../lib/transcription-history.ts');
 
-function transcription(id, segmentId, timestamp, text) {
+function transcription(id, segmentId, timestamp, text, final) {
   return {
     text,
     participantInfo: { identity: 'frontdesk-agent' },
     streamInfo: {
       id,
       timestamp,
-      attributes: { 'lk.segment_id': segmentId },
+      attributes: {
+        'lk.segment_id': segmentId,
+        ...(final === undefined ? {} : { 'lk.transcription_final': final }),
+      },
     },
   };
 }
@@ -53,6 +56,28 @@ test('transcription history updates partial text without duplicating one stream'
 
   assert.equal(history.length, 1);
   assert.equal(history[0].text, '我查一下。');
+});
+
+test('transcription history replaces cross-stream partials with the final segment', () => {
+  const partials = [
+    transcription('partial-1', 'speech-user-1', 100, '帮我', false),
+    transcription('partial-2', 'speech-user-1', 110, '帮我预定', false),
+    transcription('partial-3', 'speech-user-1', 120, '帮我预定一个', false),
+  ];
+  const final = transcription('final-1', 'speech-user-1', 130, '帮我预定一个。', true);
+
+  const history = mergeTranscriptionHistory(partials, [final]);
+
+  assert.deepEqual(history.map(({ text }) => text), ['帮我预定一个。']);
+});
+
+test('transcription history keeps distinct completed streams for one agent segment', () => {
+  const preamble = transcription('final-preamble', 'speech-agent-1', 100, '我查一下。', true);
+  const answer = transcription('final-answer', 'speech-agent-1', 200, '已经设置好了。', true);
+
+  const history = mergeTranscriptionHistory([preamble], [answer]);
+
+  assert.deepEqual(history.map(({ text }) => text), ['我查一下。', '已经设置好了。']);
 });
 
 test('transcription history survives a transient empty snapshot', () => {
