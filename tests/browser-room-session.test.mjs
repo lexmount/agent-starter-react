@@ -133,7 +133,7 @@ test('ending a voice session clears the reusable session id', async () => {
   assert.doesNotMatch(useRoomSource, /if \(appConfig\.usesBrowserRawMediaInput\)/);
 });
 
-test('sandbox browser starts media and dispatch concurrently without changing local order', async () => {
+test('browser input starts media and dispatch concurrently', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
   const browserSourceSource = await readFile(
     new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
@@ -144,10 +144,7 @@ test('sandbox browser starts media and dispatch concurrently without changing lo
     useRoomSource,
     /await room\.connect[\s\S]*connectedRoomName = room\.name;[\s\S]*await Promise\.allSettled\(\[[\s\S]*startLocalInputOrCancelDispatch\(\),[\s\S]*dispatchAgentSession\(\),[\s\S]*\]\)/
   );
-  assert.match(
-    useRoomSource,
-    /usesSandboxConcurrentStartup = Boolean\(appConfig\.sandboxId\) && usesManagedRoomInput/
-  );
+  assert.match(useRoomSource, /usesConcurrentBrowserStartup = browserSourceClient\.enabled/);
   assert.match(
     useRoomSource,
     /const startLocalInputOrCancelDispatch = async \(\) => \{[\s\S]*await startLocalInput\(\);[\s\S]*catch \(error\) \{[\s\S]*cancelAgentSessionStart\(sessionId\);[\s\S]*throw error;/
