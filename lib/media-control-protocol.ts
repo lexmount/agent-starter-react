@@ -246,7 +246,7 @@ export function decodeMediaControl(payload: Uint8Array | string): MediaControlCo
   return Object.freeze(command);
 }
 
-export function encodeMediaState(message: MediaStateSnapshot): Uint8Array {
+export function encodeMediaState(message: MediaStateSnapshot): Uint8Array<ArrayBuffer> {
   const values = requireObject(message);
   validateMediaState(values);
   const ordered = Object.fromEntries(
