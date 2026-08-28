@@ -18,13 +18,17 @@ export function mergeTranscriptionHistory(
   current.forEach((entry) => {
     const segmentId = entry.streamInfo.attributes?.['lk.segment_id'];
     const finalValue = entry.streamInfo.attributes?.['lk.transcription_final'];
-    const hasFinalState = finalValue === true || finalValue === false
-      || finalValue === 'true' || finalValue === 'false';
+    const hasFinalState =
+      finalValue === true ||
+      finalValue === false ||
+      finalValue === 'true' ||
+      finalValue === 'false';
 
     if (segmentId && hasFinalState) {
       for (const [streamId, existing] of byStreamId) {
         const sameSegment = existing.streamInfo.attributes?.['lk.segment_id'] === segmentId;
-        const sameParticipant = existing.participantInfo.identity === entry.participantInfo.identity;
+        const sameParticipant =
+          existing.participantInfo.identity === entry.participantInfo.identity;
         const existingFinal = existing.streamInfo.attributes?.['lk.transcription_final'];
         const existingIsPartial = existingFinal === false || existingFinal === 'false';
         if (sameSegment && sameParticipant && existingIsPartial) {

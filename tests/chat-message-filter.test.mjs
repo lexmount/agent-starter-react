@@ -68,7 +68,10 @@ test('transcription history replaces cross-stream partials with the final segmen
 
   const history = mergeTranscriptionHistory(partials, [final]);
 
-  assert.deepEqual(history.map(({ text }) => text), ['帮我预定一个。']);
+  assert.deepEqual(
+    history.map(({ text }) => text),
+    ['帮我预定一个。']
+  );
 });
 
 test('transcription history keeps distinct completed streams for one agent segment', () => {
@@ -77,7 +80,10 @@ test('transcription history keeps distinct completed streams for one agent segme
 
   const history = mergeTranscriptionHistory([preamble], [answer]);
 
-  assert.deepEqual(history.map(({ text }) => text), ['我查一下。', '已经设置好了。']);
+  assert.deepEqual(
+    history.map(({ text }) => text),
+    ['我查一下。', '已经设置好了。']
+  );
 });
 
 test('transcription history survives a transient empty snapshot', () => {
