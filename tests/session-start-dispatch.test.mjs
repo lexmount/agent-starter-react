@@ -279,7 +279,7 @@ test('start call reconnects only after any previous room disconnect has complete
   assert.match(useRoomSource, /waitForRoomDisconnected/);
   assert.match(
     useRoomSource,
-    /await waitForAgentSessionStop\(\);\s*await waitForRoomDisconnected\(room\);/
+    /await waitForAgentSessionStop\(\);[\s\S]*?await browserSourceClient\.stop\(\);\s*await waitForRoomDisconnected\(room\);/
   );
 });
 
