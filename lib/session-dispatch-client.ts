@@ -1,6 +1,6 @@
 type DispatchOptions = {
   signal?: AbortSignal;
-  requireRoomVideoInputReady?: boolean;
+  requireAgentSessionReady?: boolean;
 };
 
 export class AgentSessionDispatchCancelledError extends Error {
@@ -21,13 +21,13 @@ export async function requestAgentSessionDispatch(
     return;
   }
 
-  const response = await fetch('/api/session/dispatch', {
+  const response = await fetch('api/session/dispatch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       agentName: normalizedAgentName,
       sessionId: normalizedSessionId,
-      ...(options.requireRoomVideoInputReady ? { requireRoomVideoInputReady: true } : {}),
+      ...(options.requireAgentSessionReady ? { requireAgentSessionReady: true } : {}),
     }),
     signal: options.signal,
   });

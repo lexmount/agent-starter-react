@@ -6,17 +6,8 @@ export interface ResolveRoomInputStopUrlsOptions {
   inputSource?: string | null;
   audioInputDevice?: string | null;
   visionInputDevice?: string | null;
-  /**
-   * Room-input control URLs are configured as base endpoint paths. The
-   * normalizer intentionally strips query/hash fragments when switching
-   * between /start and /stop so stop calls do not inherit start-only params.
-   */
-  roomAudioInputUrl?: string | null;
-  roomVisionInputUrl?: string | null;
-  roomInputUrl?: string | null;
-  frontdeskInputParticipantUrl?: string | null;
-  faceServiceUrl?: string | null;
-  genericCameraParticipantUrl?: string | null;
+  videoProcessorUrl?: string | null;
+  edgeMediaUrl?: string | null;
 }
 
 export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | undefined {
@@ -40,13 +31,6 @@ export function isLiveKitRoomNotFoundError(error: unknown): boolean {
 
   const { status, code } = error as { status?: unknown; code?: unknown };
   return status === 404 && code === 'not_found';
-}
-
-function addRoomInputStopUrl(urls: Set<string>, rawUrl?: string | null): void {
-  const stopUrl = normalizeRoomInputControlUrl(rawUrl || '', 'stop');
-  if (stopUrl) {
-    urls.add(stopUrl);
-  }
 }
 
 export function normalizeRoomInputControlUrl(
@@ -86,16 +70,23 @@ export function normalizeRoomInputControlUrl(
   }
 }
 
+export async function executeRoomInputStopsSequentially<T>(
+  stopUrls: readonly string[],
+  stop: (stopUrl: string) => Promise<T>
+): Promise<T[]> {
+  const results: T[] = [];
+  for (const stopUrl of stopUrls) {
+    results.push(await stop(stopUrl));
+  }
+  return results;
+}
+
 export function resolveRoomInputStopUrls({
   inputSource,
   audioInputDevice,
   visionInputDevice,
-  roomAudioInputUrl,
-  roomVisionInputUrl,
-  roomInputUrl,
-  frontdeskInputParticipantUrl,
-  faceServiceUrl,
-  genericCameraParticipantUrl,
+  videoProcessorUrl,
+  edgeMediaUrl,
 }: ResolveRoomInputStopUrlsOptions): string[] {
   const {
     audioInputDevice: resolvedAudioInputDevice,
@@ -106,28 +97,23 @@ export function resolveRoomInputStopUrls({
     visionInputDevice,
   });
 
-  const urls = new Set<string>();
-  const selectedServerDevices = new Set<string>();
-
-  if (usesServerRoomInputDevice(resolvedAudioInputDevice)) {
-    selectedServerDevices.add(resolvedAudioInputDevice);
-    addRoomInputStopUrl(urls, roomAudioInputUrl || roomInputUrl);
-  }
-  if (usesServerRoomInputDevice(resolvedVisionInputDevice)) {
-    selectedServerDevices.add(resolvedVisionInputDevice);
-    addRoomInputStopUrl(urls, roomVisionInputUrl || roomInputUrl);
-  }
-  if (selectedServerDevices.size === 0) {
+  const usesServerInput =
+    usesServerRoomInputDevice(resolvedAudioInputDevice) ||
+    usesServerRoomInputDevice(resolvedVisionInputDevice);
+  if (!usesServerInput) {
     return [];
   }
 
-  if (selectedServerDevices.has('xunfei')) {
-    addRoomInputStopUrl(urls, frontdeskInputParticipantUrl);
-    addRoomInputStopUrl(urls, faceServiceUrl);
+  const videoProcessorStopUrl = normalizeRoomInputControlUrl(videoProcessorUrl || '', 'stop');
+  const edgeMediaStopUrl = normalizeRoomInputControlUrl(edgeMediaUrl || '', 'stop');
+  if (!videoProcessorStopUrl || !edgeMediaStopUrl) {
+    throw new Error('VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL are required for server room input');
   }
-  if (selectedServerDevices.has('generic')) {
-    addRoomInputStopUrl(urls, genericCameraParticipantUrl);
+  if (videoProcessorStopUrl === edgeMediaStopUrl) {
+    throw new Error(
+      'VIDEO_PROCESSOR_URL and EDGE_MEDIA_URL must resolve to distinct stop endpoints'
+    );
   }
 
-  return [...urls];
+  return [videoProcessorStopUrl, edgeMediaStopUrl];
 }
