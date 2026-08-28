@@ -16,8 +16,8 @@ import {
   assertBrowserEchoCancellationActive,
   inspectBrowserAudioCapture,
 } from '@/lib/browser-audio-capture';
-import { awaitBrowserMediaCapture } from '@/lib/browser-media-capture-timeout';
 import { BrowserAudioGateDevice } from '@/lib/browser-audio-gate-device';
+import { awaitBrowserMediaCapture } from '@/lib/browser-media-capture-timeout';
 import {
   detachCurrentRuntime,
   isCurrentRuntime,
