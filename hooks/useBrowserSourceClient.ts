@@ -14,9 +14,11 @@ import type { AppConfig } from '@/app-config';
 import {
   BROWSER_AUDIO_CONSTRAINTS,
   assertBrowserEchoCancellationActive,
+  buildBrowserAudioCaptureObservabilityAttributes,
   inspectBrowserAudioCapture,
 } from '@/lib/browser-audio-capture';
 import { BrowserAudioGateDevice } from '@/lib/browser-audio-gate-device';
+import { createBrowserVideoMirrorProcessor } from '@/lib/browser-video-mirror-processor';
 import {
   detachCurrentRuntime,
   isCurrentRuntime,
@@ -166,7 +168,29 @@ export function useBrowserSourceClient(
         audioTrack.mediaStreamTrack.enabled = false;
 
         try {
-          logBrowserAudioCaptureDiagnostics(captureTrack);
+          const captureDiagnostics = logBrowserAudioCaptureDiagnostics(captureTrack);
+          const captureAttributes = {
+            [OBSERVABILITY_ATTRS.TRACK_NAME]: BROWSER_AUDIO_TRACK_NAME,
+            [OBSERVABILITY_ATTRS.TRACK_STREAM_NAME]: browserMediaStreamName,
+            ...buildBrowserAudioCaptureObservabilityAttributes(captureDiagnostics),
+          };
+          recordFrontendObservability(
+            FRONTEND_EVENTS.BROWSER_AUDIO_CAPTURE_DIAGNOSTICS,
+            captureAttributes
+          );
+          if (
+            captureDiagnostics.supported.noiseSuppression &&
+            captureDiagnostics.settings.noiseSuppression !== true
+          ) {
+            console.error(
+              '[browser-audio] noise suppression was requested but is not active',
+              captureDiagnostics
+            );
+            recordFrontendObservability(
+              FRONTEND_EVENTS.BROWSER_AUDIO_NOISE_SUPPRESSION_INACTIVE,
+              captureAttributes
+            );
+          }
           await audioTrack.mute();
           if (runtimeRef.current !== runtime || !runtime.audioEnabled) {
             audioTrack.stop();
@@ -290,6 +314,7 @@ export function useBrowserSourceClient(
           height: browserVideoHeight,
           frameRate: browserVideoFrameRate,
         },
+        processor: createBrowserVideoMirrorProcessor(),
       });
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_VIDEO_CAPTURE_FINISHED);
       videoTrack.mediaStreamTrack.enabled = runtime.videoEnabled;
@@ -720,6 +745,7 @@ function logBrowserAudioCaptureDiagnostics(track: MediaStreamTrack) {
   );
   console.info('[browser-audio] capture diagnostics', diagnostics);
   assertBrowserEchoCancellationActive(diagnostics);
+  return diagnostics;
 }
 
 function syncTrackEnabled(track: LocalAudioTrack | LocalVideoTrack | null, enabled: boolean) {

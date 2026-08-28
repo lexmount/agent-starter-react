@@ -13,6 +13,8 @@ export interface BrowserAudioCaptureDiagnostics {
   settings: MediaTrackSettings;
 }
 
+export type BrowserAudioCaptureObservabilityAttributes = Record<string, boolean | null>;
+
 export interface BrowserAudioPlaybackDiagnostics {
   participantIdentity: string;
   trackName: string;
@@ -63,4 +65,46 @@ export function assertBrowserEchoCancellationActive(
       'Browser echo cancellation was requested but is not active on the microphone track.'
     );
   }
+}
+
+export function buildBrowserAudioCaptureObservabilityAttributes(
+  diagnostics: BrowserAudioCaptureDiagnostics
+): BrowserAudioCaptureObservabilityAttributes {
+  return {
+    'browser.audio.echo_cancellation.requested':
+      BROWSER_AUDIO_CONSTRAINTS.echoCancellation === true,
+    'browser.audio.echo_cancellation.supported': !!diagnostics.supported.echoCancellation,
+    'browser.audio.echo_cancellation.constrained': readBooleanConstraint(
+      diagnostics.constraints.echoCancellation
+    ),
+    'browser.audio.echo_cancellation.active': diagnostics.settings.echoCancellation ?? null,
+    'browser.audio.noise_suppression.requested':
+      BROWSER_AUDIO_CONSTRAINTS.noiseSuppression === true,
+    'browser.audio.noise_suppression.supported': !!diagnostics.supported.noiseSuppression,
+    'browser.audio.noise_suppression.constrained': readBooleanConstraint(
+      diagnostics.constraints.noiseSuppression
+    ),
+    'browser.audio.noise_suppression.active': diagnostics.settings.noiseSuppression ?? null,
+    'browser.audio.auto_gain_control.requested': BROWSER_AUDIO_CONSTRAINTS.autoGainControl === true,
+    'browser.audio.auto_gain_control.supported': !!diagnostics.supported.autoGainControl,
+    'browser.audio.auto_gain_control.constrained': readBooleanConstraint(
+      diagnostics.constraints.autoGainControl
+    ),
+    'browser.audio.auto_gain_control.active': diagnostics.settings.autoGainControl ?? null,
+  };
+}
+
+function readBooleanConstraint(value: ConstrainBoolean | undefined): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    if (typeof value.exact === 'boolean') {
+      return value.exact;
+    }
+    if (typeof value.ideal === 'boolean') {
+      return value.ideal;
+    }
+  }
+  return null;
 }

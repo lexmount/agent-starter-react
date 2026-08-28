@@ -21,6 +21,8 @@
 
 # next.js
 /.next/
+/.next-lexvoice-*/
+/.tsconfig-lexvoice-*.json
 /out/
 
 # production

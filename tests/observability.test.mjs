@@ -386,6 +386,8 @@ test('browser source client publishes frontend audio observability events', asyn
 
   assert.match(source, /startMediaTrackVadObserver/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_PUBLISHED/);
+  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_CAPTURE_DIAGNOSTICS/);
+  assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_NOISE_SUPPRESSION_INACTIVE/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_TRACK_UNPUBLISHED/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_VAD_SPEECH_STARTED/);
   assert.match(source, /FRONTEND_EVENTS\.BROWSER_AUDIO_VAD_SPEECH_ENDED/);

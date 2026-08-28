@@ -4,6 +4,7 @@ import { test } from 'node:test';
 const {
   BROWSER_AUDIO_CONSTRAINTS,
   assertBrowserEchoCancellationActive,
+  buildBrowserAudioCaptureObservabilityAttributes,
   buildBrowserAudioPlaybackDiagnostics,
   inspectBrowserAudioCapture,
 } = await import('../lib/browser-audio-capture.ts');
@@ -40,6 +41,44 @@ test('browser audio capture reports requested and effective settings', () => {
   assert.equal(diagnostics.settings.echoCancellation, true);
   assert.equal(diagnostics.settings.noiseSuppression, true);
   assert.deepEqual(diagnostics.constraints, BROWSER_AUDIO_CONSTRAINTS);
+});
+
+test('browser audio capture exposes requested supported constrained and effective processing', () => {
+  const diagnostics = inspectBrowserAudioCapture(
+    {
+      id: 'audio-track-observed',
+      getConstraints: () => ({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }),
+      getSettings: () => ({
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: true,
+      }),
+    },
+    {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    }
+  );
+
+  assert.deepEqual(buildBrowserAudioCaptureObservabilityAttributes(diagnostics), {
+    'browser.audio.echo_cancellation.requested': true,
+    'browser.audio.echo_cancellation.supported': true,
+    'browser.audio.echo_cancellation.constrained': true,
+    'browser.audio.echo_cancellation.active': true,
+    'browser.audio.noise_suppression.requested': true,
+    'browser.audio.noise_suppression.supported': true,
+    'browser.audio.noise_suppression.constrained': true,
+    'browser.audio.noise_suppression.active': false,
+    'browser.audio.auto_gain_control.requested': true,
+    'browser.audio.auto_gain_control.supported': true,
+    'browser.audio.auto_gain_control.constrained': true,
+    'browser.audio.auto_gain_control.active': true,
+  });
 });
 
 test('browser audio capture fails when supported AEC is not effective', () => {

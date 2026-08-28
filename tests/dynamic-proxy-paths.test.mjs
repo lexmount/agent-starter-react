@@ -17,6 +17,21 @@ test('Next assets and bundled app resources use app-relative paths', async () =>
   assert.match(appConfig, /logoDark:\s*['"]lk-logo-dark\.png['"]/);
 });
 
+test('each local runtime can isolate its Next build output', async () => {
+  const [nextConfig, runtimeConfigScript] = await Promise.all([
+    readFile('next.config.ts', 'utf8'),
+    readFile('scripts/prepare-next-runtime.js', 'utf8'),
+  ]);
+
+  assert.match(nextConfig, /process\.env\.NEXT_DIST_DIR\?\.trim\(\)/);
+  assert.match(nextConfig, /distDir:\s*runtimeDistDir\s*\|\|\s*['"]\.next['"]/);
+  assert.match(nextConfig, /process\.env\.NEXT_TSCONFIG_PATH\?\.trim\(\)/);
+  assert.match(nextConfig, /tsconfigPath:\s*runtimeTsconfigPath/);
+  assert.match(runtimeConfigScript, /\.tsconfig-lexvoice-/);
+  assert.match(runtimeConfigScript, /\.next-lexvoice-/);
+  assert.match(runtimeConfigScript, /fs\.writeFileSync/);
+});
+
 test('browser API requests stay under the current app entry path', async () => {
   const [dispatchClient, stopClient, useRoom] = await Promise.all([
     readFile('lib/session-dispatch-client.ts', 'utf8'),

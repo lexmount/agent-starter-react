@@ -133,7 +133,7 @@ test('ending a voice session clears the reusable session id', async () => {
   assert.doesNotMatch(useRoomSource, /if \(appConfig\.usesBrowserRawMediaInput\)/);
 });
 
-test('sandbox browser starts media and dispatch concurrently without changing local order', async () => {
+test('managed browser starts media and dispatch concurrently in every runtime mode', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
   const browserSourceSource = await readFile(
     new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
@@ -146,7 +146,7 @@ test('sandbox browser starts media and dispatch concurrently without changing lo
   );
   assert.match(
     useRoomSource,
-    /usesSandboxConcurrentStartup = Boolean\(appConfig\.sandboxId\) && usesManagedRoomInput/
+    /usesConcurrentStartup = usesManagedRoomInput/
   );
   assert.match(
     useRoomSource,

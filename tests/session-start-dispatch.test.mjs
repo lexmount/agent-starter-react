@@ -350,6 +350,20 @@ test('browser source reports video failure even when audio capture also fails', 
   );
 });
 
+test('browser publishes source-side mirrored video through the LiveKit processor', async () => {
+  const browserSourceSource = await readFile(
+    new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(browserSourceSource, /createBrowserVideoMirrorProcessor/);
+  assert.match(
+    browserSourceSource,
+    /createLocalVideoTrack\(\{[\s\S]*processor: createBrowserVideoMirrorProcessor\(\)/
+  );
+  assert.doesNotMatch(browserSourceSource, /transform:\s*scaleX\(-1\)/);
+});
+
 test('microphone device selector remains visible before media permission is granted', async () => {
   const trackSelectorSource = await readFile(
     new URL('../components/livekit/agent-control-bar/track-selector.tsx', import.meta.url),

@@ -19,6 +19,8 @@ export const FRONTEND_EVENTS = {
   BROWSER_AUDIO_TRACK_UNPUBLISHED: 'frontend.browser_audio.track_unpublished',
   BROWSER_AUDIO_TRACK_MUTED: 'frontend.browser_audio.track_muted',
   BROWSER_AUDIO_TRACK_UNMUTED: 'frontend.browser_audio.track_unmuted',
+  BROWSER_AUDIO_CAPTURE_DIAGNOSTICS: 'frontend.browser_audio.capture_diagnostics',
+  BROWSER_AUDIO_NOISE_SUPPRESSION_INACTIVE: 'frontend.browser_audio.noise_suppression_inactive',
   BROWSER_AUDIO_VAD_SPEECH_STARTED: 'frontend.browser_audio.vad_speech_started',
   BROWSER_AUDIO_VAD_SPEECH_ENDED: 'frontend.browser_audio.vad_speech_ended',
   BROWSER_AUDIO_VAD_PROBE_UNAVAILABLE: 'frontend.browser_audio.vad_probe_unavailable',
