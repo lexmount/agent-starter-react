@@ -220,12 +220,23 @@ test('start call dispatches the agent with a cancellable room session id', async
 test('browser input starts capture and agent dispatch concurrently outside sandbox', async () => {
   const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
 
-  assert.match(useRoomSource, /const usesConcurrentBrowserStartup = browserSourceClient\.enabled;/);
   assert.match(
     useRoomSource,
-    /if \(usesConcurrentBrowserStartup\) \{[\s\S]*?Promise\.allSettled\(\[[\s\S]*?startLocalInputOrCancelDispatch\(\),[\s\S]*?dispatchAgentSession\(\),/
+    /const usesConcurrentManagedStartup =\s*browserSourceClient\.enabled \|\|/
   );
-  assert.doesNotMatch(useRoomSource, /Boolean\(appConfig\.sandboxId\) && usesManagedRoomInput/);
+  assert.match(
+    useRoomSource,
+    /if \(usesConcurrentManagedStartup\) \{[\s\S]*?Promise\.allSettled\(\[[\s\S]*?startLocalInputOrCancelDispatch\(\),[\s\S]*?dispatchAgentSession\(\),/
+  );
+});
+
+test('sandbox server-managed input keeps concurrent dispatch startup', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+
+  assert.match(
+    useRoomSource,
+    /usesConcurrentManagedStartup =\s*browserSourceClient\.enabled \|\|\s*\(Boolean\(appConfig\.sandboxId\) && appConfig\.usesServerRoomInput\)/
+  );
 });
 
 test('connection details request uses the same canonical session id as dispatch', async () => {

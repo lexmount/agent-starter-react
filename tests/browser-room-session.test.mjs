@@ -144,7 +144,10 @@ test('browser input starts media and dispatch concurrently', async () => {
     useRoomSource,
     /await room\.connect[\s\S]*connectedRoomName = room\.name;[\s\S]*await Promise\.allSettled\(\[[\s\S]*startLocalInputOrCancelDispatch\(\),[\s\S]*dispatchAgentSession\(\),[\s\S]*\]\)/
   );
-  assert.match(useRoomSource, /usesConcurrentBrowserStartup = browserSourceClient\.enabled/);
+  assert.match(
+    useRoomSource,
+    /usesConcurrentManagedStartup =\s*browserSourceClient\.enabled \|\|\s*\(Boolean\(appConfig\.sandboxId\) && appConfig\.usesServerRoomInput\)/
+  );
   assert.match(
     useRoomSource,
     /const startLocalInputOrCancelDispatch = async \(\) => \{[\s\S]*await startLocalInput\(\);[\s\S]*catch \(error\) \{[\s\S]*cancelAgentSessionStart\(sessionId\);[\s\S]*throw error;/
