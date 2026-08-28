@@ -16,6 +16,7 @@ import {
   assertBrowserEchoCancellationActive,
   inspectBrowserAudioCapture,
 } from '@/lib/browser-audio-capture';
+import { awaitBrowserMediaCapture } from '@/lib/browser-media-capture-timeout';
 import { BrowserAudioGateDevice } from '@/lib/browser-audio-gate-device';
 import {
   detachCurrentRuntime,
@@ -38,6 +39,8 @@ const DEFAULT_BROWSER_MEDIA_STREAM_NAME = 'browser_input';
 const BROWSER_VIDEO_DEFAULT_ENABLED = true;
 const BROWSER_VIDEO_STATS_INTERVAL_MS = 5000;
 const BROWSER_MEDIA_GATE_MAX_OPEN_LEASE_MS = 3000;
+const BROWSER_VIDEO_CAPTURE_TIMEOUT_MS = 8000;
+const BROWSER_VIDEO_PUBLISH_TIMEOUT_MS = 5000;
 interface BrowserSourceRuntime {
   audioTrack: LocalAudioTrack | null;
   videoTrack: LocalVideoTrack | null;
@@ -281,15 +284,22 @@ export function useBrowserSourceClient(
       }
 
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_VIDEO_CAPTURE_STARTED);
-      const videoTrack = await createLocalVideoTrack({
-        facingMode: 'user',
-        frameRate: { ideal: browserVideoFrameRate, max: browserVideoFrameRate },
-        resolution: {
-          width: browserVideoWidth,
-          height: browserVideoHeight,
-          frameRate: browserVideoFrameRate,
-        },
-      });
+      const videoTrack = await awaitBrowserMediaCapture(
+        createLocalVideoTrack({
+          facingMode: 'user',
+          frameRate: { ideal: browserVideoFrameRate, max: browserVideoFrameRate },
+          resolution: {
+            width: browserVideoWidth,
+            height: browserVideoHeight,
+            frameRate: browserVideoFrameRate,
+          },
+        }),
+        {
+          timeoutMs: BROWSER_VIDEO_CAPTURE_TIMEOUT_MS,
+          label: 'camera',
+          disposeLateResult: (track) => track.stop(),
+        }
+      );
       recordFrontendObservability(FRONTEND_EVENTS.BROWSER_VIDEO_CAPTURE_FINISHED);
       videoTrack.mediaStreamTrack.enabled = runtime.videoEnabled;
       if (!isCurrentRuntime(runtimeRef, runtime)) {
@@ -299,17 +309,26 @@ export function useBrowserSourceClient(
 
       try {
         recordFrontendObservability(FRONTEND_EVENTS.BROWSER_VIDEO_PUBLISH_STARTED);
-        const publication = await room.localParticipant.publishTrack(videoTrack, {
-          name: BROWSER_VIDEO_TRACK_NAME,
-          source: Track.Source.Camera,
-          stream: browserMediaStreamName,
-          simulcast: false,
-          degradationPreference: 'maintain-resolution',
-          videoEncoding: {
-            maxBitrate: browserVideoMaxBitrate,
-            maxFramerate: browserVideoFrameRate,
-          },
-        });
+        const publication = await awaitBrowserMediaCapture(
+          room.localParticipant.publishTrack(videoTrack, {
+            name: BROWSER_VIDEO_TRACK_NAME,
+            source: Track.Source.Camera,
+            stream: browserMediaStreamName,
+            simulcast: false,
+            degradationPreference: 'maintain-resolution',
+            videoEncoding: {
+              maxBitrate: browserVideoMaxBitrate,
+              maxFramerate: browserVideoFrameRate,
+            },
+          }),
+          {
+            timeoutMs: BROWSER_VIDEO_PUBLISH_TIMEOUT_MS,
+            label: 'camera publish',
+            disposeLateResult: () => {
+              void room.localParticipant.unpublishTrack(videoTrack, true).catch(() => undefined);
+            },
+          }
+        );
         recordFrontendObservability(FRONTEND_EVENTS.BROWSER_VIDEO_PUBLISH_FINISHED);
         if (!isCurrentRuntime(runtimeRef, runtime)) {
           await room.localParticipant.unpublishTrack(videoTrack, true).catch(() => undefined);
