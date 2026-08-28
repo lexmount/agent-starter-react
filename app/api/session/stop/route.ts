@@ -10,6 +10,7 @@ import {
 } from '@/lib/connection-room-id';
 import {
   executeRoomInputStopsSequentially,
+  isLiveKitRoomNotFoundError,
   resolveRoomInputStopUrls as resolveConfiguredRoomInputStopUrls,
   resolveLiveKitHttpUrl,
 } from '@/lib/session-stop';
@@ -252,6 +253,10 @@ async function deleteLiveKitRoom(roomName: string): Promise<StopResult> {
     await roomService.deleteRoom(roomName);
     return { target: 'livekit_room', ok: true };
   } catch (error) {
+    if (isLiveKitRoomNotFoundError(error)) {
+      return { target: 'livekit_room', ok: true, skipped: true, status: 404 };
+    }
+
     return {
       target: 'livekit_room',
       ok: false,
