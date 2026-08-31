@@ -23,6 +23,26 @@ export interface BrowserAudioPlaybackDiagnostics {
 
 type BrowserAudioElementState = Pick<HTMLAudioElement, 'ended' | 'paused' | 'readyState'>;
 
+export interface CleanableBrowserAudioTrack {
+  mediaStreamTrack: { enabled: boolean };
+  mute: () => Promise<unknown>;
+  stop: () => void;
+}
+
+export async function runWithBrowserAudioTrackCleanup<T>(
+  audioTrack: CleanableBrowserAudioTrack,
+  operation: () => Promise<T>
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    audioTrack.mediaStreamTrack.enabled = false;
+    void audioTrack.mute().catch(() => undefined);
+    audioTrack.stop();
+    throw error;
+  }
+}
+
 export function buildBrowserAudioPlaybackDiagnostics(
   participantIdentity: string,
   trackName: string,

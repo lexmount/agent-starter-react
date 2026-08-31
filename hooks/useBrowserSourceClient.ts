@@ -15,6 +15,7 @@ import {
   BROWSER_AUDIO_CONSTRAINTS,
   assertBrowserEchoCancellationActive,
   inspectBrowserAudioCapture,
+  runWithBrowserAudioTrackCleanup,
 } from '@/lib/browser-audio-capture';
 import { BrowserAudioGateDevice } from '@/lib/browser-audio-gate-device';
 import { awaitBrowserMediaCapture } from '@/lib/browser-media-capture-timeout';
@@ -164,11 +165,10 @@ export function useBrowserSourceClient(
           buildAudioCaptureOptions(audioDeviceIdRef.current)
         );
         recordFrontendObservability(FRONTEND_EVENTS.BROWSER_AUDIO_CAPTURE_FINISHED);
-        const captureTrack = audioTrack.mediaStreamTrack;
-        logBrowserAudioCaptureDiagnostics(captureTrack);
-        audioTrack.mediaStreamTrack.enabled = false;
-
-        try {
+        await runWithBrowserAudioTrackCleanup(audioTrack, async () => {
+          const captureTrack = audioTrack.mediaStreamTrack;
+          logBrowserAudioCaptureDiagnostics(captureTrack, appConfig.debugAudio);
+          audioTrack.mediaStreamTrack.enabled = false;
           await audioTrack.mute();
           if (runtimeRef.current !== runtime || !runtime.audioEnabled) {
             audioTrack.stop();
@@ -246,12 +246,7 @@ export function useBrowserSourceClient(
                 });
               });
           }
-        } catch (error) {
-          audioTrack.mediaStreamTrack.enabled = false;
-          void audioTrack.mute().catch(() => undefined);
-          audioTrack.stop();
-          throw error;
-        }
+        });
       })();
       runtime.audioPublishPromise = publishPromise;
       try {
@@ -265,6 +260,7 @@ export function useBrowserSourceClient(
     [
       appConfig.observabilityEnabled,
       appConfig.sandboxId,
+      appConfig.debugAudio,
       audioConfigured,
       browserMediaStreamName,
       recordFrontendObservability,
@@ -731,12 +727,14 @@ function buildAudioCaptureOptions(deviceId: string | null) {
   };
 }
 
-function logBrowserAudioCaptureDiagnostics(track: MediaStreamTrack) {
+function logBrowserAudioCaptureDiagnostics(track: MediaStreamTrack, debugAudio?: boolean) {
   const diagnostics = inspectBrowserAudioCapture(
     track,
     navigator.mediaDevices.getSupportedConstraints()
   );
-  console.info('[browser-audio] capture diagnostics', diagnostics);
+  if (debugAudio) {
+    console.info('[browser-audio] capture diagnostics', diagnostics);
+  }
   assertBrowserEchoCancellationActive(diagnostics);
 }
 
