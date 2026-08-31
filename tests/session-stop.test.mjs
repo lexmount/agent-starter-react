@@ -5,6 +5,7 @@ import { POST as stopSession } from '../app/api/session/stop/route.ts';
 import { readAgentWorkerStateFromLog } from '../lib/agent-worker-readiness.ts';
 import {
   executeRoomInputStopsSequentially,
+  isLiveKitRoomNotFoundError,
   resolveLiveKitHttpUrl,
   resolveRoomInputStopUrls,
 } from '../lib/session-stop.ts';
@@ -42,6 +43,35 @@ test('maps livekit websocket URLs to server API URLs', () => {
   assert.equal(resolveLiveKitHttpUrl('ws://localhost:7818'), 'http://localhost:7818');
   assert.equal(resolveLiveKitHttpUrl('wss://livekit.example'), 'https://livekit.example');
   assert.equal(resolveLiveKitHttpUrl('https://livekit.example'), 'https://livekit.example');
+});
+
+test('recognizes only LiveKit room-not-found errors as an idempotent stop', () => {
+  assert.equal(
+    isLiveKitRoomNotFoundError({
+      status: 404,
+      code: 'not_found',
+      message: 'requested room does not exist',
+    }),
+    true
+  );
+  assert.equal(isLiveKitRoomNotFoundError({ status: 404, code: 'permission_denied' }), false);
+  assert.equal(isLiveKitRoomNotFoundError({ status: 500, code: 'not_found' }), false);
+  assert.equal(isLiveKitRoomNotFoundError(new Error('requested room does not exist')), false);
+});
+
+test('session stop treats an already deleted LiveKit room as stopped', async () => {
+  const routeSource = await readFile(
+    new URL('../app/api/session/stop/route.ts', import.meta.url),
+    'utf8'
+  );
+  const deleteRoomSource = routeSource.match(/async function deleteLiveKitRoom[\s\S]*?\n}/)?.[0];
+
+  assert.ok(deleteRoomSource, 'deleteLiveKitRoom should be defined');
+  assert.match(deleteRoomSource, /isLiveKitRoomNotFoundError\(error\)/);
+  assert.match(
+    deleteRoomSource,
+    /target:\s*'livekit_room',\s*ok:\s*true,\s*skipped:\s*true,\s*status:\s*404/
+  );
 });
 
 test('room input stop URL resolver skips browser input', () => {

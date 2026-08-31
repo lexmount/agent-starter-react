@@ -24,6 +24,18 @@ export function resolveLiveKitHttpUrl(liveKitUrl?: string | null): string | unde
   return normalized;
 }
 
+export function isLiveKitRoomNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const { status, code } = error as { status?: unknown; code?: unknown };
+  // livekit-server-sdk 2.13.x TwirpRPC constructs TwirpError with both the HTTP
+  // status and the Twirp JSON code from the same response. Require both so a
+  // proxy-generated 404 or another Twirp error is never mistaken for success.
+  return status === 404 && code === 'not_found';
+}
+
 export function normalizeRoomInputControlUrl(
   rawUrl: string,
   action: RoomInputControlAction
