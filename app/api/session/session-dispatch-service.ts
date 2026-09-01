@@ -30,6 +30,7 @@ type RoomClient = Pick<
 type DispatchDependencies = {
   dispatchClient?: DispatchClient;
   roomClient?: RoomClient;
+  abortSignal?: AbortSignal;
   dispatchTimeoutMs?: number;
   dispatchDeadlineMs?: number;
   dispatchRetryMs?: number;
@@ -39,6 +40,10 @@ type DispatchDependencies = {
     agentName: string,
     options?: Pick<WaitForAgentWorkerReadyOptions, 'maxWaitMs'>
   ) => Promise<AgentWorkerReadiness>;
+};
+
+type DispatchCaller = {
+  abortSignal?: AbortSignal;
 };
 
 export type DispatchRoomSessionRequest = {
@@ -60,8 +65,13 @@ export class RoomSessionCancelledError extends Error {
 type InFlightDispatch = {
   operation: Promise<Record<string, unknown>>;
   session: RoomSessionToken;
-  callers: number;
+  callers: Set<DispatchCaller>;
   deadline: { value: number };
+  dispatchClient: DispatchClient;
+  accepted: boolean;
+  cleanup?: Promise<void>;
+  drained: Promise<void>;
+  resolveDrained: () => void;
 };
 
 type InFlightDispatches = Map<string, InFlightDispatch>;
@@ -120,20 +130,46 @@ class PrewarmDeadlineError extends Error {
   }
 }
 
+class DispatchCallerAbandonedError extends Error {
+  constructor() {
+    super('dispatch caller abandoned');
+    this.name = 'DispatchCallerAbandonedError';
+  }
+}
+
 export async function dispatchRoomSession(
   request: DispatchRoomSessionRequest,
   dependencies: DispatchDependencies = {}
 ) {
+  if (dependencies.abortSignal?.aborted) {
+    throw new DispatchCallerAbandonedError();
+  }
   const startedAt = Date.now();
   const callerDeadline = resolveDispatchDeadline(dependencies, startedAt);
   if (callerDeadline <= startedAt) {
     throw new Error('agent dispatch deadline expired before dispatch');
   }
   const key = `${request.sessionId}\u0000${request.roomName}\u0000${request.agentName}`;
+  const caller: DispatchCaller = { abortSignal: dependencies.abortSignal };
   let inFlight = inFlightDispatches.get(key);
+  while (inFlight?.cleanup) {
+    await inFlight.drained;
+    if (dependencies.abortSignal?.aborted) {
+      throw new DispatchCallerAbandonedError();
+    }
+    if (callerDeadline <= Date.now()) {
+      throw new Error('agent dispatch deadline expired before dispatch');
+    }
+    inFlight = inFlightDispatches.get(key);
+  }
   if (!inFlight) {
     const clients = resolveClients(dependencies);
     const deadline = { value: callerDeadline };
+    const callers = new Set<DispatchCaller>([caller]);
+    let resolveDrained = () => {};
+    const drained = new Promise<void>((resolve) => {
+      resolveDrained = resolve;
+    });
     // Dispatch creation is shared by identity. Each caller waits for its own
     // readiness contract below, while the shared operation keeps the longest
     // timeout budget of all concurrent callers.
@@ -150,29 +186,48 @@ export async function dispatchRoomSession(
         () => deadline.value
       ),
       session,
-      callers: 0,
+      callers,
       deadline,
+      dispatchClient: clients.dispatchClient,
+      accepted: false,
+      drained,
+      resolveDrained,
     };
     inFlightDispatches.set(key, inFlight);
   } else {
     inFlight.deadline.value = Math.max(inFlight.deadline.value, callerDeadline);
   }
 
-  inFlight.callers += 1;
+  inFlight.callers.add(caller);
+  let dispatch: Record<string, unknown> | undefined;
   try {
-    const dispatch = await inFlight.operation;
-    return await waitForRequestedRoomSessionReadiness(
+    const sharedDispatch = await inFlight.operation;
+    dispatch = sharedDispatch;
+    throwIfDispatchCallerAbandoned(() => isDispatchCallerActive(inFlight, caller));
+    const result = await waitForRequestedRoomSessionReadiness(
       request,
       dependencies,
-      dispatch,
+      sharedDispatch,
       inFlight.session,
-      startedAt
+      startedAt,
+      () => isDispatchCallerActive(inFlight, caller)
     );
+    throwIfSessionCancelled(inFlight.session);
+    throwIfDispatchCallerAbandoned(() => isDispatchCallerActive(inFlight, caller));
+    inFlight.accepted = true;
+    markRoomSessionRunning(inFlight.session);
+    return result;
+  } catch (error) {
+    if (dispatch && error instanceof DispatchCallerAbandonedError) {
+      await cleanupAbandonedDispatch(inFlight, dispatch, request.roomName);
+    }
+    throw error;
   } finally {
-    inFlight.callers -= 1;
-    if (inFlight.callers === 0 && inFlightDispatches.get(key) === inFlight) {
+    inFlight.callers.delete(caller);
+    if (inFlight.callers.size === 0 && inFlightDispatches.get(key) === inFlight) {
       finishRoomSessionDispatch(inFlight.session);
       inFlightDispatches.delete(key);
+      inFlight.resolveDrained();
     }
   }
 }
@@ -182,8 +237,10 @@ async function waitForRequestedRoomSessionReadiness(
   dependencies: DispatchDependencies,
   dispatch: Record<string, unknown>,
   session: RoomSessionToken,
-  startedAt: number
+  startedAt: number,
+  isCallerActive: () => boolean
 ) {
+  throwIfDispatchCallerAbandoned(isCallerActive);
   const readiness = request.readiness ?? {};
   if (
     readiness.requireAgentSessionReady !== true &&
@@ -203,13 +260,14 @@ async function waitForRequestedRoomSessionReadiness(
     () => deadline,
     dependencies.dispatchPollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200),
     session,
-    dependencies.sleep || sleep
+    dependencies.sleep || sleep,
+    isCallerActive
   );
   if (!participant) {
     throw new Error('agent session and required room inputs did not become ready');
   }
   throwIfSessionCancelled(session);
-  markRoomSessionRunning(session);
+  throwIfDispatchCallerAbandoned(isCallerActive);
   return {
     ...dispatch,
     agentParticipant: summarizeAgentParticipant(participant),
@@ -307,6 +365,7 @@ export async function prewarmRoomSession(
           {
             ...dependencies,
             ...roomAndClients.clients,
+            abortSignal: prewarmAbortController.signal,
             dispatchDeadlineMs: prewarmDeadline,
           }
         );
@@ -478,15 +537,14 @@ async function createAgentDispatchWithRetry(
         reusableAgentOptions
       );
       throwIfSessionCancelled(session);
-      throwIfDeadlineExpired(getDeadline(), 'agent dispatch');
       if (alreadyJoined) {
-        markRoomSessionRunning(session);
         return {
           attempts,
           alreadyJoined: true,
           agentParticipant: summarizeAgentParticipant(alreadyJoined),
         };
       }
+      throwIfDeadlineExpired(getDeadline(), 'agent dispatch');
 
       if (!dispatchId) {
         throwIfDeadlineExpired(getDeadline(), 'agent dispatch creation');
@@ -513,10 +571,8 @@ async function createAgentDispatchWithRetry(
         session,
         sleepFn
       );
-      throwIfDeadlineExpired(getDeadline(), 'agent dispatch readiness');
       if (agentParticipant) {
         throwIfSessionCancelled(session);
-        markRoomSessionRunning(session);
         return {
           attempts,
           dispatchId,
@@ -647,10 +703,12 @@ async function waitForReusableAgentParticipant(
   getDeadline: () => number,
   pollMs: number,
   session: RoomSessionToken,
-  sleepFn: (ms: number) => Promise<unknown>
+  sleepFn: (ms: number) => Promise<unknown>,
+  isCallerActive: () => boolean = () => true
 ) {
   while (true) {
     throwIfSessionCancelled(session);
+    throwIfDispatchCallerAbandoned(isCallerActive);
     if (remainingDispatchTime(getDeadline()) <= 0) {
       return null;
     }
@@ -660,8 +718,10 @@ async function waitForReusableAgentParticipant(
     });
     if (participant) {
       throwIfSessionCancelled(session);
+      throwIfDispatchCallerAbandoned(isCallerActive);
       return participant;
     }
+    throwIfDispatchCallerAbandoned(isCallerActive);
     if (remainingDispatchTime(getDeadline()) <= 0) {
       return null;
     }
@@ -671,6 +731,41 @@ async function waitForReusableAgentParticipant(
     }
     await sleepFn(waitMs);
   }
+}
+
+function isDispatchCallerActive(inFlight: InFlightDispatch, caller: DispatchCaller) {
+  return inFlight.callers.has(caller) && caller.abortSignal?.aborted !== true;
+}
+
+function hasActiveDispatchCaller(callers: Set<DispatchCaller>) {
+  for (const caller of callers) {
+    if (caller.abortSignal?.aborted !== true) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function throwIfDispatchCallerAbandoned(isCallerActive: () => boolean): void {
+  if (!isCallerActive()) {
+    throw new DispatchCallerAbandonedError();
+  }
+}
+
+async function cleanupAbandonedDispatch(
+  inFlight: InFlightDispatch,
+  dispatch: Record<string, unknown>,
+  roomName: string
+) {
+  if (inFlight.accepted || hasActiveDispatchCaller(inFlight.callers)) {
+    return;
+  }
+  const dispatchId = typeof dispatch.dispatchId === 'string' ? dispatch.dispatchId : '';
+  if (!dispatchId) {
+    return;
+  }
+  inFlight.cleanup ??= deleteDispatchQuietly(inFlight.dispatchClient, dispatchId, roomName);
+  await inFlight.cleanup;
 }
 
 function throwIfDeadlineExpired(deadline: number, phase: string): void {

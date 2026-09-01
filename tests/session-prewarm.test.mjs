@@ -777,6 +777,118 @@ test('dispatch stops after a pre-deadline readiness query returns not-ready afte
   }
 });
 
+test('shared dispatch accepts a readiness query started before the deadline when it returns ready after it', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  const deadline = 2_000;
+  const agentName = 'frontdesk-browser-agent-shared-late-ready';
+  let participantReads = 0;
+  let dispatchCreates = 0;
+  let deleteDispatchCalls = 0;
+  Date.now = () => now;
+
+  try {
+    const result = await dispatchRoomSession(
+      {
+        roomName: 'voice_assistant_room_shared_late_ready',
+        sessionId: 'shared-late-ready',
+        agentName,
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            dispatchCreates += 1;
+            now = deadline - 1;
+            return { id: 'dispatch-shared-late-ready' };
+          },
+          async deleteDispatch() {
+            deleteDispatchCalls += 1;
+          },
+        },
+        roomClient: {
+          async listParticipants() {
+            participantReads += 1;
+            if (participantReads === 1) {
+              return [];
+            }
+
+            assert.equal(now, deadline - 1);
+            now = deadline + 1;
+            return readyParticipants(agentName);
+          },
+          async deleteRoom() {},
+        },
+        dispatchDeadlineMs: deadline,
+        dispatchPollMs: 100,
+        sleep: async () => {
+          assert.fail('a ready shared query should not sleep');
+        },
+      }
+    );
+
+    assert.equal(result.dispatchId, 'dispatch-shared-late-ready');
+    assert.equal(result.agentParticipant.identity, 'agent-ready');
+    assert.equal(participantReads, 2);
+    assert.equal(dispatchCreates, 1);
+    assert.equal(deleteDispatchCalls, 0);
+    assert.equal(
+      getRoomSessionSnapshot('voice_assistant_room_shared_late_ready')?.state,
+      'running'
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('dispatch reuses an existing participant returned after the deadline', async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  const deadline = 2_000;
+  const agentName = 'frontdesk-browser-agent-existing-late-ready';
+  let participantReads = 0;
+  Date.now = () => now;
+
+  try {
+    const result = await dispatchRoomSession(
+      {
+        roomName: 'voice_assistant_room_existing_late_ready',
+        sessionId: 'existing-late-ready',
+        agentName,
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            assert.fail('an existing participant should be reused');
+          },
+          async deleteDispatch() {
+            assert.fail('an existing participant has no dispatch to delete');
+          },
+        },
+        roomClient: {
+          async listParticipants() {
+            participantReads += 1;
+            assert.equal(now, 1_000);
+            now = deadline + 1;
+            return readyParticipants(agentName);
+          },
+          async deleteRoom() {},
+        },
+        dispatchDeadlineMs: deadline,
+        sleep: async () => {
+          assert.fail('an existing ready participant should not sleep');
+        },
+      }
+    );
+
+    assert.equal(result.alreadyJoined, true);
+    assert.equal(result.attempts, 0);
+    assert.equal(result.agentParticipant.identity, 'agent-ready');
+    assert.equal(participantReads, 1);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('prewarm timeout cleans up a dispatch whose in-flight readiness query returns late', async () => {
   const roomName = 'voice_assistant_room_prewarm_late_readiness';
   const sessionId = 'prewarm-late-readiness';
@@ -850,6 +962,171 @@ test('prewarm timeout cleans up a dispatch whose in-flight readiness query retur
   assert.equal(participantReads, 2);
   assert.equal(deleteDispatchCalls, 1);
   assert.equal(getRoomSessionSnapshot(roomName)?.state, 'starting');
+});
+
+test('prewarm timeout during caller readiness cleans up the shared dispatch', async () => {
+  const roomName = 'voice_assistant_room_prewarm_caller_readiness_timeout';
+  const sessionId = 'prewarm-caller-readiness-timeout';
+  const agentName = 'frontdesk-browser-agent-prewarm-caller-readiness-timeout';
+  let participantReads = 0;
+  let deleteDispatchCalls = 0;
+  let markLateReadStarted;
+  let releaseLateRead;
+  const lateReadStarted = new Promise((resolve) => {
+    markLateReadStarted = resolve;
+  });
+  const lateReadGate = new Promise((resolve) => {
+    releaseLateRead = resolve;
+  });
+
+  const pending = prewarmRoomSession(
+    { roomName, sessionId, agentName },
+    {
+      dispatchClient: {
+        async createDispatch() {
+          return { id: 'dispatch-prewarm-caller-readiness-timeout' };
+        },
+        async deleteDispatch() {
+          deleteDispatchCalls += 1;
+        },
+      },
+      roomClient: {
+        async listRooms() {
+          return [{ name: roomName }];
+        },
+        async createRoom() {
+          assert.fail('the existing room should be reused');
+        },
+        async listParticipants() {
+          participantReads += 1;
+          if (participantReads === 1) {
+            return [];
+          }
+          if (participantReads === 2) {
+            return readyParticipants(agentName, { agentSessionReady: false });
+          }
+
+          markLateReadStarted();
+          await lateReadGate;
+          return readyParticipants(agentName);
+        },
+        async deleteRoom() {},
+      },
+      waitForAgentWorkerReady: async () => ({
+        state: 'ready',
+        agentName,
+        workerId: 'AW_prewarm_caller_readiness_timeout',
+        registeredAt: '2026-09-01T00:00:00Z',
+        waitedMs: 0,
+      }),
+      dispatchTimeoutMs: 100,
+      dispatchPollMs: 1,
+    }
+  );
+
+  await lateReadStarted;
+  let failure;
+  await assert.rejects(pending, (error) => {
+    failure = error;
+    assert.equal(error instanceof PrewarmRoomSessionError, true);
+    assert.match(error.message, /prewarm deadline expired during dispatch_readiness/);
+    return true;
+  });
+
+  assert.equal(deleteDispatchCalls, 0);
+  assert.ok(failure.retryReady);
+  releaseLateRead();
+  await failure.retryReady;
+
+  assert.equal(participantReads, 3);
+  assert.equal(deleteDispatchCalls, 1);
+  assert.equal(getRoomSessionSnapshot(roomName)?.state, 'starting');
+});
+
+test('abandoned prewarm does not cancel a shared dispatch with an active regular caller', async () => {
+  const roomName = 'voice_assistant_room_shared_prewarm_abandonment';
+  const sessionId = 'shared-prewarm-abandonment';
+  const agentName = 'frontdesk-browser-agent-shared-prewarm-abandonment';
+  let participantReads = 0;
+  let dispatchCreates = 0;
+  let deleteDispatchCalls = 0;
+  let markLateReadStarted;
+  let releaseLateRead;
+  const lateReadStarted = new Promise((resolve) => {
+    markLateReadStarted = resolve;
+  });
+  const lateReadGate = new Promise((resolve) => {
+    releaseLateRead = resolve;
+  });
+  const dispatchClient = {
+    async createDispatch() {
+      dispatchCreates += 1;
+      return { id: 'dispatch-shared-prewarm-abandonment' };
+    },
+    async deleteDispatch() {
+      deleteDispatchCalls += 1;
+    },
+  };
+  const roomClient = {
+    async listRooms() {
+      return [{ name: roomName }];
+    },
+    async createRoom() {
+      assert.fail('the existing room should be reused');
+    },
+    async listParticipants() {
+      participantReads += 1;
+      if (participantReads === 1) {
+        return [];
+      }
+      if (participantReads === 2) {
+        markLateReadStarted();
+        await lateReadGate;
+      }
+      return readyParticipants(agentName);
+    },
+    async deleteRoom() {},
+  };
+  const request = { roomName, sessionId, agentName };
+
+  const prewarm = prewarmRoomSession(request, {
+    dispatchClient,
+    roomClient,
+    waitForAgentWorkerReady: async () => ({
+      state: 'ready',
+      agentName,
+      workerId: 'AW_shared_prewarm_abandonment',
+      registeredAt: '2026-09-01T00:00:00Z',
+      waitedMs: 0,
+    }),
+    dispatchTimeoutMs: 100,
+    dispatchPollMs: 1,
+  });
+
+  await lateReadStarted;
+  const regularDispatch = dispatchRoomSession(request, {
+    dispatchClient,
+    roomClient,
+    dispatchTimeoutMs: 1_000,
+    dispatchPollMs: 1,
+  });
+  let prewarmFailure;
+  await assert.rejects(prewarm, (error) => {
+    prewarmFailure = error;
+    assert.equal(error instanceof PrewarmRoomSessionError, true);
+    assert.match(error.message, /prewarm deadline expired during dispatch_readiness/);
+    return true;
+  });
+
+  assert.equal(deleteDispatchCalls, 0);
+  releaseLateRead();
+  const regularResult = await regularDispatch;
+  await prewarmFailure.retryReady;
+
+  assert.equal(regularResult.dispatchId, 'dispatch-shared-prewarm-abandonment');
+  assert.equal(dispatchCreates, 1);
+  assert.equal(deleteDispatchCalls, 0);
+  assert.equal(getRoomSessionSnapshot(roomName)?.state, 'running');
 });
 
 test('room timeout cannot create a room after a delayed list operation finishes', async () => {
@@ -1511,7 +1788,7 @@ test('shared dispatch token stays active through per-caller readiness waits', as
 
   assert.match(
     dispatchSource,
-    /inFlight\.callers === 0[\s\S]*finishRoomSessionDispatch\(inFlight\.session\)/
+    /inFlight\.callers\.size === 0[\s\S]*finishRoomSessionDispatch\(inFlight\.session\)/
   );
   assert.doesNotMatch(readinessSource, /beginRoomSessionDispatch|finishRoomSessionDispatch/);
 });
