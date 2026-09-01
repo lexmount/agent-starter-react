@@ -777,6 +777,81 @@ test('dispatch stops after a pre-deadline readiness query returns not-ready afte
   }
 });
 
+test('prewarm timeout cleans up a dispatch whose in-flight readiness query returns late', async () => {
+  const roomName = 'voice_assistant_room_prewarm_late_readiness';
+  const sessionId = 'prewarm-late-readiness';
+  const agentName = 'frontdesk-browser-agent-prewarm-late-readiness';
+  let participantReads = 0;
+  let deleteDispatchCalls = 0;
+  let markLateReadStarted;
+  let releaseLateRead;
+  const lateReadStarted = new Promise((resolve) => {
+    markLateReadStarted = resolve;
+  });
+  const lateReadGate = new Promise((resolve) => {
+    releaseLateRead = resolve;
+  });
+
+  const pending = prewarmRoomSession(
+    { roomName, sessionId, agentName },
+    {
+      dispatchClient: {
+        async createDispatch() {
+          return { id: 'dispatch-prewarm-late-readiness' };
+        },
+        async deleteDispatch() {
+          deleteDispatchCalls += 1;
+        },
+      },
+      roomClient: {
+        async listRooms() {
+          return [{ name: roomName }];
+        },
+        async createRoom() {
+          assert.fail('the existing room should be reused');
+        },
+        async listParticipants() {
+          participantReads += 1;
+          if (participantReads === 1) {
+            return [];
+          }
+          markLateReadStarted();
+          await lateReadGate;
+          return readyParticipants(agentName);
+        },
+        async deleteRoom() {},
+      },
+      waitForAgentWorkerReady: async () => ({
+        state: 'ready',
+        agentName,
+        workerId: 'AW_prewarm_late_readiness',
+        registeredAt: '2026-09-01T00:00:00Z',
+        waitedMs: 0,
+      }),
+      dispatchTimeoutMs: 100,
+      dispatchPollMs: 1,
+    }
+  );
+
+  await lateReadStarted;
+  let failure;
+  await assert.rejects(pending, (error) => {
+    failure = error;
+    assert.equal(error instanceof PrewarmRoomSessionError, true);
+    assert.match(error.message, /prewarm deadline expired during dispatch_readiness/);
+    return true;
+  });
+
+  assert.equal(deleteDispatchCalls, 0);
+  assert.ok(failure.retryReady);
+  releaseLateRead();
+  await failure.retryReady;
+
+  assert.equal(participantReads, 2);
+  assert.equal(deleteDispatchCalls, 1);
+  assert.equal(getRoomSessionSnapshot(roomName)?.state, 'starting');
+});
+
 test('room timeout cannot create a room after a delayed list operation finishes', async () => {
   const originalNow = Date.now;
   Date.now = () => 1_000;

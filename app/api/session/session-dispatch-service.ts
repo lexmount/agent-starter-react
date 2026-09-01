@@ -513,6 +513,7 @@ async function createAgentDispatchWithRetry(
         session,
         sleepFn
       );
+      throwIfDeadlineExpired(getDeadline(), 'agent dispatch readiness');
       if (agentParticipant) {
         throwIfSessionCancelled(session);
         markRoomSessionRunning(session);
