@@ -146,7 +146,7 @@ test('managed browser starts media and dispatch concurrently in every runtime mo
   );
   assert.match(
     useRoomSource,
-    /usesConcurrentStartup = usesManagedRoomInput/
+    /usesConcurrentManagedStartup =\s*browserSourceClient\.enabled \|\| appConfig\.usesServerRoomInput/
   );
   assert.match(
     useRoomSource,

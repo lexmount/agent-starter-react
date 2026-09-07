@@ -256,7 +256,8 @@ export function useRoom(appConfig: AppConfig) {
     // Managed Browser/server inputs may wait for the agent-owned media gate.
     // Dispatch must therefore start in parallel in every local/runtime mode;
     // serial startup deadlocks at "Starting..." before an agent can join.
-    const usesConcurrentStartup = usesManagedRoomInput;
+    const usesConcurrentManagedStartup =
+      browserSourceClient.enabled || appConfig.usesServerRoomInput;
 
     try {
       await waitForAgentSessionStop();
@@ -269,7 +270,7 @@ export function useRoom(appConfig: AppConfig) {
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECT_FINISHED);
         recordFrontendObservability(FRONTEND_EVENTS.ROOM_CONNECTED);
         connectedRoomName = room.name;
-        if (usesConcurrentStartup) {
+        if (usesConcurrentManagedStartup) {
           const [localInputResult, dispatchResult] = await Promise.allSettled([
             startLocalInputOrCancelDispatch(),
             dispatchAgentSession(),
@@ -302,7 +303,7 @@ export function useRoom(appConfig: AppConfig) {
         ]);
       }
 
-      if (!usesConcurrentStartup) {
+      if (!usesConcurrentManagedStartup) {
         await dispatchAgentSession();
       }
       setIsSessionActive(true);
