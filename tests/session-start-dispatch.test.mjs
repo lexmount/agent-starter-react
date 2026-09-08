@@ -15,15 +15,15 @@ test('connection details route does not dispatch agents while generating tokens'
   assert.doesNotMatch(routeSource, /dispatchClient\.createDispatch/);
 });
 
-test('connection details route omits room config from the participant token', async () => {
+test('connection details preserve explicit room config without token agents', async () => {
   const routeSource = await readFile(
     new URL('../app/api/connection-details/route.ts', import.meta.url),
     'utf8'
   );
 
-  assert.doesNotMatch(routeSource, /RoomConfiguration\.fromJson/);
-  assert.doesNotMatch(routeSource, /at\.roomConfig/);
-  assert.match(routeSource, /Explicit dispatch is handled by \/api\/session\/dispatch/);
+  assert.match(routeSource, /RoomConfiguration\.fromJson/);
+  assert.match(routeSource, /at\.roomConfig/);
+  assert.match(routeSource, /agents: \[\]/);
   assert.match(routeSource, /resolveConnectionSessionId/);
   assert.match(routeSource, /deriveLiveKitRoomName/);
 });

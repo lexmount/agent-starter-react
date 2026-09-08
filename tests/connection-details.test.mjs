@@ -1,3 +1,4 @@
+import { decodeJwt } from 'jose';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
@@ -8,6 +9,7 @@ process.env.LIVEKIT_API_SECRET = 'devsecret-devsecret-devsecret-dev';
 
 const { resolveConnectionRoomId } = await import('../lib/connection-room-id.ts');
 const { readConnectionDetailsResponse } = await import('../lib/connection-details-response.ts');
+const { POST } = await import('../app/api/connection-details/route.ts');
 
 test('connection details reuse a client supplied room id', async () => {
   const roomId = '11111111-2222-4333-8444-555555555555';
@@ -88,4 +90,28 @@ test('connection details route logs issued token with canonical session identity
   assert.match(routeSource, /sessionId/);
   assert.match(routeSource, /roomName/);
   assert.match(routeSource, /participantIdentity/);
+});
+
+test('connection details preserve an explicit room configuration without token agents', async () => {
+  const response = await POST(
+    new Request('http://localhost/api/connection-details', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        room_id: '11111111-2222-4333-8444-555555555555',
+        room_config: {
+          empty_timeout: 123,
+          max_participants: 7,
+          agents: [{ agent_name: 'duplicate-dispatch-owner' }],
+        },
+      }),
+    })
+  );
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  const claims = decodeJwt(payload.participantToken);
+  assert.equal(claims.roomConfig.emptyTimeout, 123);
+  assert.equal(claims.roomConfig.maxParticipants, 7);
+  assert.deepEqual(claims.roomConfig.agents, []);
 });

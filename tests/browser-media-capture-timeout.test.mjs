@@ -44,12 +44,14 @@ test('browser media capture returns an on-time result without disposing it', asy
   assert.equal(stopped, false);
 });
 
-test('browser video capture and publication are both bounded startup steps', async () => {
+test('browser audio and video capture and publication are bounded startup steps', async () => {
   const source = await readFile(
     new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
     'utf8'
   );
 
+  assert.match(source, /label: 'microphone'/);
+  assert.match(source, /label: 'microphone publish'/);
   assert.match(source, /label: 'camera'/);
   assert.match(source, /label: 'camera publish'/);
 });

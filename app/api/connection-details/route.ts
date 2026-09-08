@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { randomUUID } from 'node:crypto';
+import { RoomConfiguration } from '@livekit/protocol';
 import { deriveLiveKitRoomName, resolveConnectionSessionId } from '@/lib/connection-room-id';
 
 type ConnectionDetails = {
@@ -32,6 +33,11 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const tokenRoomConfig = body?.room_config
+      ? buildTokenRoomConfig(
+          RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
+        )
+      : undefined;
 
     // Generate participant token
     const participantName = 'user';
@@ -39,11 +45,13 @@ export async function POST(req: Request) {
     const participantIdentity = `voice_assistant_user_${sessionId}`;
     const roomName = deriveLiveKitRoomName(sessionId);
 
-    // Explicit dispatch is handled by /api/session/dispatch. Omitting roomConfig
-    // also keeps participant tokens compatible with older LiveKit servers.
+    // Internal requests omit roomConfig for older LiveKit servers. Explicit caller
+    // settings are preserved without agents. Explicit dispatch is handled by
+    // /api/session/dispatch.
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
-      roomName
+      roomName,
+      tokenRoomConfig
     );
 
     // Return connection details
@@ -71,7 +79,11 @@ export async function POST(req: Request) {
   }
 }
 
-function createParticipantToken(userInfo: AccessTokenOptions, roomName: string): Promise<string> {
+function createParticipantToken(
+  userInfo: AccessTokenOptions,
+  roomName: string,
+  roomConfig: RoomConfiguration | undefined
+): Promise<string> {
   const at = new AccessToken(API_KEY, API_SECRET, {
     ...userInfo,
     ttl: '15m',
@@ -85,5 +97,16 @@ function createParticipantToken(userInfo: AccessTokenOptions, roomName: string):
   };
   at.addGrant(grant);
 
+  if (roomConfig) {
+    at.roomConfig = roomConfig;
+  }
+
   return at.toJwt();
+}
+
+function buildTokenRoomConfig(roomConfig: RoomConfiguration): RoomConfiguration {
+  if (roomConfig.agents.length === 0) {
+    return roomConfig;
+  }
+  return new RoomConfiguration({ ...roomConfig, agents: [] });
 }
