@@ -10,6 +10,7 @@ import {
 } from '@/lib/connection-room-id';
 import {
   executeRoomInputStopsSequentially,
+  normalizeRoomInputControlUrl,
   resolveRoomInputStopUrls as resolveConfiguredRoomInputStopUrls,
   resolveLiveKitHttpUrl,
 } from '@/lib/session-stop';
@@ -307,9 +308,17 @@ async function postRoomInputStop(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ROOM_INPUT_STOP_TIMEOUT_MS);
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const edgeToken = readStopEnv('EDGE_MEDIA_CONTROL_TOKEN');
+    if (
+      edgeToken &&
+      stopUrl === normalizeRoomInputControlUrl(readStopEnv('EDGE_MEDIA_URL'), 'stop')
+    ) {
+      headers.Authorization = `Bearer ${edgeToken}`;
+    }
     const response = await fetch(stopUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ room_name: roomName, session_id: sessionId }),
       signal: controller.signal,
     });

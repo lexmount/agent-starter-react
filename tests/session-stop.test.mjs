@@ -18,6 +18,55 @@ function restoreEnv(previousEnv) {
   Object.assign(process.env, previousEnv);
 }
 
+test('session stop authenticates Edge Media without exposing its token to the processor', async () => {
+  const previousEnv = { ...process.env };
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  Object.assign(process.env, {
+    INPUT_SOURCE: 'xunfei',
+    VIDEO_PROCESSOR_URL: 'http://processor.local/start',
+    EDGE_MEDIA_URL: 'http://edge.local/start',
+    EDGE_MEDIA_CONTROL_TOKEN: 'test-edge-token',
+  });
+  for (const key of [
+    'LIVEKIT_URL',
+    'LIVEKIT_API_KEY',
+    'LIVEKIT_API_SECRET',
+    'LEXVOICE_RUN_LOG_DIR',
+  ]) {
+    delete process.env[key];
+  }
+  globalThis.fetch = async (url, options) => {
+    const authorization = new Headers(options.headers).get('Authorization');
+    calls.push({ url, authorization });
+    return new Response('{}', {
+      status:
+        url === 'http://edge.local/stop' && authorization !== 'Bearer test-edge-token' ? 401 : 200,
+    });
+  };
+  try {
+    const response = await stopSession(
+      new Request('http://localhost/api/session/stop', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: '00000000-0000-4000-8000-000000000029', wait: true }),
+      })
+    );
+    const payload = await response.json();
+    assert.deepEqual(calls, [
+      { url: 'http://processor.local/stop', authorization: null },
+      { url: 'http://edge.local/stop', authorization: 'Bearer test-edge-token' },
+    ]);
+    assert.ok(
+      payload.results
+        .filter((result) => result.target === 'room_input')
+        .every((result) => result.ok)
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreEnv(previousEnv);
+  }
+});
+
 test('parses the latest target agent worker state from LiveKit server logs', () => {
   const source = [
     '{"agentName":"other-agent","status":"WS_AVAILABLE"}',
