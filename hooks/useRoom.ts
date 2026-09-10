@@ -259,6 +259,11 @@ export function useRoom(appConfig: AppConfig) {
 
     try {
       await waitForAgentSessionStop();
+      // A Room disconnect can make the welcome view visible without running the
+      // explicit End Call path. Clear the previous capture/gate runtime before
+      // reusing this Room, otherwise start() is a no-op and the new agent is
+      // dispatched into a room that never receives the browser microphone.
+      await browserSourceClient.stop();
       await waitForRoomDisconnected(room);
 
       if (usesManagedRoomInput) {

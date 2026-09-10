@@ -77,7 +77,7 @@ export type PublishableRoom = {
   localParticipant?: {
     identity?: string;
     publishData?: (
-      data: Uint8Array,
+      data: Uint8Array<ArrayBuffer>,
       options?: { reliable?: boolean; topic?: string }
     ) => Promise<void> | void;
   };

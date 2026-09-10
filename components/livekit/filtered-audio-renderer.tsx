@@ -10,6 +10,7 @@ import {
   Track,
 } from 'livekit-client';
 import { useRoomContext } from '@livekit/components-react';
+import { buildBrowserAudioPlaybackDiagnostics } from '@/lib/browser-audio-capture';
 import { startMediaTrackAudioObserver } from '@/lib/frontend-audio-observer';
 import {
   FRONTEND_EVENTS,
@@ -398,6 +399,13 @@ export function FilteredAudioRenderer({
           if (!playbackSource || playbackObserverStops.has(elementKey)) {
             return;
           }
+          const playbackDiagnostics = buildBrowserAudioPlaybackDiagnostics(
+            participantIdentity,
+            trackName,
+            audioElements.values(),
+            createdAudioElement
+          );
+          debugAudioLog(debugAudio, '[browser-audio] playback diagnostics', playbackDiagnostics);
           pendingPlayback.delete(elementKey);
           startPlaybackObserver(
             elementKey,

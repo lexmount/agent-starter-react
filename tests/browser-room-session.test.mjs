@@ -167,3 +167,12 @@ test('browser input starts media and dispatch concurrently', async () => {
     /appConfig\.sandboxId && videoEnabledRef\.current[\s\S]*Promise\.allSettled\(\[[\s\S]*ensureAudioPublished\(runtime\),[\s\S]*ensureVideoPublished\(runtime\)[\s\S]*\]\)/
   );
 });
+
+test('a restarted session tears down stale browser media before reconnecting', async () => {
+  const useRoomSource = await readFile(new URL('../hooks/useRoom.ts', import.meta.url), 'utf8');
+  assert.match(
+    useRoomSource,
+    /try \{\n      await waitForAgentSessionStop\(\);[\s\S]*?await browserSourceClient\.stop\(\);\n      await waitForRoomDisconnected\(room\);/,
+    'stale browser capture and gate state must be cleared before the Room is reused'
+  );
+});

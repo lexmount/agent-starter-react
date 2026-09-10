@@ -32,12 +32,12 @@ export async function POST(req: Request) {
       throw new Error('LIVEKIT_API_SECRET is not defined');
     }
 
-    // Parse room configuration from request body
     const body = await req.json();
-    const roomConfig = body?.room_config
-      ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
-      : new RoomConfiguration();
-    const tokenRoomConfig = buildTokenRoomConfig(roomConfig);
+    const tokenRoomConfig = body?.room_config
+      ? buildTokenRoomConfig(
+          RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
+        )
+      : undefined;
 
     // Generate participant token
     const participantName = 'user';
@@ -45,6 +45,9 @@ export async function POST(req: Request) {
     const participantIdentity = `voice_assistant_user_${sessionId}`;
     const roomName = deriveLiveKitRoomName(sessionId);
 
+    // Internal requests omit roomConfig for older LiveKit servers. Explicit caller
+    // settings are preserved without agents. Explicit dispatch is handled by
+    // /api/session/dispatch.
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
       roomName,
@@ -101,14 +104,9 @@ function createParticipantToken(
   return at.toJwt();
 }
 
-function buildTokenRoomConfig(roomConfig: RoomConfiguration) {
+function buildTokenRoomConfig(roomConfig: RoomConfiguration): RoomConfiguration {
   if (roomConfig.agents.length === 0) {
     return roomConfig;
   }
-
-  // Explicit dispatch is handled by /api/session/dispatch; token agents would create duplicate jobs.
-  return new RoomConfiguration({
-    ...roomConfig,
-    agents: [],
-  });
+  return new RoomConfiguration({ ...roomConfig, agents: [] });
 }

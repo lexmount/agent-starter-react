@@ -1,4 +1,5 @@
 import { type RemoteParticipant, type Room, RoomEvent } from 'livekit-client';
+import { awaitBrowserMediaCapture } from './browser-media-capture-timeout';
 import {
   MEDIA_CONTROL_TOPIC,
   MEDIA_STATE_TOPIC,
@@ -7,6 +8,8 @@ import {
   decodeMediaControl,
   encodeMediaState,
 } from './media-control-protocol';
+
+const MEDIA_STATE_PUBLISH_TIMEOUT_MS = 3000;
 
 export type MediaGateExecutorPort = {
   start(): Promise<void>;
@@ -228,11 +231,18 @@ export async function publishLiveKitMediaState(
   throwIfAborted(signal);
   const payload = encodeMediaState(state);
   throwIfAborted(signal);
-  await room.localParticipant.publishData(payload, {
-    reliable: true,
-    destinationIdentities: [controllerIdentity],
-    topic: MEDIA_STATE_TOPIC,
-  });
+  await awaitBrowserMediaCapture(
+    room.localParticipant.publishData(payload, {
+      reliable: true,
+      destinationIdentities: [controllerIdentity],
+      topic: MEDIA_STATE_TOPIC,
+    }),
+    {
+      timeoutMs: MEDIA_STATE_PUBLISH_TIMEOUT_MS,
+      label: 'media gate state',
+      disposeLateResult: () => undefined,
+    }
+  );
 }
 
 function mediaControlErrorCode(error: unknown): string {
