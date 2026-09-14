@@ -85,7 +85,7 @@ const globalForInFlightDispatches = globalThis as typeof globalThis & {
 const inFlightDispatches =
   globalForInFlightDispatches.__liveavatarInFlightDispatches ??
   (globalForInFlightDispatches.__liveavatarInFlightDispatches = new Map());
-const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 30_000;
+const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 45_000;
 const DEFAULT_AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS = 5_000;
 const DEFAULT_PREWARM_TOTAL_TIMEOUT_MS = 45_000;
 
