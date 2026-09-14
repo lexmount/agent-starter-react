@@ -15,16 +15,15 @@ test('connection details route does not dispatch agents while generating tokens'
   assert.doesNotMatch(routeSource, /dispatchClient\.createDispatch/);
 });
 
-test('connection details route strips room-config agents from the participant token', async () => {
+test('connection details preserve explicit room config without token agents', async () => {
   const routeSource = await readFile(
     new URL('../app/api/connection-details/route.ts', import.meta.url),
     'utf8'
   );
 
-  assert.match(routeSource, /function buildTokenRoomConfig/);
   assert.match(routeSource, /RoomConfiguration\.fromJson/);
+  assert.match(routeSource, /at\.roomConfig/);
   assert.match(routeSource, /agents: \[\]/);
-  assert.match(routeSource, /Explicit dispatch is handled by \/api\/session\/dispatch/);
   assert.match(routeSource, /resolveConnectionSessionId/);
   assert.match(routeSource, /deriveLiveKitRoomName/);
 });
@@ -280,7 +279,7 @@ test('start call reconnects only after any previous room disconnect has complete
   assert.match(useRoomSource, /waitForRoomDisconnected/);
   assert.match(
     useRoomSource,
-    /await waitForAgentSessionStop\(\);\s*await waitForRoomDisconnected\(room\);/
+    /await waitForAgentSessionStop\(\);[\s\S]*?await browserSourceClient\.stop\(\);\s*await waitForRoomDisconnected\(room\);/
   );
 });
 
@@ -372,17 +371,17 @@ test('browser source reports video failure even when audio capture also fails', 
   );
 });
 
-test('browser publishes source-side mirrored video through the LiveKit processor', async () => {
+test('browser video capture uses the bounded native capture path', async () => {
   const browserSourceSource = await readFile(
     new URL('../hooks/useBrowserSourceClient.ts', import.meta.url),
     'utf8'
   );
 
-  assert.match(browserSourceSource, /createBrowserVideoMirrorProcessor/);
   assert.match(
     browserSourceSource,
-    /createLocalVideoTrack\(\{[\s\S]*processor: createBrowserVideoMirrorProcessor\(\)/
+    /awaitBrowserMediaCapture\(\s*createLocalVideoTrack\(\{[\s\S]*width: browserVideoWidth,[\s\S]*height: browserVideoHeight/
   );
+  assert.doesNotMatch(browserSourceSource, /createBrowserVideoMirrorProcessor/);
   assert.doesNotMatch(browserSourceSource, /transform:\s*scaleX\(-1\)/);
 });
 

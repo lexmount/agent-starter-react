@@ -7,6 +7,7 @@ const {
   buildBrowserAudioCaptureObservabilityAttributes,
   buildBrowserAudioPlaybackDiagnostics,
   inspectBrowserAudioCapture,
+  runWithBrowserAudioTrackCleanup,
 } = await import('../lib/browser-audio-capture.ts');
 
 test('browser audio capture requests WebRTC audio processing', () => {
@@ -111,6 +112,49 @@ test('browser audio capture does not claim unsupported AEC is active', () => {
   assert.equal(diagnostics.supported.echoCancellation, false);
   assert.equal(diagnostics.settings.echoCancellation, undefined);
   assert.doesNotThrow(() => assertBrowserEchoCancellationActive(diagnostics));
+});
+
+test('audio capture failure disables, mutes, and stops the acquired track', async () => {
+  const calls = [];
+  const audioTrack = {
+    mediaStreamTrack: { enabled: true },
+    mute() {
+      calls.push('mute');
+      return new Promise(() => {});
+    },
+    stop() {
+      calls.push('stop');
+    },
+  };
+
+  await assert.rejects(
+    runWithBrowserAudioTrackCleanup(audioTrack, async () => {
+      throw new Error('AEC is not active');
+    }),
+    /AEC is not active/
+  );
+
+  assert.equal(audioTrack.mediaStreamTrack.enabled, false);
+  assert.deepEqual(calls, ['mute', 'stop']);
+});
+
+test('successful audio capture is left owned by the active runtime', async () => {
+  const calls = [];
+  const audioTrack = {
+    mediaStreamTrack: { enabled: true },
+    async mute() {
+      calls.push('mute');
+    },
+    stop() {
+      calls.push('stop');
+    },
+  };
+
+  const result = await runWithBrowserAudioTrackCleanup(audioTrack, async () => 'published');
+
+  assert.equal(result, 'published');
+  assert.equal(audioTrack.mediaStreamTrack.enabled, true);
+  assert.deepEqual(calls, []);
 });
 
 test('browser playback diagnostics identify the active output and element count', () => {

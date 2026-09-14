@@ -15,7 +15,30 @@ export function mergeTranscriptionHistory(
   if (current.length === 0) return previous;
 
   const byStreamId = new Map(previous.map((entry) => [entry.streamInfo.id, entry]));
-  current.forEach((entry) => byStreamId.set(entry.streamInfo.id, entry));
+  current.forEach((entry) => {
+    const segmentId = entry.streamInfo.attributes?.['lk.segment_id'];
+    const finalValue: unknown = entry.streamInfo.attributes?.['lk.transcription_final'];
+    const hasFinalState =
+      finalValue === true ||
+      finalValue === false ||
+      finalValue === 'true' ||
+      finalValue === 'false';
+
+    if (segmentId && hasFinalState) {
+      for (const [streamId, existing] of byStreamId) {
+        const sameSegment = existing.streamInfo.attributes?.['lk.segment_id'] === segmentId;
+        const sameParticipant =
+          existing.participantInfo.identity === entry.participantInfo.identity;
+        const existingFinal: unknown = existing.streamInfo.attributes?.['lk.transcription_final'];
+        const existingIsPartial = existingFinal === false || existingFinal === 'false';
+        if (sameSegment && sameParticipant && existingIsPartial) {
+          byStreamId.delete(streamId);
+        }
+      }
+    }
+
+    byStreamId.set(entry.streamInfo.id, entry);
+  });
 
   return Array.from(byStreamId.values())
     .sort((a, b) => a.streamInfo.timestamp - b.streamInfo.timestamp)

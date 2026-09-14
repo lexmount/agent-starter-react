@@ -405,9 +405,7 @@ export function FilteredAudioRenderer({
             audioElements.values(),
             createdAudioElement
           );
-          const logPlaybackDiagnostics =
-            playbackDiagnostics.activeAudioElementCount === 1 ? console.info : console.warn;
-          logPlaybackDiagnostics('[browser-audio] playback diagnostics', playbackDiagnostics);
+          debugAudioLog(debugAudio, '[browser-audio] playback diagnostics', playbackDiagnostics);
           pendingPlayback.delete(elementKey);
           startPlaybackObserver(
             elementKey,
