@@ -331,7 +331,7 @@ test('missing LiveKit configuration fails before registering a room session', as
   }
 });
 
-test('regular dispatch keeps its 30s timeout while prewarm gets the default 45s total budget', async () => {
+test('regular dispatch and prewarm both allow the default 45s total startup budget', async () => {
   const originalNow = Date.now;
   const originalTimeout = process.env.AGENT_DISPATCH_TIMEOUT_MS;
   const originalPrewarmTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
@@ -384,7 +384,7 @@ test('regular dispatch keeps its 30s timeout while prewarm gets the default 45s 
       ),
       /agent dispatch failed/
     );
-    assert.equal(now - regularStartedAt, 30_000);
+    assert.equal(now - regularStartedAt, 45_000);
 
     const prewarmStartedAt = now;
     await assert.rejects(
