@@ -331,7 +331,7 @@ test('missing LiveKit configuration fails before registering a room session', as
   }
 });
 
-test('regular dispatch keeps its 30s timeout while prewarm gets the default 45s total budget', async () => {
+test('regular dispatch and prewarm both allow the default 45s total startup budget', async () => {
   const originalNow = Date.now;
   const originalTimeout = process.env.AGENT_DISPATCH_TIMEOUT_MS;
   const originalPrewarmTimeout = process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
@@ -384,7 +384,7 @@ test('regular dispatch keeps its 30s timeout while prewarm gets the default 45s 
       ),
       /agent dispatch failed/
     );
-    assert.equal(now - regularStartedAt, 30_000);
+    assert.equal(now - regularStartedAt, 45_000);
 
     const prewarmStartedAt = now;
     await assert.rejects(
@@ -410,6 +410,63 @@ test('regular dispatch keeps its 30s timeout while prewarm gets the default 45s 
       delete process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS;
     } else {
       process.env.LIVEAVATAR_PREWARM_TOTAL_TIMEOUT_MS = originalPrewarmTimeout;
+    }
+  }
+});
+
+test('dispatch replaces an unassigned dispatch instead of waiting on it for the full deadline', async () => {
+  const originalNow = Date.now;
+  const originalAttemptTimeout = process.env.AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS;
+  let now = 1_000;
+  let dispatchCount = 0;
+  const deletedDispatchIds = [];
+  const agentName = 'frontdesk-browser-agent-recovered-worker';
+  Date.now = () => now;
+  process.env.AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS = '1000';
+
+  try {
+    const result = await dispatchRoomSession(
+      {
+        roomName: 'voice_assistant_room_recovered_worker',
+        sessionId: 'recovered-worker',
+        agentName,
+        readiness: { requireAgentSessionReady: true },
+      },
+      {
+        dispatchClient: {
+          async createDispatch() {
+            dispatchCount += 1;
+            return { id: `dispatch-recovered-worker-${dispatchCount}` };
+          },
+          async deleteDispatch(dispatchId) {
+            deletedDispatchIds.push(dispatchId);
+          },
+        },
+        roomClient: {
+          async listParticipants() {
+            return dispatchCount >= 2 ? readyParticipants(agentName) : [];
+          },
+          async deleteRoom() {},
+        },
+        dispatchTimeoutMs: 5_000,
+        dispatchPollMs: 500,
+        dispatchRetryMs: 500,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      }
+    );
+
+    assert.equal(result.attempts, 2);
+    assert.equal(result.dispatchId, 'dispatch-recovered-worker-2');
+    assert.deepEqual(deletedDispatchIds, ['dispatch-recovered-worker-1']);
+    assert.equal(now, 2_500);
+  } finally {
+    Date.now = originalNow;
+    if (originalAttemptTimeout === undefined) {
+      delete process.env.AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS = originalAttemptTimeout;
     }
   }
 });
@@ -1611,7 +1668,7 @@ test('a concurrent prewarm budget extends the shared in-flight dispatch', async 
     });
     const results = await Promise.allSettled([regularDispatch, prewarmDispatch]);
 
-    assert.equal(dispatchCalls, 1);
+    assert.equal(dispatchCalls, 3);
     assert.equal(now - startedAt, 20_000);
     for (const result of results) {
       assert.equal(result.status, 'rejected');
@@ -1684,7 +1741,7 @@ test('a prewarm budget can extend the dispatch during the old deadline check', a
     releaseDeadlineCheck();
     const results = await resultsPromise;
 
-    assert.equal(dispatchCalls, 1);
+    assert.equal(dispatchCalls, 4);
     assert.equal(now, 28_000);
     assert.equal(
       results.every((result) => result.status === 'rejected'),

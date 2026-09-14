@@ -1,13 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { type RefObject, useEffect, useRef } from 'react';
 
 const AUTO_SCROLL_THRESHOLD_PX = 100;
 
-export function useAutoScroll(scrollContentContainer?: Element | null) {
+export function useAutoScroll(scrollContentRef: RefObject<Element | null>) {
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasUserScrollIntentRef = useRef(false);
 
   useEffect(() => {
+    const scrollContentContainer = scrollContentRef.current;
+
     function scrollToBottom() {
       if (!scrollContentContainer || isUserScrollingRef.current) return;
 
@@ -68,5 +70,5 @@ export function useAutoScroll(scrollContentContainer?: Element | null) {
         }
       };
     }
-  }, [scrollContentContainer]);
+  }, [scrollContentRef]);
 }

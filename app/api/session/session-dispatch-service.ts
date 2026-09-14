@@ -85,7 +85,8 @@ const globalForInFlightDispatches = globalThis as typeof globalThis & {
 const inFlightDispatches =
   globalForInFlightDispatches.__liveavatarInFlightDispatches ??
   (globalForInFlightDispatches.__liveavatarInFlightDispatches = new Map());
-const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 30_000;
+const DEFAULT_AGENT_DISPATCH_TIMEOUT_MS = 45_000;
+const DEFAULT_AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS = 5_000;
 const DEFAULT_PREWARM_TOTAL_TIMEOUT_MS = 45_000;
 
 export type PrewarmPhase = 'room' | 'worker_readiness' | 'dispatch_readiness';
@@ -521,6 +522,10 @@ async function createAgentDispatchWithRetry(
   const getDeadline = options.getDeadline || (() => fixedDeadline);
   const retryMs = options.retryMs || readPositiveIntEnv('AGENT_DISPATCH_RETRY_MS', 500);
   const pollMs = options.pollMs || readPositiveIntEnv('AGENT_DISPATCH_POLL_MS', 200);
+  const attemptTimeoutMs = readPositiveIntEnv(
+    'AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS',
+    DEFAULT_AGENT_DISPATCH_ATTEMPT_TIMEOUT_MS
+  );
   const sleepFn = options.sleep || sleep;
   let lastError: unknown;
   let attempts = 0;
@@ -561,12 +566,13 @@ async function createAgentDispatchWithRetry(
         throw new RoomSessionCancelledError(session);
       }
 
+      const attemptDeadline = Math.min(getDeadline(), Date.now() + attemptTimeoutMs);
       const agentParticipant = await waitForReusableAgentParticipant(
         roomClient,
         roomName,
         agentName,
         reusableAgentOptions,
-        getDeadline,
+        () => Math.min(getDeadline(), attemptDeadline),
         pollMs,
         session,
         sleepFn
@@ -581,6 +587,15 @@ async function createAgentDispatchWithRetry(
       }
 
       lastError = new Error('agent and required room inputs did not become ready');
+      await deleteDispatchQuietly(dispatchClient, dispatchId, roomName);
+      dispatchId = '';
+      const waitMs = Math.min(
+        calculateDispatchRetryDelay(attempts, retryMs),
+        remainingDispatchTime(getDeadline())
+      );
+      if (waitMs > 0) {
+        await sleepFn(waitMs);
+      }
     } catch (error) {
       if (error instanceof RoomSessionCancelledError) {
         throw error;

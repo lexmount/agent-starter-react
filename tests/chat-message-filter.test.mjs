@@ -93,3 +93,25 @@ test('transcription history survives a transient empty snapshot', () => {
 
   assert.deepEqual(history, [preamble]);
 });
+
+test('a late one-character partial cannot reappear after its final segment', () => {
+  const partial = transcription('agent-partial', 'speech-agent-1', 100, '请', false);
+  const completed = transcription('agent-final', 'speech-agent-1', 110, '请稍等，我查一下。', true);
+  const nextUserTurn = transcription(
+    'user-final',
+    'speech-user-2',
+    200,
+    '帮我预订中会议室。',
+    true
+  );
+
+  const afterFinal = mergeTranscriptionHistory([], [completed]);
+  const afterLatePartial = mergeTranscriptionHistory(afterFinal, [partial]);
+  const afterNextTurn = mergeTranscriptionHistory(afterLatePartial, [nextUserTurn]);
+
+  assert.deepEqual(
+    afterNextTurn.map(({ text }) => text),
+    ['请稍等，我查一下。', '帮我预订中会议室。']
+  );
+  assert.ok(afterNextTurn.every(({ text }) => text !== '请'));
+});
