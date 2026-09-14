@@ -23,6 +23,20 @@ export function mergeTranscriptionHistory(
       finalValue === false ||
       finalValue === 'true' ||
       finalValue === 'false';
+    const entryIsPartial = finalValue === false || finalValue === 'false';
+
+    if (segmentId && entryIsPartial) {
+      const finalAlreadyExists = Array.from(byStreamId.values()).some((existing) => {
+        const sameSegment = existing.streamInfo.attributes?.['lk.segment_id'] === segmentId;
+        const sameParticipant =
+          existing.participantInfo.identity === entry.participantInfo.identity;
+        const existingFinal: unknown =
+          existing.streamInfo.attributes?.['lk.transcription_final'];
+        const existingIsFinal = existingFinal === true || existingFinal === 'true';
+        return sameSegment && sameParticipant && existingIsFinal;
+      });
+      if (finalAlreadyExists) return;
+    }
 
     if (segmentId && hasFinalState) {
       for (const [streamId, existing] of byStreamId) {

@@ -94,7 +94,7 @@ test('transcription history survives a transient empty snapshot', () => {
   assert.deepEqual(history, [preamble]);
 });
 
-test('a late one-character partial is replaced before the next user turn is rendered', () => {
+test('a late one-character partial cannot reappear after its final segment', () => {
   const partial = transcription('agent-partial', 'speech-agent-1', 100, '请', false);
   const completed = transcription(
     'agent-final',
@@ -111,9 +111,9 @@ test('a late one-character partial is replaced before the next user turn is rend
     true
   );
 
-  const afterPartial = mergeTranscriptionHistory([], [partial]);
-  const afterFinal = mergeTranscriptionHistory(afterPartial, [completed]);
-  const afterNextTurn = mergeTranscriptionHistory(afterFinal, [nextUserTurn]);
+  const afterFinal = mergeTranscriptionHistory([], [completed]);
+  const afterLatePartial = mergeTranscriptionHistory(afterFinal, [partial]);
+  const afterNextTurn = mergeTranscriptionHistory(afterLatePartial, [nextUserTurn]);
 
   assert.deepEqual(
     afterNextTurn.map(({ text }) => text),
