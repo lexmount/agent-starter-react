@@ -30,8 +30,7 @@ export function mergeTranscriptionHistory(
         const sameSegment = existing.streamInfo.attributes?.['lk.segment_id'] === segmentId;
         const sameParticipant =
           existing.participantInfo.identity === entry.participantInfo.identity;
-        const existingFinal: unknown =
-          existing.streamInfo.attributes?.['lk.transcription_final'];
+        const existingFinal: unknown = existing.streamInfo.attributes?.['lk.transcription_final'];
         const existingIsFinal = existingFinal === true || existingFinal === 'true';
         return sameSegment && sameParticipant && existingIsFinal;
       });

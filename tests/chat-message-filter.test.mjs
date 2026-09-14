@@ -96,13 +96,7 @@ test('transcription history survives a transient empty snapshot', () => {
 
 test('a late one-character partial cannot reappear after its final segment', () => {
   const partial = transcription('agent-partial', 'speech-agent-1', 100, '请', false);
-  const completed = transcription(
-    'agent-final',
-    'speech-agent-1',
-    110,
-    '请稍等，我查一下。',
-    true
-  );
+  const completed = transcription('agent-final', 'speech-agent-1', 110, '请稍等，我查一下。', true);
   const nextUserTurn = transcription(
     'user-final',
     'speech-user-2',
